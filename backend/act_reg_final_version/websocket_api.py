@@ -21,6 +21,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from ultralytics import YOLO
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -62,6 +63,9 @@ OUTPUT_ANNOTATED_DIR = OUTPUT_ROOT_DIR / "annotated"
 ANNOTATED_RETENTION_SECONDS = int(os.getenv("ANNOTATED_RETENTION_SECONDS", "1800"))
 ANNOTATED_MAX_FILES = int(os.getenv("ANNOTATED_MAX_FILES", "8"))
 INFERENCE_JOB_RETENTION_SECONDS = int(os.getenv("INFERENCE_JOB_RETENTION_SECONDS", "3600"))
+OUTPUT_VIDEO_FORMAT = os.getenv("OUTPUT_VIDEO_FORMAT", "mp4").strip().lower()
+if OUTPUT_VIDEO_FORMAT not in {"mp4", "avi"}:
+    OUTPUT_VIDEO_FORMAT = "mp4"
 INFERENCE_JOBS: dict[str, dict[str, Any]] = {}
 INFERENCE_JOBS_LOCK = threading.Lock()
 
@@ -129,15 +133,19 @@ def create_video_writer(
     output_path: Path,
     fps: float,
     size: tuple[int, int],
+    output_format: str,
 ) -> tuple[cv2.VideoWriter, str]:
-    allow_openh264 = os.getenv("ALLOW_OPENH264", "0").strip() == "1"
-
-    # Restrict to browser-friendly MP4 codecs.
-    # If OpenH264 is not available, mp4v is often the best fallback.
-    if allow_openh264:
-        codec_candidates = ["avc1", "H264", "mp4v"]
+    if output_format == "avi":
+        codec_candidates = ["XVID", "MJPG", "DIVX"]
     else:
-        codec_candidates = ["mp4v", "avc1", "H264"]
+        allow_openh264 = os.getenv("ALLOW_OPENH264", "0").strip() == "1"
+
+        # Restrict to browser-friendly MP4 codecs.
+        # If OpenH264 is not available, mp4v is often the best fallback.
+        if allow_openh264:
+            codec_candidates = ["avc1", "H264", "mp4v"]
+        else:
+            codec_candidates = ["mp4v", "avc1", "H264"]
 
     for codec in codec_candidates:
         writer = cv2.VideoWriter(
@@ -152,7 +160,7 @@ def create_video_writer(
         writer.release()
 
     raise RuntimeError(
-        "Failed to create browser-compatible MP4 writer with codecs: "
+        f"Failed to create {output_format.upper()} writer with codecs: "
         + ", ".join(codec_candidates)
     )
 
@@ -160,7 +168,11 @@ def create_video_writer(
 def cleanup_annotated_outputs() -> None:
     now = time.time()
     candidates = sorted(
-        OUTPUT_ANNOTATED_DIR.glob("annotated_*.mp4"),
+        (
+            path
+            for path in OUTPUT_ANNOTATED_DIR.glob("annotated_*")
+            if path.suffix.lower() in {".mp4", ".avi"}
+        ),
         key=lambda path: path.stat().st_mtime if path.exists() else 0.0,
         reverse=True,
     )
@@ -420,6 +432,205 @@ def parse_text_payload(text_payload: str) -> tuple[np.ndarray | None, str | None
     return frame, None
 
 
+class Detection(BaseModel):
+    frame_number: int = Field(..., ge=0)
+    action_label: str = Field(..., min_length=1)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    person_id: int = Field(..., ge=0)
+    timestamp: str
+
+
+class SummaryMetrics(BaseModel):
+    yolo_precision: float = Field(..., ge=0.0, le=1.0)
+    yolo_recall: float = Field(..., ge=0.0, le=1.0)
+    infogcn_accuracy: float = Field(..., ge=0.0, le=1.0)
+    mean_average_precision: float = Field(..., ge=0.0, le=1.0)
+
+
+class AlertEvent(BaseModel):
+    start_frame: int = Field(..., ge=0)
+    end_frame: int = Field(..., ge=0)
+    severity_level: str
+    person_id: int = Field(..., ge=0)
+
+
+class AnalyzeVideoRequest(BaseModel):
+    detections_log: list[Detection]
+    summary_metrics: SummaryMetrics | None = None
+    total_frames: int | None = Field(default=None, ge=1)
+
+
+class AnalyzeVideoResponse(BaseModel):
+    summary_metrics: SummaryMetrics
+    alert_events: list[AlertEvent]
+    action_confidence_scores: dict[str, float]
+    grouped_detections: dict[str, list[Detection]]
+
+
+def frame_to_timestamp(frame_number: int, fps: float) -> str:
+    safe_fps = fps if fps > 0 else 25.0
+    total_seconds = frame_number / safe_fps
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    seconds = int(total_seconds % 60)
+    milliseconds = int((total_seconds - int(total_seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+
+def normalize_action_label(label: str) -> str:
+    cleaned = label.strip()
+    if not cleaned:
+        return "Unknown"
+    return cleaned.title()
+
+
+def build_summary_metrics_from_detections(
+    detections_log: list[Detection],
+    yolo_confidences: list[float] | None = None,
+    total_frames: int | None = None,
+) -> SummaryMetrics:
+    if not detections_log:
+        return SummaryMetrics(
+            yolo_precision=0.0,
+            yolo_recall=0.0,
+            infogcn_accuracy=0.0,
+            mean_average_precision=0.0,
+        )
+
+    conf_values = [max(0.0, min(1.0, float(item.confidence))) for item in detections_log]
+    unique_frames = {item.frame_number for item in detections_log}
+    action_groups: dict[str, list[float]] = {}
+
+    for item in detections_log:
+        label = normalize_action_label(item.action_label)
+        if label.lower() == "analyzing...":
+            continue
+        action_groups.setdefault(label, []).append(max(0.0, min(1.0, float(item.confidence))))
+
+    map_score = 0.0
+    if action_groups:
+        map_score = float(np.mean([float(np.mean(scores)) for scores in action_groups.values()]))
+
+    raw_precision = float(np.mean(yolo_confidences)) if yolo_confidences else float(np.mean(conf_values))
+    if total_frames and total_frames > 0:
+        raw_recall = len(unique_frames) / total_frames
+    else:
+        raw_recall = 1.0
+
+    infogcn_accuracy = float(np.mean(conf_values))
+
+    return SummaryMetrics(
+        yolo_precision=round(max(0.0, min(1.0, raw_precision)), 4),
+        yolo_recall=round(max(0.0, min(1.0, raw_recall)), 4),
+        infogcn_accuracy=round(max(0.0, min(1.0, infogcn_accuracy)), 4),
+        mean_average_precision=round(max(0.0, min(1.0, map_score)), 4),
+    )
+
+
+def calculate_action_confidence_scores(detections_log: list[Detection]) -> dict[str, float]:
+    grouped_scores: dict[str, list[float]] = {}
+    for detection in detections_log:
+        label = normalize_action_label(detection.action_label)
+        grouped_scores.setdefault(label, []).append(float(detection.confidence))
+
+    return {
+        label: round(float(np.mean(scores)), 4)
+        for label, scores in sorted(grouped_scores.items(), key=lambda item: item[0])
+    }
+
+
+def group_detections_by_action(detections_log: list[Detection]) -> dict[str, list[Detection]]:
+    grouped: dict[str, list[Detection]] = {}
+    for detection in sorted(detections_log, key=lambda item: (item.frame_number, item.person_id)):
+        label = normalize_action_label(detection.action_label)
+        grouped.setdefault(label, []).append(detection)
+    return grouped
+
+
+def alert_severity_from_length(sequence_length: int) -> str:
+    if sequence_length >= 56:
+        return "critical"
+    if sequence_length >= 44:
+        return "high"
+    return "medium"
+
+
+def extract_waving_alerts(
+    detections_log: list[Detection],
+    min_frames: int = 32,
+    max_frames: int = 64,
+) -> list[AlertEvent]:
+    waving_frames_by_person: dict[int, list[int]] = {}
+    for item in detections_log:
+        if normalize_action_label(item.action_label).lower() == "waving":
+            waving_frames_by_person.setdefault(item.person_id, []).append(item.frame_number)
+
+    alerts: list[AlertEvent] = []
+
+    for person_id, frame_numbers in waving_frames_by_person.items():
+        if not frame_numbers:
+            continue
+
+        unique_sorted_frames = sorted(set(frame_numbers))
+        run_start = unique_sorted_frames[0]
+        prev = unique_sorted_frames[0]
+
+        def flush_run(start_frame: int, end_frame: int) -> None:
+            run_length = end_frame - start_frame + 1
+            if run_length < min_frames:
+                return
+
+            chunk_start = start_frame
+            while chunk_start <= end_frame:
+                chunk_end = min(chunk_start + max_frames - 1, end_frame)
+                chunk_len = chunk_end - chunk_start + 1
+                if chunk_len < min_frames:
+                    break
+
+                alerts.append(
+                    AlertEvent(
+                        start_frame=chunk_start,
+                        end_frame=chunk_end,
+                        severity_level=alert_severity_from_length(chunk_len),
+                        person_id=person_id,
+                    )
+                )
+                chunk_start = chunk_end + 1
+
+        for frame_number in unique_sorted_frames[1:]:
+            if frame_number == prev + 1:
+                prev = frame_number
+                continue
+
+            flush_run(run_start, prev)
+            run_start = frame_number
+            prev = frame_number
+
+        flush_run(run_start, prev)
+
+    return sorted(alerts, key=lambda item: (item.start_frame, item.end_frame, item.person_id))
+
+
+def create_analysis_response(
+    detections_log: list[Detection],
+    summary_metrics: SummaryMetrics | None = None,
+    total_frames: int | None = None,
+    yolo_confidences: list[float] | None = None,
+) -> AnalyzeVideoResponse:
+    computed_summary = summary_metrics or build_summary_metrics_from_detections(
+        detections_log,
+        yolo_confidences=yolo_confidences,
+        total_frames=total_frames,
+    )
+
+    return AnalyzeVideoResponse(
+        summary_metrics=computed_summary,
+        alert_events=extract_waving_alerts(detections_log),
+        action_confidence_scores=calculate_action_confidence_scores(detections_log),
+        grouped_detections=group_detections_by_action(detections_log),
+    )
+
+
 @dataclass
 class ClientState:
     frame_index: int = 0
@@ -639,7 +850,12 @@ class ActionRecognitionPipeline:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            writer, output_codec = create_video_writer(output_path, fps, (width, height))
+            writer, output_codec = create_video_writer(
+                output_path,
+                fps,
+                (width, height),
+                OUTPUT_VIDEO_FORMAT,
+            )
         except RuntimeError:
             capture.release()
             raise
@@ -648,6 +864,8 @@ class ActionRecognitionPipeline:
         next_track_id = 1
         frame_index = 0
         detected_people_total = 0
+        yolo_confidences: list[float] = []
+        detections_log: list[Detection] = []
 
         try:
             while True:
@@ -658,6 +876,7 @@ class ActionRecognitionPipeline:
                 frame_index += 1
                 detections = self._extract_pose_detections(frame, self.video_pose_model, VIDEO_YOLO_CONF, VIDEO_YOLO_IOU)
                 detected_people_total += len(detections)
+                yolo_confidences.extend([float(item["confidence"]) for item in detections])
 
                 matched_track_ids: set[int] = set()
                 used_detection_ids: set[int] = set()
@@ -692,6 +911,15 @@ class ActionRecognitionPipeline:
                             detection["keypoints_body12"],
                             detection["bbox"],
                             frame_index,
+                        )
+                        detections_log.append(
+                            Detection(
+                                frame_number=frame_index,
+                                action_label=normalize_action_label(label),
+                                confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+                                person_id=best_track_id,
+                                timestamp=frame_to_timestamp(frame_index, fps),
+                            )
                         )
                         matched_track_ids.add(best_track_id)
                         used_detection_ids.add(det_idx)
@@ -729,6 +957,15 @@ class ActionRecognitionPipeline:
                         detection["keypoints_body12"],
                         detection["bbox"],
                         frame_index,
+                    )
+                    detections_log.append(
+                        Detection(
+                            frame_number=frame_index,
+                            action_label=normalize_action_label(label),
+                            confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+                            person_id=track_id,
+                            timestamp=frame_to_timestamp(frame_index, fps),
+                        )
                     )
                     matched_track_ids.add(track_id)
 
@@ -774,6 +1011,13 @@ class ActionRecognitionPipeline:
             final_total = total_frames if total_frames > 0 else frame_index
             progress_callback(frame_index, final_total, "Finalizing annotated output...")
 
+        analysis = create_analysis_response(
+            detections_log=detections_log,
+            summary_metrics=None,
+            total_frames=frame_index,
+            yolo_confidences=yolo_confidences,
+        )
+
         return {
             "frames_processed": frame_index,
             "people_instances_detected": detected_people_total,
@@ -783,6 +1027,8 @@ class ActionRecognitionPipeline:
             "processing_seconds": round(time.perf_counter() - started_at, 3),
             "output_codec": output_codec,
             "resolution": {"width": width, "height": height},
+            "detections_log": [item.model_dump() for item in detections_log],
+            "analysis_summary": analysis.model_dump(),
         }
 
     def _no_detection_result(self, state: ClientState, started_at: float) -> dict[str, Any]:
@@ -892,6 +1138,7 @@ def healthcheck() -> dict[str, Any]:
         "status": "ok" if pipeline_loaded else "starting",
         "pipeline_loaded": pipeline_loaded,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "output_video_format": OUTPUT_VIDEO_FORMAT,
         "cwd": os.getcwd(),
     }
 
@@ -906,7 +1153,8 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
         ext = ".mp4"
 
     input_path = OUTPUT_UPLOAD_DIR / f"upload_{uuid4().hex}{ext}"
-    output_name = f"annotated_{uuid4().hex}.mp4"
+    output_ext = ".avi" if OUTPUT_VIDEO_FORMAT == "avi" else ".mp4"
+    output_name = f"annotated_{uuid4().hex}{output_ext}"
     output_path = OUTPUT_ANNOTATED_DIR / output_name
     job_id = uuid4().hex
     job_started = False
@@ -976,6 +1224,15 @@ def download_annotated_video(filename: str) -> FileResponse:
         filename=safe_name,
         media_type=media_type,
         content_disposition_type="attachment",
+    )
+
+
+@app.post("/analyze-video", response_model=AnalyzeVideoResponse)
+def analyze_video(request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
+    return create_analysis_response(
+        detections_log=request.detections_log,
+        summary_metrics=request.summary_metrics,
+        total_frames=request.total_frames,
     )
 
 
