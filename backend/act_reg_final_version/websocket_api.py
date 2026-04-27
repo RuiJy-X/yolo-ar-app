@@ -5,6 +5,8 @@ import base64
 import json
 import mimetypes
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -60,8 +62,11 @@ VIDEO_IOU_MATCH_THRESH = 0.25
 OUTPUT_ROOT_DIR = CURRENT_DIR / "outputs"
 OUTPUT_UPLOAD_DIR = OUTPUT_ROOT_DIR / "uploads"
 OUTPUT_ANNOTATED_DIR = OUTPUT_ROOT_DIR / "annotated"
+OUTPUT_PREVIEW_DIR = OUTPUT_ROOT_DIR / "previews"
 ANNOTATED_RETENTION_SECONDS = int(os.getenv("ANNOTATED_RETENTION_SECONDS", "1800"))
 ANNOTATED_MAX_FILES = int(os.getenv("ANNOTATED_MAX_FILES", "8"))
+PREVIEW_RETENTION_SECONDS = int(os.getenv("PREVIEW_RETENTION_SECONDS", str(ANNOTATED_RETENTION_SECONDS)))
+PREVIEW_MAX_FILES = int(os.getenv("PREVIEW_MAX_FILES", str(max(ANNOTATED_MAX_FILES * 2, 8))))
 INFERENCE_JOB_RETENTION_SECONDS = int(os.getenv("INFERENCE_JOB_RETENTION_SECONDS", "3600"))
 OUTPUT_VIDEO_FORMAT = os.getenv("OUTPUT_VIDEO_FORMAT", "mp4").strip().lower()
 if OUTPUT_VIDEO_FORMAT not in {"mp4", "avi"}:
@@ -165,6 +170,95 @@ def create_video_writer(
     )
 
 
+def create_mp4_writer(output_path: Path, fps: float, size: tuple[int, int]) -> tuple[cv2.VideoWriter, str]:
+    for codec in ["avc1", "H264", "mp4v"]:
+        writer = cv2.VideoWriter(
+            str(output_path),
+            cv2.VideoWriter_fourcc(*codec),
+            fps,
+            size,
+        )
+        if writer.isOpened():
+            return writer, codec
+
+        writer.release()
+
+    raise RuntimeError("Failed to create MP4 writer for browser playback.")
+
+
+def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink(missing_ok=True)
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin:
+        ffmpeg_cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(input_path),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            str(output_path),
+        ]
+        proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False)
+        if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+            return "ffmpeg"
+
+    capture = cv2.VideoCapture(str(input_path))
+    if not capture.isOpened():
+        raise RuntimeError("Could not open uploaded video for browser transcoding.")
+
+    writer: cv2.VideoWriter | None = None
+    probe_frame: np.ndarray | None = None
+    codec = "unknown"
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        if not np.isfinite(fps) or fps <= 0:
+            fps = 25.0
+
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if width <= 0 or height <= 0:
+            ok, probe_frame = capture.read()
+            if not ok or probe_frame is None:
+                raise RuntimeError("Uploaded video has no readable frames.")
+            height, width = probe_frame.shape[:2]
+
+        writer, codec = create_mp4_writer(output_path, fps, (width, height))
+
+        if probe_frame is not None:
+            writer.write(probe_frame)
+
+        while True:
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            writer.write(frame)
+    finally:
+        capture.release()
+        if writer is not None:
+            writer.release()
+
+    if not output_path.exists() or output_path.stat().st_size <= 0:
+        raise RuntimeError("Browser transcoding failed; could not create source MP4.")
+
+    return f"opencv-{codec}"
+
+
 def cleanup_annotated_outputs() -> None:
     now = time.time()
     candidates = sorted(
@@ -186,6 +280,33 @@ def cleanup_annotated_outputs() -> None:
 
         age_seconds = now - stat.st_mtime
         should_delete = age_seconds > ANNOTATED_RETENTION_SECONDS or kept >= ANNOTATED_MAX_FILES
+        if should_delete:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            continue
+
+        kept += 1
+
+
+def cleanup_preview_outputs() -> None:
+    now = time.time()
+    candidates = sorted(
+        (path for path in OUTPUT_PREVIEW_DIR.glob("source_*.mp4") if path.is_file()),
+        key=lambda path: path.stat().st_mtime if path.exists() else 0.0,
+        reverse=True,
+    )
+
+    kept = 0
+    for path in candidates:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+
+        age_seconds = now - stat.st_mtime
+        should_delete = age_seconds > PREVIEW_RETENTION_SECONDS or kept >= PREVIEW_MAX_FILES
         if should_delete:
             try:
                 path.unlink(missing_ok=True)
@@ -1067,12 +1188,15 @@ async def add_cross_origin_isolation_headers(request: Request, call_next: Callab
 
 OUTPUT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_ROOT_DIR)), name="outputs")
 
 
 def run_video_inference_job(
     job_id: str,
     input_path: Path,
+    preview_path: Path,
+    preview_name: str,
     output_path: Path,
     output_name: str,
 ) -> None:
@@ -1083,6 +1207,14 @@ def run_video_inference_job(
             progress_percent=0.0,
             progress_message="Starting inference pipeline...",
         )
+
+        update_inference_job(
+            job_id,
+            status="processing",
+            progress_percent=1.0,
+            progress_message="Converting upload to browser-safe MP4...",
+        )
+        source_transcode_backend = transcode_video_to_browser_mp4(input_path, preview_path)
 
         def on_progress(frame_index: int, total_frames: int, phase: str) -> None:
             percent = 0.0
@@ -1098,8 +1230,25 @@ def run_video_inference_job(
                 total_frames=total_frames if total_frames > 0 else None,
             )
 
-        result = app.state.pipeline._infer_video_file_sync(input_path, output_path, on_progress)
+        result = app.state.pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
+        raw_output_path = output_path
+        raw_output_name = output_name
+
+        if raw_output_path.suffix.lower() == ".mp4":
+            transcoded_path = raw_output_path.with_name(f"{raw_output_path.stem}_browser.mp4")
+            output_transcode_backend = transcode_video_to_browser_mp4(raw_output_path, transcoded_path)
+            raw_output_path.unlink(missing_ok=True)
+            transcoded_path.replace(raw_output_path)
+            served_output_path = raw_output_path
+            served_output_name = raw_output_name
+        else:
+            served_output_path = raw_output_path.with_suffix(".mp4")
+            served_output_name = served_output_path.name
+            output_transcode_backend = transcode_video_to_browser_mp4(raw_output_path, served_output_path)
+            raw_output_path.unlink(missing_ok=True)
+
         cleanup_annotated_outputs()
+        cleanup_preview_outputs()
 
         update_inference_job(
             job_id,
@@ -1110,8 +1259,11 @@ def run_video_inference_job(
             total_frames=result.get("frames_processed", 0),
             result={
                 "type": "video-inference",
-                "output_video_url": f"/outputs/annotated/{output_name}",
-                "output_download_url": f"/api/download-annotated/{output_name}",
+                "output_video_url": f"/outputs/annotated/{served_output_name}",
+                "output_download_url": f"/api/download-annotated/{served_output_name}",
+                "source_video_url": f"/outputs/previews/{preview_name}",
+                "source_transcode_backend": source_transcode_backend,
+                "output_transcode_backend": output_transcode_backend,
                 "retention_seconds": ANNOTATED_RETENTION_SECONDS,
                 **result,
             },
@@ -1120,6 +1272,8 @@ def run_video_inference_job(
     except Exception as exc:
         if output_path.exists():
             output_path.unlink(missing_ok=True)
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
         update_inference_job(
             job_id,
             status="failed",
@@ -1135,6 +1289,7 @@ def run_video_inference_job(
 @app.on_event("startup")
 async def startup_event() -> None:
     cleanup_annotated_outputs()
+    cleanup_preview_outputs()
     cleanup_inference_jobs()
     app.state.pipeline = ActionRecognitionPipeline(CURRENT_DIR)
 
@@ -1147,6 +1302,7 @@ def healthcheck() -> dict[str, Any]:
         "pipeline_loaded": pipeline_loaded,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "output_video_format": OUTPUT_VIDEO_FORMAT,
+        "preview_retention_seconds": PREVIEW_RETENTION_SECONDS,
         "cwd": os.getcwd(),
     }
 
@@ -1161,6 +1317,8 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
         ext = ".mp4"
 
     input_path = OUTPUT_UPLOAD_DIR / f"upload_{uuid4().hex}{ext}"
+    preview_name = f"source_{uuid4().hex}.mp4"
+    preview_path = OUTPUT_PREVIEW_DIR / preview_name
     output_ext = ".avi" if OUTPUT_VIDEO_FORMAT == "avi" else ".mp4"
     output_name = f"annotated_{uuid4().hex}{output_ext}"
     output_path = OUTPUT_ANNOTATED_DIR / output_name
@@ -1169,6 +1327,7 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
 
     try:
         cleanup_annotated_outputs()
+        cleanup_preview_outputs()
         cleanup_inference_jobs()
 
         with input_path.open("wb") as stream:
@@ -1184,7 +1343,7 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
         create_inference_job(job_id)
         worker = threading.Thread(
             target=run_video_inference_job,
-            args=(job_id, input_path, output_path, output_name),
+            args=(job_id, input_path, preview_path, preview_name, output_path, output_name),
             daemon=True,
         )
         worker.start()
@@ -1200,6 +1359,8 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception as exc:
         if output_path.exists():
             output_path.unlink(missing_ok=True)
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
         if not job_started and input_path.exists():
             input_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Video inference failed: {exc}") from exc

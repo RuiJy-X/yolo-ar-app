@@ -4,6 +4,8 @@ export type VideoInferenceResponse = {
   type: string;
   output_video_url: string;
   output_download_url?: string;
+  source_video_url?: string;
+  source_transcode_backend?: string;
   retention_seconds?: number;
   frames_processed: number;
   people_instances_detected: number;

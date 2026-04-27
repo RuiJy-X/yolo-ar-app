@@ -38,14 +38,14 @@ const MetricsCards = ({ analysis }: MetricsCardsProps) => {
             icon={<AlertTriangle className="size-4 text-red-800" />}
             label="Active Alerts"
           >
-            <div className="text-lg font-bold text-[#991B1B]">N/A</div>
+            <div className="text-3xl font-bold text-[#991B1B]">N/A</div>
           </SummaryCard>
 
           <SummaryCard
             icon={<Clock className="size-4 text-blue-900" />}
             label="Action Confidence"
           >
-            <div className="space-y-1 text-xs text-[#344054]">N/A</div>
+            <div className="space-y-1 text-3xl text-[#344054]">N/A</div>
           </SummaryCard>
         </div>
       </section>
