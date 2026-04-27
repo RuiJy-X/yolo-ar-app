@@ -1,15 +1,25 @@
-import React from 'react'
+import React from "react";
 
-const SummaryCard = ({ children, icon, label }: { children: React.ReactNode; icon: React.ReactNode; label: string }) => {
+const SummaryCard = ({
+  children,
+  icon,
+  label,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  label: string;
+}) => {
   return (
-    <div className='rounded-lg border border-slate-700 bg-white p-3'>
-      <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-[#344054] font-semibold">
+    <div className="w-full flex flex-col grow rounded-lg shadow-md bg-white px-[24px] py-[16px] gap-2">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#344054] font-heading ">
         {icon}
         {label}
       </div>
-      {children}
+      <div className="font-heading font-bold text-3xl  font-bold text-black grow  align-middle flex items-center justify-start">
+        {children}
+      </div>
     </div>
-  )
-}
+  );
+};
 
-export default SummaryCard
+export default SummaryCard;

@@ -3,132 +3,27 @@ import AppLayout from "@/applayout";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import Logs from "@/components/Logs";
-import type { AnalyzeVideoResponse, Detection } from "@/lib/types";
-
-type VideoInferenceResponse = {
-  type: string;
-  output_video_url: string;
-  output_download_url?: string;
-  retention_seconds?: number;
-  frames_processed: number;
-  people_instances_detected: number;
-  tracks_created: number;
-  fps: number;
-  processing_seconds?: number;
-  output_codec?: string;
-  resolution: {
-    width: number;
-    height: number;
-  };
-  detections_log?: Detection[];
-  analysis_summary?: AnalyzeVideoResponse;
-};
-
-type VideoInferenceJobStartResponse = {
-  type: string;
-  job_id: string;
-  status_url?: string;
-};
-
-type VideoInferenceJobStatusResponse = {
-  type: string;
-  job_id: string;
-  status: "queued" | "processing" | "completed" | "failed";
-  progress_percent?: number;
-  progress_message?: string;
-  frame_index?: number;
-  total_frames?: number | null;
-  result?: VideoInferenceResponse;
-  error?: string | null;
-};
-
-type SessionVideoEntry = {
-  id: string;
-  videoUrl: string;
-  downloadUrl: string;
-  summary: string;
-  filename: string;
-  createdAt: number;
-  expiresAt: number;
-};
+import MetricsCards from "@/components/library/metrics-cards";
+import type { AnalyzeVideoResponse } from "@/lib/types";
+import type {
+  SessionVideoEntry,
+  VideoInferenceJobStartResponse,
+  VideoInferenceJobStatusResponse,
+  VideoInferenceResponse,
+} from "./library/types";
+import {
+  getFilenameFromUrl,
+  loadSessionEntries,
+  pruneSessionEntries,
+  toAbsoluteUrl,
+  withCacheBust,
+} from "./library/utils";
 
 const apiBaseUrl =
   import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 const SESSION_STORAGE_KEY = "library:annotated-videos";
-const SESSION_MAX_ITEMS = 4;
 const DEFAULT_RETENTION_SECONDS = 30 * 60;
 const JOB_STATUS_POLL_MS = 900;
-
-const toAbsoluteUrl = (url: string) => {
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  const base = apiBaseUrl.endsWith("/") ? apiBaseUrl.slice(0, -1) : apiBaseUrl;
-  const path = url.startsWith("/") ? url : `/${url}`;
-  return `${base}${path}`;
-};
-
-const withCacheBust = (url: string) => {
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}t=${Date.now()}`;
-};
-
-const getFilenameFromUrl = (url: string, fallback = "annotated_video.mp4") => {
-  try {
-    const parsed = new URL(url, window.location.origin);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    return parts.length > 0
-      ? decodeURIComponent(parts[parts.length - 1])
-      : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const pruneSessionEntries = (entries: SessionVideoEntry[]) => {
-  const now = Date.now();
-  return entries
-    .filter((entry) => entry.expiresAt > now)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, SESSION_MAX_ITEMS);
-};
-
-const loadSessionEntries = (): SessionVideoEntry[] => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const entries = parsed.filter((item): item is SessionVideoEntry => {
-      return (
-        typeof item === "object" &&
-        item !== null &&
-        typeof item.id === "string" &&
-        typeof item.videoUrl === "string" &&
-        typeof item.downloadUrl === "string" &&
-        typeof item.summary === "string" &&
-        typeof item.filename === "string" &&
-        typeof item.createdAt === "number" &&
-        typeof item.expiresAt === "number"
-      );
-    });
-
-    return pruneSessionEntries(entries);
-  } catch {
-    return [];
-  }
-};
 
 const Library = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -284,9 +179,10 @@ const Library = () => {
         );
       }
 
-      const playbackUrl = toAbsoluteUrl(output.output_video_url);
+      const playbackUrl = toAbsoluteUrl(output.output_video_url, apiBaseUrl);
       const downloadUrl = toAbsoluteUrl(
         output.output_download_url ?? output.output_video_url,
+        apiBaseUrl,
       );
 
       let analysisPayload = output.analysis_summary ?? null;
@@ -425,7 +321,7 @@ const Library = () => {
   };
 
   useEffect(() => {
-    const loaded = loadSessionEntries();
+    const loaded = loadSessionEntries(SESSION_STORAGE_KEY);
     setRecentVideos(loaded);
     if (loaded[0]) {
       restoreRecentVideo(loaded[0]);
@@ -460,6 +356,9 @@ const Library = () => {
         title="Video Library Inference"
         description="Upload a video and run offline action-recognition inference with annotated output (bbox, keypoints, bones, and per-person action labels)."
       />
+      <div className="mt-1 w-full">
+        <MetricsCards analysis={analysis} />
+      </div>
       <div className="flex w-full flex-col gap-3 xl:flex-row">
         <div className="w-full rounded-xl border  border-[#D6E4FF] bg-white p-6 shadow-sm">
           <input
@@ -471,7 +370,7 @@ const Library = () => {
           />
 
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold uppercase tracking-wide text-[#344054]">
+            <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading">
               Inference Video Panel
             </div>
 
@@ -487,7 +386,7 @@ const Library = () => {
               </button>
 
               {file && !isSubmitting && !resultVideoUrl && (
-                <Button onClick={handleRunInference}>Start Inference</Button>
+                <Button onClick={handleRunInference}>Analyze</Button>
               )}
 
               {resultDownloadUrl && !isSubmitting && (

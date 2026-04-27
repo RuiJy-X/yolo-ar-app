@@ -17,7 +17,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -1056,6 +1056,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_cross_origin_isolation_headers(request: Request, call_next: Callable[..., Any]) -> Any:
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    return response
 
 OUTPUT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
