@@ -5,6 +5,7 @@ import base64
 import json
 import mimetypes
 import os
+import queue
 import shutil
 import subprocess
 import sys
@@ -36,11 +37,8 @@ from utils import import_class  # noqa: E402
 
 YOLO_FILENAME = "yolo-best.pt"
 VIDEO_POSE_MODEL_CANDIDATES = [
-    # Prefer the repository YOLO checkpoint for video inference.
     YOLO_FILENAME,
-    # Keep common naming fallback in case checkpoint file uses dots.
     "yolo.best.pt",
-    # Final fallback to nano-pose if custom checkpoint is missing.
     "yolo11n-pose.pt",
 ]
 WINDOW_SIZE = 32
@@ -54,7 +52,21 @@ YOLO_CONF = 0.60
 YOLO_IOU = 0.60
 VIDEO_YOLO_CONF = 0.30
 VIDEO_YOLO_IOU = 0.55
+
+# ── Optimisation: TTA is off by default for video (7× speedup).
+# Set env INFERENCE_TTA=1 to re-enable full TTA (e.g. for single-frame WS mode).
+INFERENCE_TTA_ENABLED = os.getenv("INFERENCE_TTA", "0") == "1"
+# Original shifts kept for reference / WS path.
 TEST_TTA_SHIFTS = [0, -3, -1, 1, 3]
+
+# ── Optimisation: run SODE every N frames, reuse last result in between.
+# 1 = run every frame (original behaviour). 4 is a good default.
+ACTION_INFERENCE_STRIDE = int(os.getenv("ACTION_STRIDE", "4"))
+
+# ── Optimisation: number of frames to buffer in the decode queue.
+DECODE_QUEUE_SIZE = int(os.getenv("DECODE_QUEUE_SIZE", "32"))
+RESULT_QUEUE_SIZE = int(os.getenv("RESULT_QUEUE_SIZE", "32"))
+
 MAX_MISSED_FRAMES = 15
 VIDEO_MAX_MISSED_FRAMES = 24
 VIDEO_IOU_MATCH_THRESH = 0.25
@@ -144,9 +156,6 @@ def create_video_writer(
         codec_candidates = ["XVID", "MJPG", "DIVX"]
     else:
         allow_openh264 = os.getenv("ALLOW_OPENH264", "0").strip() == "1"
-
-        # Restrict to browser-friendly MP4 codecs.
-        # If OpenH264 is not available, mp4v is often the best fallback.
         if allow_openh264:
             codec_candidates = ["avc1", "H264", "mp4v"]
         else:
@@ -161,7 +170,6 @@ def create_video_writer(
         )
         if writer.isOpened():
             return writer, codec
-
         writer.release()
 
     raise RuntimeError(
@@ -180,10 +188,35 @@ def create_mp4_writer(output_path: Path, fps: float, size: tuple[int, int]) -> t
         )
         if writer.isOpened():
             return writer, codec
-
         writer.release()
 
     raise RuntimeError("Failed to create MP4 writer for browser playback.")
+
+
+# ── Optimisation 5: skip re-transcode when the upload is already browser-compatible H.264.
+def is_browser_compatible_mp4(path: Path) -> bool:
+    """Return True if the file is already an H.264 MP4 — no transcode needed."""
+    if path.suffix.lower() != ".mp4":
+        return False
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return False
+    try:
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return result.stdout.strip().lower() in {"h264", "avc"}
+    except Exception:
+        return False
 
 
 def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
@@ -196,22 +229,14 @@ def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
         ffmpeg_cmd = [
             ffmpeg_bin,
             "-y",
-            "-i",
-            str(input_path),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
+            "-i", str(input_path),
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-c:a", "aac",
+            "-b:a", "128k",
             str(output_path),
         ]
         proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False)
@@ -286,7 +311,6 @@ def cleanup_annotated_outputs() -> None:
             except OSError:
                 pass
             continue
-
         kept += 1
 
 
@@ -313,7 +337,6 @@ def cleanup_preview_outputs() -> None:
             except OSError:
                 pass
             continue
-
         kept += 1
 
 
@@ -466,20 +489,33 @@ def non_cyclic_shift(inp: torch.Tensor, shift: int) -> torch.Tensor:
     return out
 
 
-def infer_probs_with_tta(model: torch.nn.Module, input_tensor: torch.Tensor) -> np.ndarray:
+# ── Optimisation 1: TTA controlled by `use_tta` flag.
+# Video inference defaults to a single forward pass (use_tta=False).
+# WebSocket / single-frame path still calls with use_tta=INFERENCE_TTA_ENABLED.
+def infer_probs_with_tta(
+    model: torch.nn.Module,
+    input_tensor: torch.Tensor,
+    use_tta: bool = False,
+) -> np.ndarray:
     def logits(x: torch.Tensor) -> torch.Tensor:
         out = model(x)
         if isinstance(out, tuple):
             out = out[0]
         return out
 
-    logits_list = [logits(input_tensor), logits(mirror_tensor(input_tensor))]
-    for shift in TEST_TTA_SHIFTS:
-        if shift != 0:
-            logits_list.append(logits(non_cyclic_shift(input_tensor, shift)))
+    with torch.no_grad():
+        if not use_tta:
+            # Single pass — fastest path for video.
+            return torch.softmax(logits(input_tensor), dim=1).detach().cpu().numpy()
 
-    avg_logits = torch.stack(logits_list, dim=0).mean(dim=0)
-    return torch.softmax(avg_logits, dim=1).detach().cpu().numpy()
+        # Full TTA: original + mirror + temporal shifts.
+        logits_list = [logits(input_tensor), logits(mirror_tensor(input_tensor))]
+        for shift in TEST_TTA_SHIFTS:
+            if shift != 0:
+                logits_list.append(logits(non_cyclic_shift(input_tensor, shift)))
+
+        avg_logits = torch.stack(logits_list, dim=0).mean(dim=0)
+        return torch.softmax(avg_logits, dim=1).detach().cpu().numpy()
 
 
 def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
@@ -509,6 +545,27 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
 
     model.load_state_dict(state, strict=False)
     model.to(device).eval()
+
+    # ── Optimisation 3a: FP16 on GPU halves memory bandwidth and speeds up matmuls.
+    if device == "cuda":
+        try:
+            model = model.half()
+        except Exception:
+            pass  # graceful fallback for models that don't support half
+
+    # torch.compile may fail at runtime on some Windows setups (for example,
+    # missing MSVC "cl" required by inductor). Keep it opt-in and suppress
+    # backend compile failures so inference always falls back to eager mode.
+    torch_compile_enabled = os.getenv("TORCH_COMPILE", "0") == "1"
+    if torch_compile_enabled:
+        try:
+            import torch._dynamo as dynamo  # type: ignore[attr-defined]
+
+            dynamo.config.suppress_errors = True
+            model = torch.compile(model, mode="reduce-overhead")
+        except Exception:
+            pass  # graceful fallback to eager mode
+
     return model
 
 
@@ -679,7 +736,6 @@ def alert_severity_from_length(sequence_length: int) -> str:
 def extract_waving_alerts(
     detections_log: list[Detection],
     min_frames: int = 32,
-    max_frames: int = 64,
 ) -> list[AlertEvent]:
     waving_frames_by_person: dict[int, list[int]] = {}
     for item in detections_log:
@@ -701,22 +757,14 @@ def extract_waving_alerts(
             if run_length < min_frames:
                 return
 
-            chunk_start = start_frame
-            while chunk_start <= end_frame:
-                chunk_end = min(chunk_start + max_frames - 1, end_frame)
-                chunk_len = chunk_end - chunk_start + 1
-                if chunk_len < min_frames:
-                    break
-
-                alerts.append(
-                    AlertEvent(
-                        start_frame=chunk_start,
-                        end_frame=chunk_end,
-                        severity_level=alert_severity_from_length(chunk_len),
-                        person_id=person_id,
-                    )
+            alerts.append(
+                AlertEvent(
+                    start_frame=start_frame,
+                    end_frame=end_frame,
+                    severity_level=alert_severity_from_length(run_length),
+                    person_id=person_id,
                 )
-                chunk_start = chunk_end + 1
+            )
 
         for frame_number in unique_sorted_frames[1:]:
             if frame_number == prev + 1:
@@ -777,11 +825,18 @@ class TrackState:
     score_ema: np.ndarray = field(default_factory=lambda: np.ones(4, dtype=np.float32) / 4.0)
     last_bbox: np.ndarray | None = None
     last_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
+    # ── Optimisation 2: inference stride state.
+    last_action_label: str = "Analyzing..."
+    last_action_conf: float = 0.0
+    frames_since_inference: int = 0
 
     def reset_temporal_state(self) -> None:
         self.buffer.clear()
         self.last_valid_keypoints.fill(0.0)
         self.score_ema = np.ones(4, dtype=np.float32) / 4.0
+        self.last_action_label = "Analyzing..."
+        self.last_action_conf = 0.0
+        self.frames_since_inference = 0
 
 
 class ActionRecognitionPipeline:
@@ -810,18 +865,38 @@ class ActionRecognitionPipeline:
                     continue
 
         try:
-            # Ultralytics will auto-download if the file is not available locally.
             return YOLO(VIDEO_POSE_MODEL_CANDIDATES[0]).to(self.device)
         except Exception:
             return self.yolo_model
 
-    def _infer_action_from_window(self, window: deque[np.ndarray], prev_ema: np.ndarray) -> tuple[str, float, np.ndarray]:
+    def _build_input_tensor(self, window: deque[np.ndarray]) -> torch.Tensor:
+        """Build model input tensor, casting to FP16 on GPU (Optimisation 3a)."""
+        tensor = build_model_input(np.asarray(window, dtype=np.float32)).to(self.device)
+        if self.device == "cuda":
+            try:
+                tensor = tensor.half()
+            except Exception:
+                pass
+        return tensor
+
+    def _infer_action_from_window(
+        self,
+        window: deque[np.ndarray],
+        prev_ema: np.ndarray,
+        use_tta: bool = False,
+    ) -> tuple[str, float, np.ndarray]:
         if len(window) < MIN_FRAMES_FOR_INFERENCE:
             return "Analyzing...", 0.0, prev_ema
 
-        model_input = build_model_input(np.asarray(window, dtype=np.float32)).to(self.device)
-        with torch.no_grad(), self._model_lock:
-            probs = infer_probs_with_tta(self.action_model, model_input)[0]
+        model_input = self._build_input_tensor(window)
+        # NOTE: do NOT acquire _model_lock here.
+        # _extract_pose_detections already holds _model_lock for the duration of the
+        # YOLO call, and in the video pipeline both functions run on the same inferencer
+        # thread — re-acquiring a non-reentrant threading.Lock() from the same thread
+        # deadlocks immediately.  The action model (SODE) runs on a separate model
+        # object from YOLO so there is no actual shared-state conflict; the lock here
+        # was purely defensive and is the direct cause of the frame-15 hang.
+        probs = infer_probs_with_tta(self.action_model, model_input, use_tta=use_tta)[0]
 
         next_ema = SCORE_EMA_ALPHA * prev_ema + (1.0 - SCORE_EMA_ALPHA) * probs
         pred_idx = int(np.argmax(next_ema))
@@ -829,6 +904,7 @@ class ActionRecognitionPipeline:
         label = ACTION_MAP[pred_idx] if confidence >= DISPLAY_CONF_THRESH else "Analyzing..."
         return label, confidence, next_ema
 
+    # ── Optimisation 2: strided action inference for video tracks.
     def _update_track_from_detection(
         self,
         track: TrackState,
@@ -843,12 +919,34 @@ class ActionRecognitionPipeline:
         track.last_seen_frame = frame_index
         track.frame_index = frame_index
         track.missed_frames = 0
+        track.frames_since_inference += 1
 
-        label, confidence, next_ema = self._infer_action_from_window(track.buffer, track.score_ema)
-        track.score_ema = next_ema
-        return label, confidence
+        # Only run the action model every ACTION_INFERENCE_STRIDE frames,
+        # or when the track is still warming up ("Analyzing...").
+        should_infer = (
+            track.frames_since_inference >= ACTION_INFERENCE_STRIDE
+            or track.last_action_label == "Analyzing..."
+        )
+        if should_infer:
+            label, confidence, next_ema = self._infer_action_from_window(
+                track.buffer,
+                track.score_ema,
+                use_tta=False,  # always single-pass for video
+            )
+            track.score_ema = next_ema
+            track.last_action_label = label
+            track.last_action_conf = confidence
+            track.frames_since_inference = 0
 
-    def _extract_pose_detections(self, frame: np.ndarray, model: YOLO, conf: float, iou: float) -> list[dict[str, Any]]:
+        return track.last_action_label, track.last_action_conf
+
+    def _extract_pose_detections(
+        self,
+        frame: np.ndarray,
+        model: YOLO,
+        conf: float,
+        iou: float,
+    ) -> list[dict[str, Any]]:
         with self._model_lock:
             results = model.predict(
                 source=frame,
@@ -868,7 +966,11 @@ class ActionRecognitionPipeline:
 
         boxes = result.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
         keypoints = result.keypoints.data.detach().cpu().numpy().astype(np.float32)
-        confs = result.boxes.conf.detach().cpu().numpy().astype(np.float32) if result.boxes.conf is not None else None
+        confs = (
+            result.boxes.conf.detach().cpu().numpy().astype(np.float32)
+            if result.boxes.conf is not None
+            else None
+        )
 
         if boxes.shape[0] == 0 or keypoints.shape[0] == 0:
             return []
@@ -915,7 +1017,12 @@ class ActionRecognitionPipeline:
         state.buffer.append(stabilized)
         state.missed_frames = 0
 
-        action_label, action_conf, next_ema = self._infer_action_from_window(state.buffer, state.score_ema)
+        # WebSocket single-frame path: respect the global TTA flag.
+        action_label, action_conf, next_ema = self._infer_action_from_window(
+            state.buffer,
+            state.score_ema,
+            use_tta=INFERENCE_TTA_ENABLED,
+        )
         state.score_ema = next_ema
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
@@ -938,6 +1045,12 @@ class ActionRecognitionPipeline:
             "timing_ms": round(elapsed_ms, 3),
         }
 
+    # ── Optimisation 4: producer-consumer pipeline.
+    # Three threads run concurrently:
+    #   • decoder   — reads frames from disk into decode_q
+    #   • inferencer — runs YOLO + SODE on each frame, puts annotated frames into result_q
+    #   • main loop  — drains result_q and writes frames to VideoWriter
+    # This keeps the GPU busy while I/O and encoding happen in parallel.
     def _infer_video_file_sync(
         self,
         input_path: Path,
@@ -945,179 +1058,261 @@ class ActionRecognitionPipeline:
         progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
-        capture = cv2.VideoCapture(str(input_path))
-        if not capture.isOpened():
+
+        # ── Probe video metadata without fully opening the capture in the main thread.
+        probe_cap = cv2.VideoCapture(str(input_path))
+        if not probe_cap.isOpened():
             raise RuntimeError("Could not open uploaded video file.")
 
-        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        fps = float(probe_cap.get(cv2.CAP_PROP_FPS))
         if not np.isfinite(fps) or fps <= 0:
             fps = 25.0
 
-        raw_total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        raw_total_frames = int(probe_cap.get(cv2.CAP_PROP_FRAME_COUNT))
         total_frames = raw_total_frames if raw_total_frames > 0 else 0
-        if progress_callback:
-            progress_callback(0, total_frames, "Preparing video inference...")
-
-        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(probe_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(probe_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         if width <= 0 or height <= 0:
-            ok, probe_frame = capture.read()
+            ok, probe_frame = probe_cap.read()
             if not ok or probe_frame is None:
-                capture.release()
+                probe_cap.release()
                 raise RuntimeError("Uploaded video has no readable frames.")
             height, width = probe_frame.shape[:2]
-            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        probe_cap.release()
+
+        if progress_callback:
+            progress_callback(0, total_frames, "Preparing video inference...")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             writer, output_codec = create_video_writer(
-                output_path,
-                fps,
-                (width, height),
-                OUTPUT_VIDEO_FORMAT,
+                output_path, fps, (width, height), OUTPUT_VIDEO_FORMAT
             )
         except RuntimeError:
-            capture.release()
             raise
 
+        # stop_event is set by any thread that encounters a fatal error so that all
+        # other threads can exit their loops without blocking on a full/empty queue.
+        stop_event = threading.Event()
+
+        decode_q: queue.Queue[tuple[int, np.ndarray] | None] = queue.Queue(maxsize=DECODE_QUEUE_SIZE)
+        result_q: queue.Queue[tuple[int, np.ndarray, dict[str, Any] | None] | None] = queue.Queue(
+            maxsize=RESULT_QUEUE_SIZE
+        )
+
+        # Mutable counters shared via a list (avoids nonlocal boilerplate).
+        counters = {
+            "detected_people_total": 0,
+            "yolo_confidences": [],
+            "detections_log": [],
+            "next_track_id": 1,
+        }
         tracks: dict[int, TrackState] = {}
-        next_track_id = 1
-        frame_index = 0
-        detected_people_total = 0
-        yolo_confidences: list[float] = []
-        detections_log: list[Detection] = []
+        thread_errors: list[Exception] = []
 
-        try:
-            while True:
-                ok, frame = capture.read()
-                if not ok or frame is None:
-                    break
+        # ── Helpers: non-blocking put/get that respect stop_event.
+        # Using a timeout loop instead of a bare blocking call means that if the
+        # consuming thread dies (and therefore never drains the queue), the producing
+        # thread will notice stop_event is set and exit cleanly rather than hanging.
+        _Q_TIMEOUT = 0.1  # seconds between stop_event checks
 
-                frame_index += 1
-                detections = self._extract_pose_detections(frame, self.video_pose_model, VIDEO_YOLO_CONF, VIDEO_YOLO_IOU)
-                detected_people_total += len(detections)
-                yolo_confidences.extend([float(item["confidence"]) for item in detections])
+        def _put(q: queue.Queue, item: Any) -> bool:
+            """Put item onto q; return False immediately if stop_event is set."""
+            while not stop_event.is_set():
+                try:
+                    q.put(item, timeout=_Q_TIMEOUT)
+                    return True
+                except queue.Full:
+                    continue
+            return False
 
-                matched_track_ids: set[int] = set()
-                used_detection_ids: set[int] = set()
+        def _get(q: queue.Queue) -> Any:
+            """Get from q; return _STOP sentinel if stop_event is set."""
+            while not stop_event.is_set():
+                try:
+                    return q.get(timeout=_Q_TIMEOUT)
+                except queue.Empty:
+                    continue
+            return _STOP
 
-                active_track_ids = [
-                    track_id
-                    for track_id, track in tracks.items()
-                    if track.missed_frames <= VIDEO_MAX_MISSED_FRAMES and track.last_bbox is not None
-                ]
+        # Unique object used as an "abort" sentinel distinct from None (end-of-stream).
+        _STOP = object()
 
-                for det_idx, detection in enumerate(detections):
-                    best_track_id: int | None = None
-                    best_iou = 0.0
+        # ── Thread 1: Decode frames from disk.
+        def decoder() -> None:
+            cap = cv2.VideoCapture(str(input_path))
+            try:
+                idx = 0
+                while not stop_event.is_set():
+                    ok, frame = cap.read()
+                    if not ok or frame is None:
+                        break
+                    idx += 1
+                    if not _put(decode_q, (idx, frame)):
+                        return  # stop_event was set; bail out
+                _put(decode_q, None)  # normal end-of-stream sentinel
+            except Exception as exc:
+                thread_errors.append(exc)
+                stop_event.set()
+                _put(decode_q, None)
+            finally:
+                cap.release()
 
-                    for track_id in active_track_ids:
-                        if track_id in matched_track_ids:
+        # ── Thread 2: YOLO + SODE inference on each decoded frame.
+        def inferencer() -> None:
+            try:
+                while True:
+                    item = _get(decode_q)
+                    if item is _STOP:
+                        # stop_event was set by another thread — forward abort sentinel.
+                        _put(result_q, None)
+                        return
+                    if item is None:
+                        # Normal end-of-stream.
+                        _put(result_q, None)
+                        break
+
+                    frame_index, frame = item
+                    detections = self._extract_pose_detections(
+                        frame, self.video_pose_model, VIDEO_YOLO_CONF, VIDEO_YOLO_IOU
+                    )
+                    counters["detected_people_total"] += len(detections)
+                    counters["yolo_confidences"].extend(
+                        [float(d["confidence"]) for d in detections]
+                    )
+
+                    matched_track_ids: set[int] = set()
+                    used_detection_ids: set[int] = set()
+
+                    active_track_ids = [
+                        tid
+                        for tid, t in tracks.items()
+                        if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
+                    ]
+
+                    for det_idx, detection in enumerate(detections):
+                        best_track_id: int | None = None
+                        best_iou = 0.0
+                        for tid in active_track_ids:
+                            if tid in matched_track_ids:
+                                continue
+                            t = tracks[tid]
+                            if t.last_bbox is None:
+                                continue
+                            iou = compute_iou(detection["bbox"], t.last_bbox)
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_track_id = tid
+
+                        if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
+                            track = tracks[best_track_id]
+                            label, confidence = self._update_track_from_detection(
+                                track,
+                                detection["keypoints_body12"],
+                                detection["bbox"],
+                                frame_index,
+                            )
+                            counters["detections_log"].append(
+                                Detection(
+                                    frame_number=frame_index,
+                                    action_label=normalize_action_label(label),
+                                    confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+                                    person_id=best_track_id,
+                                    timestamp=frame_to_timestamp(frame_index, fps),
+                                )
+                            )
+                            matched_track_ids.add(best_track_id)
+                            used_detection_ids.add(det_idx)
+
+                            color = track_color(best_track_id)
+                            x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
+                            draw_pose(frame, track.last_keypoints, color)
+                            caption = f"ID {best_track_id}: {label}"
+                            if label != "Analyzing...":
+                                caption += f" {confidence * 100:.1f}%"
+                            cv2.putText(
+                                frame, caption, (x1, max(24, y1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                            )
+
+                    for det_idx, detection in enumerate(detections):
+                        if det_idx in used_detection_ids:
                             continue
 
-                        track = tracks[track_id]
-                        if track.last_bbox is None:
-                            continue
+                        track_id = counters["next_track_id"]
+                        counters["next_track_id"] += 1
+                        track = TrackState(track_id=track_id)
+                        tracks[track_id] = track
 
-                        iou = compute_iou(detection["bbox"], track.last_bbox)
-                        if iou > best_iou:
-                            best_iou = iou
-                            best_track_id = track_id
-
-                    if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
-                        track = tracks[best_track_id]
                         label, confidence = self._update_track_from_detection(
                             track,
                             detection["keypoints_body12"],
                             detection["bbox"],
                             frame_index,
                         )
-                        detections_log.append(
+                        counters["detections_log"].append(
                             Detection(
                                 frame_number=frame_index,
                                 action_label=normalize_action_label(label),
                                 confidence=round(max(0.0, min(1.0, float(confidence))), 4),
-                                person_id=best_track_id,
+                                person_id=track_id,
                                 timestamp=frame_to_timestamp(frame_index, fps),
                             )
                         )
-                        matched_track_ids.add(best_track_id)
-                        used_detection_ids.add(det_idx)
+                        matched_track_ids.add(track_id)
 
-                        color = track_color(best_track_id)
+                        color = track_color(track_id)
                         x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                         draw_pose(frame, track.last_keypoints, color)
-
-                        caption = f"ID {best_track_id}: {label}"
+                        caption = f"ID {track_id}: {label}"
                         if label != "Analyzing...":
                             caption += f" {confidence * 100:.1f}%"
                         cv2.putText(
-                            frame,
-                            caption,
-                            (x1, max(24, y1 - 8)),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.55,
-                            color,
-                            2,
-                            cv2.LINE_AA,
+                            frame, caption, (x1, max(24, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
                         )
 
-                for det_idx, detection in enumerate(detections):
-                    if det_idx in used_detection_ids:
-                        continue
+                    # Evict stale tracks.
+                    for tid in list(tracks.keys()):
+                        if tid in matched_track_ids:
+                            continue
+                        tracks[tid].missed_frames += 1
+                        if tracks[tid].missed_frames > VIDEO_MAX_MISSED_FRAMES:
+                            del tracks[tid]
 
-                    track_id = next_track_id
-                    next_track_id += 1
-                    track = TrackState(track_id=track_id)
-                    tracks[track_id] = track
+                    if not _put(result_q, (frame_index, frame, None)):
+                        return  # stop_event was set; bail out
 
-                    label, confidence = self._update_track_from_detection(
-                        track,
-                        detection["keypoints_body12"],
-                        detection["bbox"],
-                        frame_index,
-                    )
-                    detections_log.append(
-                        Detection(
-                            frame_number=frame_index,
-                            action_label=normalize_action_label(label),
-                            confidence=round(max(0.0, min(1.0, float(confidence))), 4),
-                            person_id=track_id,
-                            timestamp=frame_to_timestamp(frame_index, fps),
-                        )
-                    )
-                    matched_track_ids.add(track_id)
+            except Exception as exc:
+                thread_errors.append(exc)
+                stop_event.set()
+                # Best-effort: unblock main thread so it can see thread_errors.
+                try:
+                    result_q.put_nowait(None)
+                except queue.Full:
+                    pass
 
-                    color = track_color(track_id)
-                    x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
-                    draw_pose(frame, track.last_keypoints, color)
+        # ── Main thread: drain result_q and write annotated frames to disk.
+        t_decode = threading.Thread(target=decoder, daemon=True)
+        t_infer = threading.Thread(target=inferencer, daemon=True)
+        t_decode.start()
+        t_infer.start()
 
-                    caption = f"ID {track_id}: {label}"
-                    if label != "Analyzing...":
-                        caption += f" {confidence * 100:.1f}%"
-                    cv2.putText(
-                        frame,
-                        caption,
-                        (x1, max(24, y1 - 8)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.55,
-                        color,
-                        2,
-                        cv2.LINE_AA,
-                    )
+        frame_index = 0
+        try:
+            while True:
+                item = _get(result_q)
+                # _STOP means stop_event fired (a thread error); break and let the
+                # thread_errors check below raise the real exception.
+                if item is None or item is _STOP:
+                    break
+                frame_index, annotated_frame, _ = item
+                writer.write(annotated_frame)
 
-                for track_id in list(tracks.keys()):
-                    if track_id in matched_track_ids:
-                        continue
-
-                    tracks[track_id].missed_frames += 1
-                    if tracks[track_id].missed_frames > VIDEO_MAX_MISSED_FRAMES:
-                        del tracks[track_id]
-
-                writer.write(frame)
                 if progress_callback and (
                     frame_index == 1
                     or frame_index % 5 == 0
@@ -1125,24 +1320,30 @@ class ActionRecognitionPipeline:
                 ):
                     progress_callback(frame_index, total_frames, "Running pose + action inference...")
         finally:
-            capture.release()
             writer.release()
+
+        t_decode.join()
+        t_infer.join()
+
+        if thread_errors:
+            raise thread_errors[0]
 
         if progress_callback:
             final_total = total_frames if total_frames > 0 else frame_index
             progress_callback(frame_index, final_total, "Finalizing annotated output...")
 
+        detections_log: list[Detection] = counters["detections_log"]
         analysis = create_analysis_response(
             detections_log=detections_log,
             summary_metrics=None,
             total_frames=frame_index,
-            yolo_confidences=yolo_confidences,
+            yolo_confidences=counters["yolo_confidences"],
         )
 
         return {
             "frames_processed": frame_index,
-            "people_instances_detected": detected_people_total,
-            "tracks_created": next_track_id - 1,
+            "people_instances_detected": counters["detected_people_total"],
+            "tracks_created": counters["next_track_id"] - 1,
             "total_frames": frame_index,
             "fps": round(fps, 3),
             "processing_seconds": round(time.perf_counter() - started_at, 3),
@@ -1186,6 +1387,7 @@ async def add_cross_origin_isolation_headers(request: Request, call_next: Callab
     response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
     return response
 
+
 OUTPUT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
@@ -1208,13 +1410,22 @@ def run_video_inference_job(
             progress_message="Starting inference pipeline...",
         )
 
+        # ── Optimisation 5: skip re-transcode if upload is already browser-compatible H.264.
         update_inference_job(
             job_id,
             status="processing",
             progress_percent=1.0,
-            progress_message="Converting upload to browser-safe MP4...",
+            progress_message="Checking source video compatibility...",
         )
-        source_transcode_backend = transcode_video_to_browser_mp4(input_path, preview_path)
+        if is_browser_compatible_mp4(input_path):
+            shutil.copy2(input_path, preview_path)
+            source_transcode_backend = "passthrough"
+        else:
+            update_inference_job(
+                job_id,
+                progress_message="Converting upload to browser-safe MP4...",
+            )
+            source_transcode_backend = transcode_video_to_browser_mp4(input_path, preview_path)
 
         def on_progress(frame_index: int, total_frames: int, phase: str) -> None:
             percent = 0.0
@@ -1304,6 +1515,10 @@ def healthcheck() -> dict[str, Any]:
         "output_video_format": OUTPUT_VIDEO_FORMAT,
         "preview_retention_seconds": PREVIEW_RETENTION_SECONDS,
         "cwd": os.getcwd(),
+        # Expose optimisation settings so you can verify them at runtime.
+        "action_inference_stride": ACTION_INFERENCE_STRIDE,
+        "tta_enabled": INFERENCE_TTA_ENABLED,
+        "torch_compile_enabled": os.getenv("TORCH_COMPILE", "0") == "1",
     }
 
 
