@@ -64,15 +64,17 @@ function AlertCard({
 const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   if (!analysis) {
     return (
-      <aside className="w-full rounded-xl border border-slate-400 bg-white p-4 text-slate-100 xl:w-[390px]">
+      <div className="w-full h-full rounded-md border border-[#D6E4FF] bg-white p-4 text-slate-100">
         <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] flex items-center gap-2">
           <Activity className="size-4" />
           Detections
         </div>
-        <p className="mt-4 text-sm text-[#344054]/80">
-          Run the analysis to view grouped action logs.
-        </p>
-      </aside>
+        <div className="h-full flex items-center justify-center">
+          <p className=" text-sm text-[#344054]/80 ">
+            Run the analysis to view grouped action logs.
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -83,7 +85,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   const alerts = analysis.alert_events ?? [];
 
   return (
-    <aside className="w-full rounded-xl border border-[#D6E4FF] bg-white text-slate-100 shadow-sm xl:w-[390px]">
+    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white text-slate-100 shadow-sm ">
       <div className="flex items-center gap-2 p-3 text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading border-b border-[#D6E4FF]">
         <Activity className="size-4" />
         Detections
@@ -159,7 +161,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
           </details>
         ))}
       </div>
-    </aside>
+    </div>
   );
 };
 

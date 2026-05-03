@@ -3,12 +3,11 @@ import NavBar from "./components/navbar";
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="bg-[#eef6fa] content-stretch flex flex-col items-center relative size-full">
+    <div className="bg-[#eef6fa] flex flex-col items-center relative h-screen overflow-hidden w-full">
       <NavBar />
-      <div className="relative w-full">
-        <div className="flex flex-col gap-[32px] items-start px-[64px] py-[32px] relative w-full">
-          {children}
-        </div>
+      {/* This wrapper must fill remaining height and allow children to shrink */}
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full px-[16px] py-[8px] gap-[8px] items-start">
+        {children}
       </div>
     </div>
   );

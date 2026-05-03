@@ -11,13 +11,13 @@ const asPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
 const MetricsCards = ({ analysis }: MetricsCardsProps) => {
   if (!analysis) {
     return (
-      <section className="w-full">
-        <div className="flex gap-2 w-full">
+      <section className="w-full h-full">
+        <div className="flex gap-2 w-full h-full">
           <SummaryCard
             icon={<ShieldCheck className="size-4 text-blue-900" />}
             label="InfoGCN Accuracy"
           >
-            <div className="text-3xl  font-bold text-black">N/A</div>
+            <div className="  font-bold text-black">N/A</div>
           </SummaryCard>
 
           <SummaryCard
@@ -25,10 +25,10 @@ const MetricsCards = ({ analysis }: MetricsCardsProps) => {
             label="Yolo Metrics"
           >
             <div className="flex justify-around gap-4 text-sm font-bold text-black">
-              <div className="text-3xl  font-bold text-black">
+              <div className="  font-bold text-black">
                 N/A <p className="text-xs text-gray-600">Precision</p>
               </div>
-              <div className="text-3xl  font-bold text-black">
+              <div className="  font-bold text-black">
                 N/A <p className="text-xs text-gray-600">Recall</p>
               </div>
             </div>
@@ -38,14 +38,14 @@ const MetricsCards = ({ analysis }: MetricsCardsProps) => {
             icon={<AlertTriangle className="size-4 text-red-800" />}
             label="Active Alerts"
           >
-            <div className="text-3xl font-bold text-[#991B1B]">N/A</div>
+            <div className=" font-bold text-[#991B1B]">N/A</div>
           </SummaryCard>
 
           <SummaryCard
             icon={<Clock className="size-4 text-blue-900" />}
             label="Action Confidence"
           >
-            <div className="space-y-1 text-3xl text-[#344054]">N/A</div>
+            <div className="space-y-1  text-[#344054]">N/A</div>
           </SummaryCard>
         </div>
       </section>
@@ -59,8 +59,8 @@ const MetricsCards = ({ analysis }: MetricsCardsProps) => {
   const activeAlerts = analysis.alert_events.length;
 
   return (
-    <section className="w-full">
-      <div className="flex gap-2 w-full">
+    <section className="w-full h-full">
+      <div className="flex gap-2 w-full h-full">
         <SummaryCard
           icon={<ShieldCheck className="size-4 text-blue-900" />}
           label="InfoGCN Accuracy"
