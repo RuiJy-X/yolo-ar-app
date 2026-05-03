@@ -6,6 +6,97 @@ type LogsProps = {
   onSeekToFrame: (frame: number) => void;
 };
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type Detection = {
+  frame_number: number;
+  action_label: string;
+  confidence: number;
+  person_id: number;
+  timestamp: string;
+};
+
+/** A run of consecutive frames for one person doing one action. */
+type ActionInstance = {
+  personId: number;
+  startFrame: number;
+  endFrame: number;
+  startTimestamp: string;
+  endTimestamp: string;
+  frameCount: number;
+  avgConfidence: number;
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Collapse a flat list of per-frame detections (already filtered to one action
+ * label) into consecutive-frame instances.
+ *
+ * Two frames are considered "consecutive" when they belong to the same person
+ * AND differ by at most MAX_GAP frames (allows for the occasional missed frame
+ * inside what is conceptually one continuous action segment).
+ */
+const MAX_GAP = 4; // frames; tune as needed
+
+function collapseToInstances(entries: Detection[]): ActionInstance[] {
+  if (!entries.length) return [];
+
+  // Sort by person, then frame so we can do a single linear pass.
+  const sorted = [...entries].sort(
+    (a, b) => a.person_id - b.person_id || a.frame_number - b.frame_number,
+  );
+
+  const instances: ActionInstance[] = [];
+
+  let runPersonId = sorted[0].person_id;
+  let runStart = sorted[0].frame_number;
+  let runEnd = sorted[0].frame_number;
+  let runStartTs = sorted[0].timestamp;
+  let runEndTs = sorted[0].timestamp;
+  let runConfs: number[] = [sorted[0].confidence];
+
+  const flush = () => {
+    instances.push({
+      personId: runPersonId,
+      startFrame: runStart,
+      endFrame: runEnd,
+      startTimestamp: runStartTs,
+      endTimestamp: runEndTs,
+      frameCount: runEnd - runStart + 1,
+      avgConfidence: runConfs.reduce((a, b) => a + b, 0) / runConfs.length,
+    });
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const samePerson = cur.person_id === runPersonId;
+    const withinGap = cur.frame_number - runEnd <= MAX_GAP;
+
+    if (samePerson && withinGap) {
+      // Extend current run
+      runEnd = cur.frame_number;
+      runEndTs = cur.timestamp;
+      runConfs.push(cur.confidence);
+    } else {
+      // Flush current run and start a new one
+      flush();
+      runPersonId = cur.person_id;
+      runStart = cur.frame_number;
+      runEnd = cur.frame_number;
+      runStartTs = cur.timestamp;
+      runEndTs = cur.timestamp;
+      runConfs = [cur.confidence];
+    }
+  }
+  flush();
+
+  // Sort output by start frame so the list is chronological
+  return instances.sort((a, b) => a.startFrame - b.startFrame);
+}
+
+// ── Severity styles (shared with AlertCard) ────────────────────────────────
+
 const SEVERITY_STYLES: Record<string, string> = {
   critical: "bg-red-50 text-red-800 border-red-200",
   high: "bg-amber-50 text-amber-800 border-amber-200",
@@ -17,6 +108,8 @@ const SEVERITY_DOT: Record<string, string> = {
   high: "bg-amber-500",
   medium: "bg-blue-500",
 };
+
+// ── Sub-components ─────────────────────────────────────────────────────────
 
 function AlertCard({
   alert,
@@ -61,6 +154,53 @@ function AlertCard({
   );
 }
 
+function InstanceCard({
+  instance,
+  onSeekToFrame,
+}: {
+  instance: ActionInstance;
+  onSeekToFrame: (frame: number) => void;
+}) {
+  const isSingleFrame = instance.startFrame === instance.endFrame;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSeekToFrame(instance.startFrame)}
+      className="w-full rounded-md border border-blue-500/30 bg-white px-3 py-2 text-left transition hover:border-blue-500/60"
+    >
+      {/* Row 1: person + timestamp range */}
+      <div className="flex items-center justify-between text-xs text-black/60">
+        <span className="flex items-center gap-1.5">
+          <User className="size-3.5" />P{instance.personId}
+        </span>
+        <span className="font-mono text-black/70">
+          {isSingleFrame
+            ? instance.startTimestamp
+            : `${instance.startTimestamp} – ${instance.endTimestamp}`}
+        </span>
+      </div>
+
+      {/* Row 2: frame range + confidence */}
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-sm font-semibold text-black/90 font-heading">
+          {isSingleFrame
+            ? `Frame ${instance.startFrame}`
+            : `Frames ${instance.startFrame} – ${instance.endFrame}`}
+          <span className="ml-2 text-xs font-normal text-black/40">
+            ({instance.frameCount} frame{instance.frameCount !== 1 ? "s" : ""})
+          </span>
+        </span>
+        <span className="text-sm font-semibold text-blue-600">
+          {(instance.avgConfidence * 100).toFixed(1)}%
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   if (!analysis) {
     return (
@@ -70,7 +210,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
           Detections
         </div>
         <div className="h-full flex items-center justify-center">
-          <p className=" text-sm text-[#344054]/80 ">
+          <p className="text-sm text-[#344054]/80">
             Run the analysis to view grouped action logs.
           </p>
         </div>
@@ -78,14 +218,18 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
     );
   }
 
-  const groupedActions = Object.entries(analysis.grouped_detections).sort(
-    (a, b) => b[1].length - a[1].length,
-  );
+  // Build instances for every action group
+  const groupedActions = Object.entries(analysis.grouped_detections)
+    .map(([action, entries]) => ({
+      action,
+      instances: collapseToInstances(entries as Detection[]),
+    }))
+    .sort((a, b) => b.instances.length - a.instances.length);
 
   const alerts = analysis.alert_events ?? [];
 
   return (
-    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white text-slate-100 shadow-sm ">
+    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white text-slate-100 shadow-sm">
       <div className="flex items-center gap-2 p-3 text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading border-b border-[#D6E4FF]">
         <Activity className="size-4" />
         Detections
@@ -120,42 +264,25 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
         )}
 
         {/* ── Action detection accordions ── */}
-        {groupedActions.map(([action, entries]) => (
+        {groupedActions.map(({ action, instances }) => (
           <details key={action} className="group">
             <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-slate-50">
               <span className="font-semibold font-heading text-black/70">
                 {action}
               </span>
               <span className="flex items-center gap-2 text-xs text-gray-600">
-                {entries.length} frames
+                {instances.length}{" "}
+                {instances.length === 1 ? "instance" : "instances"}
                 <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
               </span>
             </summary>
             <div className="space-y-2 px-3 pb-3 max-h-[400px] overflow-y-auto">
-              {entries.map((entry) => (
-                <button
-                  key={`${action}-${entry.person_id}-${entry.frame_number}`}
-                  type="button"
-                  onClick={() => onSeekToFrame(entry.frame_number)}
-                  className="w-full rounded-md border border-blue-500/30 bg-white px-3 py-2 text-left transition hover:border-blue-500/60"
-                >
-                  <div className="flex items-center justify-between text-xs text-black/60">
-                    <span className="flex items-center gap-1.5">
-                      <User className="size-3.5" /> P{entry.person_id}
-                    </span>
-                    <span className="font-mono text-black/70">
-                      {entry.timestamp}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-black/90 font-heading">
-                      Frame {entry.frame_number}
-                    </span>
-                    <span className="text-sm font-semibold text-blue-600">
-                      {(entry.confidence * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                </button>
+              {instances.map((instance) => (
+                <InstanceCard
+                  key={`${action}-p${instance.personId}-f${instance.startFrame}`}
+                  instance={instance}
+                  onSeekToFrame={onSeekToFrame}
+                />
               ))}
             </div>
           </details>
