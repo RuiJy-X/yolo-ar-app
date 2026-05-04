@@ -720,6 +720,11 @@ def build_summary_metrics_from_detections(
         )
 
     conf_values = [max(0.0, min(1.0, float(item.confidence))) for item in detections_log]
+    non_analyzing_conf = [
+        max(0.0, min(1.0, float(item.confidence)))
+        for item in detections_log
+        if normalize_action_label(item.action_label).lower() != "analyzing..."
+    ]
     unique_frames = {item.frame_number for item in detections_log}
     action_groups: dict[str, list[float]] = {}
 
@@ -739,7 +744,7 @@ def build_summary_metrics_from_detections(
     else:
         raw_recall = 1.0
 
-    infogcn_accuracy = float(np.mean(conf_values))
+    infogcn_accuracy = float(np.mean(non_analyzing_conf)) if non_analyzing_conf else 0.0
 
     return SummaryMetrics(
         yolo_precision=round(max(0.0, min(1.0, raw_precision)), 4),
