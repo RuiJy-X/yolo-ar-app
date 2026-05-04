@@ -53,17 +53,9 @@ YOLO_IOU = 0.60
 VIDEO_YOLO_CONF = 0.30
 VIDEO_YOLO_IOU = 0.55
 
-# ── Optimisation: TTA is off by default for video (7× speedup).
-# Set env INFERENCE_TTA=1 to re-enable full TTA (e.g. for single-frame WS mode).
 INFERENCE_TTA_ENABLED = os.getenv("INFERENCE_TTA", "0") == "1"
-# Original shifts kept for reference / WS path.
 TEST_TTA_SHIFTS = [0, -3, -1, 1, 3]
-
-# ── Optimisation: run SODE every N frames, reuse last result in between.
-# 1 = run every frame (original behaviour). 4 is a good default.
 ACTION_INFERENCE_STRIDE = int(os.getenv("ACTION_STRIDE", "4"))
-
-# ── Optimisation: number of frames to buffer in the decode queue.
 DECODE_QUEUE_SIZE = int(os.getenv("DECODE_QUEUE_SIZE", "32"))
 RESULT_QUEUE_SIZE = int(os.getenv("RESULT_QUEUE_SIZE", "32"))
 
@@ -85,6 +77,65 @@ if OUTPUT_VIDEO_FORMAT not in {"mp4", "avi"}:
     OUTPUT_VIDEO_FORMAT = "mp4"
 INFERENCE_JOBS: dict[str, dict[str, Any]] = {}
 INFERENCE_JOBS_LOCK = threading.Lock()
+
+# ── Model registry ────────────────────────────────────────────────────────────
+# Scans backend/results/ for subdirectories that contain best_model_N.pt files.
+# Actual layout on disk:
+#   results/model_16/best_model_1.pt … best_model_10.pt
+#   results/model_64/best_model_1.pt … best_model_10.pt
+RESULTS_DIR = CURRENT_DIR / "results"
+
+
+def discover_action_models() -> dict[str, dict[str, Path]]:
+    """
+    Return a nested dict:
+        {
+            "model_16": {
+                "best_model_1":  Path(".../model_16/best_model_1.pt"),
+                "best_model_2":  Path(".../model_16/best_model_2.pt"),
+                ...
+            },
+            "model_64": { ... },
+        }
+
+    Matches any file whose name starts with "best_model" and ends with ".pt"
+    inside an immediate subdirectory of RESULTS_DIR, so it works regardless of
+    whether the files are named best_model.pt, best_model_1.pt, best_model_10.pt,
+    best_epoch_5.pt, etc.
+    """
+    found: dict[str, dict[str, Path]] = {}
+    if not RESULTS_DIR.exists():
+        return found
+
+    for folder in sorted(RESULTS_DIR.iterdir()):
+        if not folder.is_dir():
+            continue
+
+        checkpoints: dict[str, Path] = {}
+        for pt_file in sorted(folder.glob("best_model*.pt")):
+            # Use the stem (filename without extension) as the checkpoint key,
+            # e.g. "best_model_1", "best_model_10".
+            checkpoints[pt_file.stem] = pt_file
+
+        if checkpoints:
+            found[folder.name] = checkpoints
+
+    return found
+
+
+def flat_model_registry() -> dict[str, Path]:
+    """
+    Flatten discover_action_models() into a single dict keyed by
+    "folder/checkpoint_stem" so swap_action_model can accept a single string.
+
+    Example keys: "model_16/best_model_1", "model_64/best_model_10"
+    """
+    flat: dict[str, Path] = {}
+    for folder_name, checkpoints in discover_action_models().items():
+        for stem, path in checkpoints.items():
+            flat[f"{folder_name}/{stem}"] = path
+    return flat
+
 
 LR_PAIRS = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
 BODY12_FROM_COCO17 = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
@@ -193,9 +244,7 @@ def create_mp4_writer(output_path: Path, fps: float, size: tuple[int, int]) -> t
     raise RuntimeError("Failed to create MP4 writer for browser playback.")
 
 
-# ── Optimisation 5: skip re-transcode when the upload is already browser-compatible H.264.
 def is_browser_compatible_mp4(path: Path) -> bool:
-    """Return True if the file is already an H.264 MP4 — no transcode needed."""
     if path.suffix.lower() != ".mp4":
         return False
     ffprobe = shutil.which("ffprobe")
@@ -489,9 +538,6 @@ def non_cyclic_shift(inp: torch.Tensor, shift: int) -> torch.Tensor:
     return out
 
 
-# ── Optimisation 1: TTA controlled by `use_tta` flag.
-# Video inference defaults to a single forward pass (use_tta=False).
-# WebSocket / single-frame path still calls with use_tta=INFERENCE_TTA_ENABLED.
 def infer_probs_with_tta(
     model: torch.nn.Module,
     input_tensor: torch.Tensor,
@@ -505,10 +551,8 @@ def infer_probs_with_tta(
 
     with torch.no_grad():
         if not use_tta:
-            # Single pass — fastest path for video.
             return torch.softmax(logits(input_tensor), dim=1).detach().cpu().numpy()
 
-        # Full TTA: original + mirror + temporal shifts.
         logits_list = [logits(input_tensor), logits(mirror_tensor(input_tensor))]
         for shift in TEST_TTA_SHIFTS:
             if shift != 0:
@@ -546,16 +590,12 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
     model.load_state_dict(state, strict=False)
     model.to(device).eval()
 
-    # ── Optimisation 3a: FP16 on GPU halves memory bandwidth and speeds up matmuls.
     if device == "cuda":
         try:
             model = model.half()
         except Exception:
-            pass  # graceful fallback for models that don't support half
+            pass
 
-    # torch.compile may fail at runtime on some Windows setups (for example,
-    # missing MSVC "cl" required by inductor). Keep it opt-in and suppress
-    # backend compile failures so inference always falls back to eager mode.
     torch_compile_enabled = os.getenv("TORCH_COMPILE", "0") == "1"
     if torch_compile_enabled:
         try:
@@ -564,7 +604,7 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
             dynamo.config.suppress_errors = True
             model = torch.compile(model, mode="reduce-overhead")
         except Exception:
-            pass  # graceful fallback to eager mode
+            pass
 
     return model
 
@@ -643,6 +683,10 @@ class AnalyzeVideoResponse(BaseModel):
     alert_events: list[AlertEvent]
     action_confidence_scores: dict[str, float]
     grouped_detections: dict[str, list[Detection]]
+
+
+class SetActiveModelRequest(BaseModel):
+    model_name: str
 
 
 def frame_to_timestamp(frame_number: int, fps: float) -> str:
@@ -825,7 +869,6 @@ class TrackState:
     score_ema: np.ndarray = field(default_factory=lambda: np.ones(4, dtype=np.float32) / 4.0)
     last_bbox: np.ndarray | None = None
     last_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
-    # ── Optimisation 2: inference stride state.
     last_action_label: str = "Analyzing..."
     last_action_conf: float = 0.0
     frames_since_inference: int = 0
@@ -844,6 +887,9 @@ class ActionRecognitionPipeline:
         self.base_dir = base_dir
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._model_lock = threading.Lock()
+        # ── Separate lock guards hot-swapping the action model so in-flight
+        # inference jobs can finish cleanly before the weights are replaced.
+        self._swap_lock = threading.Lock()
 
         yolo_path = base_dir / YOLO_FILENAME
         if not yolo_path.exists():
@@ -854,6 +900,66 @@ class ActionRecognitionPipeline:
         self.yolo_model = YOLO(str(yolo_path)).to(self.device)
         self.video_pose_model = self._load_video_pose_model()
         self.action_model = init_action_model(checkpoint_path, self.device)
+
+        # Track which named model is currently loaded so the UI can reflect it.
+        # Initialise by matching the loaded path against the registry.
+        self._active_model_name: str = self._resolve_initial_model_name(checkpoint_path)
+
+    # ── Model registry helpers ────────────────────────────────────────────────
+
+    def _resolve_initial_model_name(self, checkpoint_path: Path) -> str:
+        """Return the flat registry key for `checkpoint_path`, or a best-effort label."""
+        flat = flat_model_registry()
+        for name, path in flat.items():
+            if path.resolve() == checkpoint_path.resolve():
+                return name
+        # Fallback: "folder/stem" relative to RESULTS_DIR
+        try:
+            rel = checkpoint_path.relative_to(RESULTS_DIR)
+            return f"{rel.parent.name}/{rel.stem}"
+        except ValueError:
+            return checkpoint_path.stem
+
+    @property
+    def active_model_name(self) -> str:
+        return self._active_model_name
+
+    def swap_action_model(self, model_name: str) -> None:
+        """
+        Hot-swap the action model to `model_name` (a "folder/checkpoint_stem" key
+        from flat_model_registry, e.g. "model_16/best_model_3").
+
+        Blocks until any in-progress inference using the old model completes,
+        then replaces self.action_model atomically.  The old model is deleted so
+        GPU memory is freed before the new one is loaded.
+        """
+        flat = flat_model_registry()
+        if model_name not in flat:
+            raise ValueError(
+                f"Model '{model_name}' not found. Available: {sorted(flat.keys())}"
+            )
+
+        checkpoint_path = flat[model_name]
+
+        with self._swap_lock:
+            # Load new weights while holding the swap lock so concurrent swap
+            # requests are serialised.  We do NOT hold _model_lock here — that
+            # would block ongoing YOLO calls.  The action model object is only
+            # read inside _infer_action_from_window, which we protect via a
+            # local reference taken before the swap completes (Python's GIL
+            # makes the attribute assignment atomic at the bytecode level).
+            new_model = init_action_model(checkpoint_path, self.device)
+
+            # Give the old model a chance to finish any running forward pass
+            # before we drop the reference.
+            old_model = self.action_model
+            self.action_model = new_model
+            self._active_model_name = model_name
+            del old_model
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _load_video_pose_model(self) -> YOLO:
         for candidate_name in VIDEO_POSE_MODEL_CANDIDATES:
@@ -870,7 +976,6 @@ class ActionRecognitionPipeline:
             return self.yolo_model
 
     def _build_input_tensor(self, window: deque[np.ndarray]) -> torch.Tensor:
-        """Build model input tensor, casting to FP16 on GPU (Optimisation 3a)."""
         tensor = build_model_input(np.asarray(window, dtype=np.float32)).to(self.device)
         if self.device == "cuda":
             try:
@@ -889,14 +994,9 @@ class ActionRecognitionPipeline:
             return "Analyzing...", 0.0, prev_ema
 
         model_input = self._build_input_tensor(window)
-        # NOTE: do NOT acquire _model_lock here.
-        # _extract_pose_detections already holds _model_lock for the duration of the
-        # YOLO call, and in the video pipeline both functions run on the same inferencer
-        # thread — re-acquiring a non-reentrant threading.Lock() from the same thread
-        # deadlocks immediately.  The action model (SODE) runs on a separate model
-        # object from YOLO so there is no actual shared-state conflict; the lock here
-        # was purely defensive and is the direct cause of the frame-15 hang.
-        probs = infer_probs_with_tta(self.action_model, model_input, use_tta=use_tta)[0]
+        # Take a local reference so a concurrent swap doesn't affect us mid-call.
+        current_model = self.action_model
+        probs = infer_probs_with_tta(current_model, model_input, use_tta=use_tta)[0]
 
         next_ema = SCORE_EMA_ALPHA * prev_ema + (1.0 - SCORE_EMA_ALPHA) * probs
         pred_idx = int(np.argmax(next_ema))
@@ -904,7 +1004,6 @@ class ActionRecognitionPipeline:
         label = ACTION_MAP[pred_idx] if confidence >= DISPLAY_CONF_THRESH else "Analyzing..."
         return label, confidence, next_ema
 
-    # ── Optimisation 2: strided action inference for video tracks.
     def _update_track_from_detection(
         self,
         track: TrackState,
@@ -921,8 +1020,6 @@ class ActionRecognitionPipeline:
         track.missed_frames = 0
         track.frames_since_inference += 1
 
-        # Only run the action model every ACTION_INFERENCE_STRIDE frames,
-        # or when the track is still warming up ("Analyzing...").
         should_infer = (
             track.frames_since_inference >= ACTION_INFERENCE_STRIDE
             or track.last_action_label == "Analyzing..."
@@ -931,7 +1028,7 @@ class ActionRecognitionPipeline:
             label, confidence, next_ema = self._infer_action_from_window(
                 track.buffer,
                 track.score_ema,
-                use_tta=False,  # always single-pass for video
+                use_tta=False,
             )
             track.score_ema = next_ema
             track.last_action_label = label
@@ -1017,7 +1114,6 @@ class ActionRecognitionPipeline:
         state.buffer.append(stabilized)
         state.missed_frames = 0
 
-        # WebSocket single-frame path: respect the global TTA flag.
         action_label, action_conf, next_ema = self._infer_action_from_window(
             state.buffer,
             state.score_ema,
@@ -1045,12 +1141,6 @@ class ActionRecognitionPipeline:
             "timing_ms": round(elapsed_ms, 3),
         }
 
-    # ── Optimisation 4: producer-consumer pipeline.
-    # Three threads run concurrently:
-    #   • decoder   — reads frames from disk into decode_q
-    #   • inferencer — runs YOLO + SODE on each frame, puts annotated frames into result_q
-    #   • main loop  — drains result_q and writes frames to VideoWriter
-    # This keeps the GPU busy while I/O and encoding happen in parallel.
     def _infer_video_file_sync(
         self,
         input_path: Path,
@@ -1059,7 +1149,6 @@ class ActionRecognitionPipeline:
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
 
-        # ── Probe video metadata without fully opening the capture in the main thread.
         probe_cap = cv2.VideoCapture(str(input_path))
         if not probe_cap.isOpened():
             raise RuntimeError("Could not open uploaded video file.")
@@ -1093,8 +1182,6 @@ class ActionRecognitionPipeline:
         except RuntimeError:
             raise
 
-        # stop_event is set by any thread that encounters a fatal error so that all
-        # other threads can exit their loops without blocking on a full/empty queue.
         stop_event = threading.Event()
 
         decode_q: queue.Queue[tuple[int, np.ndarray] | None] = queue.Queue(maxsize=DECODE_QUEUE_SIZE)
@@ -1102,7 +1189,6 @@ class ActionRecognitionPipeline:
             maxsize=RESULT_QUEUE_SIZE
         )
 
-        # Mutable counters shared via a list (avoids nonlocal boilerplate).
         counters = {
             "detected_people_total": 0,
             "yolo_confidences": [],
@@ -1112,14 +1198,9 @@ class ActionRecognitionPipeline:
         tracks: dict[int, TrackState] = {}
         thread_errors: list[Exception] = []
 
-        # ── Helpers: non-blocking put/get that respect stop_event.
-        # Using a timeout loop instead of a bare blocking call means that if the
-        # consuming thread dies (and therefore never drains the queue), the producing
-        # thread will notice stop_event is set and exit cleanly rather than hanging.
-        _Q_TIMEOUT = 0.1  # seconds between stop_event checks
+        _Q_TIMEOUT = 0.1
 
         def _put(q: queue.Queue, item: Any) -> bool:
-            """Put item onto q; return False immediately if stop_event is set."""
             while not stop_event.is_set():
                 try:
                     q.put(item, timeout=_Q_TIMEOUT)
@@ -1129,7 +1210,6 @@ class ActionRecognitionPipeline:
             return False
 
         def _get(q: queue.Queue) -> Any:
-            """Get from q; return _STOP sentinel if stop_event is set."""
             while not stop_event.is_set():
                 try:
                     return q.get(timeout=_Q_TIMEOUT)
@@ -1137,10 +1217,8 @@ class ActionRecognitionPipeline:
                     continue
             return _STOP
 
-        # Unique object used as an "abort" sentinel distinct from None (end-of-stream).
         _STOP = object()
 
-        # ── Thread 1: Decode frames from disk.
         def decoder() -> None:
             cap = cv2.VideoCapture(str(input_path))
             try:
@@ -1151,8 +1229,8 @@ class ActionRecognitionPipeline:
                         break
                     idx += 1
                     if not _put(decode_q, (idx, frame)):
-                        return  # stop_event was set; bail out
-                _put(decode_q, None)  # normal end-of-stream sentinel
+                        return
+                _put(decode_q, None)
             except Exception as exc:
                 thread_errors.append(exc)
                 stop_event.set()
@@ -1160,17 +1238,14 @@ class ActionRecognitionPipeline:
             finally:
                 cap.release()
 
-        # ── Thread 2: YOLO + SODE inference on each decoded frame.
         def inferencer() -> None:
             try:
                 while True:
                     item = _get(decode_q)
                     if item is _STOP:
-                        # stop_event was set by another thread — forward abort sentinel.
                         _put(result_q, None)
                         return
                     if item is None:
-                        # Normal end-of-stream.
                         _put(result_q, None)
                         break
 
@@ -1276,7 +1351,6 @@ class ActionRecognitionPipeline:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
                         )
 
-                    # Evict stale tracks.
                     for tid in list(tracks.keys()):
                         if tid in matched_track_ids:
                             continue
@@ -1285,18 +1359,16 @@ class ActionRecognitionPipeline:
                             del tracks[tid]
 
                     if not _put(result_q, (frame_index, frame, None)):
-                        return  # stop_event was set; bail out
+                        return
 
             except Exception as exc:
                 thread_errors.append(exc)
                 stop_event.set()
-                # Best-effort: unblock main thread so it can see thread_errors.
                 try:
                     result_q.put_nowait(None)
                 except queue.Full:
                     pass
 
-        # ── Main thread: drain result_q and write annotated frames to disk.
         t_decode = threading.Thread(target=decoder, daemon=True)
         t_infer = threading.Thread(target=inferencer, daemon=True)
         t_decode.start()
@@ -1306,8 +1378,6 @@ class ActionRecognitionPipeline:
         try:
             while True:
                 item = _get(result_q)
-                # _STOP means stop_event fired (a thread error); break and let the
-                # thread_errors check below raise the real exception.
                 if item is None or item is _STOP:
                     break
                 frame_index, annotated_frame, _ = item
@@ -1410,7 +1480,6 @@ def run_video_inference_job(
             progress_message="Starting inference pipeline...",
         )
 
-        # ── Optimisation 5: skip re-transcode if upload is already browser-compatible H.264.
         update_inference_job(
             job_id,
             status="processing",
@@ -1515,12 +1584,65 @@ def healthcheck() -> dict[str, Any]:
         "output_video_format": OUTPUT_VIDEO_FORMAT,
         "preview_retention_seconds": PREVIEW_RETENTION_SECONDS,
         "cwd": os.getcwd(),
-        # Expose optimisation settings so you can verify them at runtime.
         "action_inference_stride": ACTION_INFERENCE_STRIDE,
         "tta_enabled": INFERENCE_TTA_ENABLED,
         "torch_compile_enabled": os.getenv("TORCH_COMPILE", "0") == "1",
+        "active_model": app.state.pipeline.active_model_name if pipeline_loaded else None,
     }
 
+
+# ── Model registry endpoints ──────────────────────────────────────────────────
+
+@app.get("/api/models")
+def list_models() -> dict[str, Any]:
+    """
+    Return all discoverable InfoGCN checkpoints and which one is currently active.
+
+    Response shape:
+    {
+        "folders": {
+            "model_16": ["best_model_1", "best_model_2", ...],
+            "model_64": ["best_model_1", ...]
+        },
+        "active_model": "model_16/best_model_1"
+    }
+    """
+    registry = discover_action_models()
+    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    return {
+        "folders": {
+            folder: sorted(checkpoints.keys())
+            for folder, checkpoints in sorted(registry.items())
+        },
+        "active_model": pipeline.active_model_name,
+    }
+
+
+@app.post("/api/models/active")
+def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
+    """
+    Hot-swap the InfoGCN action model at runtime.
+
+    Request body: { "model_name": "model64" }
+
+    The swap blocks until the new weights are loaded; ongoing inference jobs
+    finish with the old model before the switch takes effect.
+    """
+    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    try:
+        pipeline.swap_action_model(body.model_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Model swap failed: {exc}") from exc
+
+    return {
+        "active_model": pipeline.active_model_name,
+        "status": "swapped",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/api/infer-video")
 async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:

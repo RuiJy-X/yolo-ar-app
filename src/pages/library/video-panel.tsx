@@ -1,5 +1,6 @@
 import type { RefObject, ChangeEventHandler } from "react";
 import { Button } from "@/components/ui/button";
+import ModelSelector from "@/components/model-selector";
 
 type VideoPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -61,6 +62,8 @@ const VideoPanel = ({
         <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading ">
           Inference Video Panel
         </div>
+        <ModelSelector />
+
         <div className="flex items-center gap-2">
           <button
             type="button"

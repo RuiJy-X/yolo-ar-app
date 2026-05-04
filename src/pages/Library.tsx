@@ -121,6 +121,7 @@ const Library = () => {
       {/* Main content area: flex column, fills remaining height, no overflow */}
       <div className="flex flex-col w-full min-h-0 flex-1 overflow-hidden">
         {/* Metrics row — fixed height, no shrink/grow */}
+
         <div
           id="metrics-row"
           className="w-full overflow-hidden"
