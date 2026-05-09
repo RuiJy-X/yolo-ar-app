@@ -182,6 +182,7 @@ function InstanceCard({
           <User className="size-3.5" />P{instance.personId}
         </span>
         <span className="font-mono text-xs text-black/70 font-semibold">
+          Time Stamp:{" "}
           {isSingleFrame
             ? shortTs(instance.startTimestamp)
             : `${shortTs(instance.startTimestamp)} – ${shortTs(instance.endTimestamp)}`}
@@ -190,20 +191,15 @@ function InstanceCard({
 
       {/* Row 2: confidence bar + frame count (secondary) */}
       <div className="mt-2 flex items-center gap-2">
-        {/* Confidence bar */}
-        <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${confPct}%`, backgroundColor: color }}
-          />
-        </div>
         <span
           className="text-xs font-semibold min-w-[36px] text-right"
           style={{ color }}
         >
+          <span className="text-xs text-black/50 font-mono">Confidence:</span>{" "}
           {confPct}%
         </span>
-        <span className="text-xs text-black/30 font-mono">
+        <span className="text-xs text-black/50 font-mono">
+          <span className="text-xs text-black/50 font-mono">Frame Count:</span>{" "}
           {instance.frameCount}f
         </span>
       </div>
@@ -245,6 +241,9 @@ function ActionSummaryRow({
         className="text-xs font-semibold px-2 py-0.5 rounded-full"
         style={{ backgroundColor: bg, color: text }}
       >
+        <span className="text-xs text-black/50 font-mono">
+          Average Confidence:
+        </span>{" "}
         {confPct}%
       </span>
       {/* Instance count */}

@@ -30,7 +30,11 @@ type DraftConfig = {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-const Config = () => {
+type ConfigProps = {
+  className?: string;
+};
+
+const Config = ({ className }: ConfigProps) => {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [draft, setDraft] = useState<DraftConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,7 +140,11 @@ const Config = () => {
 
   if (loading || !draft || !config) {
     return (
-      <div className="rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm">
+      <div
+        className={`rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm flex flex-col h-full ${
+          className ?? ""
+        }`}
+      >
         <div className="text-xs font-semibold uppercase text-[#344054]/70">
           Model Configuration
         </div>
@@ -146,7 +154,11 @@ const Config = () => {
   }
 
   return (
-    <div className="rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm ">
+    <div
+      className={`rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm flex flex-col min-h-0 ${
+        className ?? ""
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div className="text-xs font-semibold uppercase text-[#344054]">
           Model Configuration
@@ -170,15 +182,15 @@ const Config = () => {
         </div>
       )}
 
-      <div className="mt-3 grid gap-7">
-        <div className="grid gap-1.5">
+      <div className="mt-3 grid gap-4 overflow-auto min-h-0">
+        <div className="grid gap-1.5 p-1">
           <label className="text-xs font-semibold text-primary">
             YOLO Pose Model
           </label>
           <select
             value={draft.yolo_model}
             onChange={(e) => setDraft({ ...draft, yolo_model: e.target.value })}
-            className="w-full rounded-md border border-[#D6E4FF] bg-white px-2.5 py-2 text-xs font-medium text-[#1D2939]"
+            className="w-full rounded-md border border-[#D6E4FF] bg-white p-2  text-xs font-medium text-[#1D2939]"
           >
             {config.yolo_models.map((model) => (
               <option key={model.key} value={model.key}>
@@ -271,7 +283,7 @@ const Config = () => {
           </label>
 
           {draft.action_threshold_mode === "uniform" ? (
-            <label className="grid grid-cols-[auto_1fr] items-center gap-3 text-xs text-[#344054]">
+            <label className="grid grid-cols-[auto_1fr] items-center m-1 gap-3 text-xs text-[#344054]">
               Threshold
               <input
                 type="number"
@@ -290,7 +302,7 @@ const Config = () => {
               {actions.map((action) => (
                 <label
                   key={action}
-                  className="grid gap-1 text-xs text-[#344054]"
+                  className="grid gap-1 text-xs text-[#344054] m-1"
                 >
                   {action}
                   <input
