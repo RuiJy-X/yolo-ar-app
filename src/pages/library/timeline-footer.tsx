@@ -225,15 +225,6 @@ const TimelineFooter = ({
       style={{ height }}
       className="w-full rounded-xl border border-[#DBEAFE] bg-[#F8FAFF] flex flex-col relative"
     >
-      {/* Drag handle */}
-      <div
-        onMouseDown={onDividerMouseDown}
-        className="absolute inset-x-0 top-0 flex items-center justify-center cursor-ns-resize"
-        style={{ height: 10, zIndex: 10, marginTop: -5 }}
-      >
-        <div className="w-12 h-1 rounded-full bg-[#BFDBFE]" />
-      </div>
-
       <div className="flex flex-col h-full px-4 pt-4 pb-2 gap-3 min-h-0 overflow-hidden">
         {/* ── Row 1: Play + Title + Zoom + Layers + Time ── */}
         <div className="flex items-center gap-2 shrink-0">
