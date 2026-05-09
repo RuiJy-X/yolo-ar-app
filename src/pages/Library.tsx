@@ -4,6 +4,7 @@ import Logs from "@/components/Logs";
 import { useLibraryState } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
+import Config from "./library/config";
 
 const Library = () => {
   // ── Resize: timeline height (vertical drag) ──────────────────────────────
@@ -105,43 +106,69 @@ const Library = () => {
         {/* Video + Logs row — takes all space above the timeline */}
         <div
           ref={containerRef}
-          className="flex w-full overflow-hidden"
+          className="flex w-full h-full overflow-hidden"
           style={{ flex: "1 1 0", minHeight: 0, gap: 0 }}
         >
           <div
-            className="overflow-hidden"
+            className="flex flex-col h-full overflow-hidden"
             style={{
               flex: leftWidthPx ? `0 0 ${leftWidthPx}px` : "1 1 60%",
               minWidth: 300,
               minHeight: 0,
             }}
           >
-            <VideoPanel
-              fileInputRef={fileInputRef}
-              videoPlayerRef={videoPlayerRef}
-              file={file}
-              sourceVideoUrl={sourceVideoUrl}
-              resultVideoUrl={resultVideoUrl}
-              resultDownloadUrl={resultDownloadUrl}
-              isSubmitting={isSubmitting}
-              isDownloading={isDownloading}
-              progressPercent={progressPercent}
-              progressMessage={progressMessage}
-              progressFrameIndex={progressFrameIndex}
-              progressTotalFrames={progressTotalFrames}
-              onFileChange={handleFileChange}
-              onRunInference={handleRunInference}
-              onDownload={handleDownload}
-              onVideoLoaded={(duration, currentTime) => {
-                setVideoDurationSeconds(duration);
-                setCurrentTimeSeconds(currentTime);
-              }}
-              onTimeUpdate={setCurrentTimeSeconds}
-              onSourcePlaybackError={setSourcePlaybackError}
-              onResultPlaybackError={setResultPlaybackError}
-              onClearResult={() => setResultVideoUrl(null)}
-              onPlaybackStateChange={handlePlaybackStateChange}
-            />
+            <div className="flex-1 min-h-0">
+              <VideoPanel
+                fileInputRef={fileInputRef}
+                videoPlayerRef={videoPlayerRef}
+                file={file}
+                sourceVideoUrl={sourceVideoUrl}
+                resultVideoUrl={resultVideoUrl}
+                resultDownloadUrl={resultDownloadUrl}
+                isSubmitting={isSubmitting}
+                isDownloading={isDownloading}
+                progressPercent={progressPercent}
+                progressMessage={progressMessage}
+                progressFrameIndex={progressFrameIndex}
+                progressTotalFrames={progressTotalFrames}
+                onFileChange={handleFileChange}
+                onRunInference={handleRunInference}
+                onDownload={handleDownload}
+                onVideoLoaded={(duration, currentTime) => {
+                  setVideoDurationSeconds(duration);
+                  setCurrentTimeSeconds(currentTime);
+                }}
+                onTimeUpdate={setCurrentTimeSeconds}
+                onSourcePlaybackError={setSourcePlaybackError}
+                onResultPlaybackError={setResultPlaybackError}
+                onClearResult={() => setResultVideoUrl(null)}
+                onPlaybackStateChange={handlePlaybackStateChange}
+              />
+            </div>
+
+            {/* Timeline footer */}
+
+            {(resultVideoUrl || sourceVideoUrl) && (
+              <div
+                style={{
+                  flexShrink: 0,
+                  marginTop: 8,
+                  borderTop: "1px solid #e5e7eb",
+                }}
+              >
+                <TimelineFooter
+                  height={timelineHeightPx}
+                  currentTimeSeconds={currentTimeSeconds}
+                  timelineDurationSeconds={timelineDurationSeconds}
+                  actionTimelineTags={actionTimelineTags}
+                  onDividerMouseDown={handleTimelineDividerMouseDown}
+                  onScrub={handleTimelineScrub}
+                  onSeekToFrame={seekToFrame}
+                  isPlaying={isPlaying}
+                  onPlayPause={togglePlayPause}
+                />
+              </div>
+            )}
           </div>
 
           {/* Column resize divider */}
@@ -167,27 +194,11 @@ const Library = () => {
           <div
             className="h-full"
             style={{ flex: "1 1 0", minWidth: 200, minHeight: 0 }}
-          >
+          > 
+            <Config />
             <Logs analysis={analysis} onSeekToFrame={seekToFrame} />
           </div>
         </div>
-
-        {/* Timeline footer */}
-        {(resultVideoUrl || sourceVideoUrl) && (
-          <div style={{ flexShrink: 0, marginTop: 8 }}>
-            <TimelineFooter
-              height={timelineHeightPx}
-              currentTimeSeconds={currentTimeSeconds}
-              timelineDurationSeconds={timelineDurationSeconds}
-              actionTimelineTags={actionTimelineTags}
-              onDividerMouseDown={handleTimelineDividerMouseDown}
-              onScrub={handleTimelineScrub}
-              onSeekToFrame={seekToFrame}
-              isPlaying={isPlaying}
-              onPlayPause={togglePlayPause}
-            />
-          </div>
-        )}
       </div>
     </AppLayout>
   );
