@@ -83,6 +83,7 @@ const Library = () => {
     currentTimeSeconds,
     actionTimelineTags,
     timelineDurationSeconds,
+    isPlaying,
     setCurrentTimeSeconds,
     setVideoDurationSeconds,
     setResultVideoUrl,
@@ -93,6 +94,8 @@ const Library = () => {
     handleDownload,
     handleTimelineScrub,
     seekToFrame,
+    togglePlayPause,
+    handlePlaybackStateChange,
   } = useLibraryState();
 
   return (
@@ -137,6 +140,7 @@ const Library = () => {
               onSourcePlaybackError={setSourcePlaybackError}
               onResultPlaybackError={setResultPlaybackError}
               onClearResult={() => setResultVideoUrl(null)}
+              onPlaybackStateChange={handlePlaybackStateChange}
             />
           </div>
 
@@ -170,7 +174,7 @@ const Library = () => {
 
         {/* Timeline footer */}
         {(resultVideoUrl || sourceVideoUrl) && (
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ flexShrink: 0, marginTop: 8 }}>
             <TimelineFooter
               height={timelineHeightPx}
               currentTimeSeconds={currentTimeSeconds}
@@ -179,6 +183,8 @@ const Library = () => {
               onDividerMouseDown={handleTimelineDividerMouseDown}
               onScrub={handleTimelineScrub}
               onSeekToFrame={seekToFrame}
+              isPlaying={isPlaying}
+              onPlayPause={togglePlayPause}
             />
           </div>
         )}

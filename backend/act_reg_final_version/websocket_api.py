@@ -591,10 +591,8 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
     model.to(device).eval()
 
     if device == "cuda":
-        try:
-            model = model.half()
-        except Exception:
-            pass
+        pass
+
 
     torch_compile_enabled = os.getenv("TORCH_COMPILE", "0") == "1"
     if torch_compile_enabled:
@@ -723,14 +721,14 @@ def build_summary_metrics_from_detections(
     non_analyzing_conf = [
         max(0.0, min(1.0, float(item.confidence)))
         for item in detections_log
-        if normalize_action_label(item.action_label).lower() != "analyzing..."
+        if normalize_action_label(item.action_label).lower() != "Unknown".lower()
     ]
     unique_frames = {item.frame_number for item in detections_log}
     action_groups: dict[str, list[float]] = {}
 
     for item in detections_log:
         label = normalize_action_label(item.action_label)
-        if label.lower() == "analyzing...":
+        if label.lower() == "Unknown".lower():
             continue
         action_groups.setdefault(label, []).append(max(0.0, min(1.0, float(item.confidence))))
 
@@ -874,7 +872,7 @@ class TrackState:
     score_ema: np.ndarray = field(default_factory=lambda: np.ones(4, dtype=np.float32) / 4.0)
     last_bbox: np.ndarray | None = None
     last_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
-    last_action_label: str = "Analyzing..."
+    last_action_label: str = "Unknown"
     last_action_conf: float = 0.0
     frames_since_inference: int = 0
 
@@ -882,7 +880,7 @@ class TrackState:
         self.buffer.clear()
         self.last_valid_keypoints.fill(0.0)
         self.score_ema = np.ones(4, dtype=np.float32) / 4.0
-        self.last_action_label = "Analyzing..."
+        self.last_action_label = "Unknown"
         self.last_action_conf = 0.0
         self.frames_since_inference = 0
 
@@ -982,11 +980,7 @@ class ActionRecognitionPipeline:
 
     def _build_input_tensor(self, window: deque[np.ndarray]) -> torch.Tensor:
         tensor = build_model_input(np.asarray(window, dtype=np.float32)).to(self.device)
-        if self.device == "cuda":
-            try:
-                tensor = tensor.half()
-            except Exception:
-                pass
+        # Removed .half() — keep everything float32 for cross-machine compatibility
         return tensor
 
     def _infer_action_from_window(
@@ -996,7 +990,7 @@ class ActionRecognitionPipeline:
         use_tta: bool = False,
     ) -> tuple[str, float, np.ndarray]:
         if len(window) < MIN_FRAMES_FOR_INFERENCE:
-            return "Analyzing...", 0.0, prev_ema
+            return "Unknown", 0.0, prev_ema
 
         model_input = self._build_input_tensor(window)
         # Take a local reference so a concurrent swap doesn't affect us mid-call.
@@ -1006,7 +1000,7 @@ class ActionRecognitionPipeline:
         next_ema = SCORE_EMA_ALPHA * prev_ema + (1.0 - SCORE_EMA_ALPHA) * probs
         pred_idx = int(np.argmax(next_ema))
         confidence = float(next_ema[pred_idx])
-        label = ACTION_MAP[pred_idx] if confidence >= DISPLAY_CONF_THRESH else "Analyzing..."
+        label = ACTION_MAP[pred_idx] if confidence >= DISPLAY_CONF_THRESH else "Unknown"
         return label, confidence, next_ema
 
     def _update_track_from_detection(
@@ -1027,7 +1021,7 @@ class ActionRecognitionPipeline:
 
         should_infer = (
             track.frames_since_inference >= ACTION_INFERENCE_STRIDE
-            or track.last_action_label == "Analyzing..."
+            or track.last_action_label == "Unknown"
         )
         if should_infer:
             label, confidence, next_ema = self._infer_action_from_window(
@@ -1311,7 +1305,7 @@ class ActionRecognitionPipeline:
                             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                             draw_pose(frame, track.last_keypoints, color)
                             caption = f"ID {best_track_id}: {label}"
-                            if label != "Analyzing...":
+                            if label != "Unknown":
                                 caption += f" {confidence * 100:.1f}%"
                             cv2.putText(
                                 frame, caption, (x1, max(24, y1 - 8)),
@@ -1349,7 +1343,7 @@ class ActionRecognitionPipeline:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                         draw_pose(frame, track.last_keypoints, color)
                         caption = f"ID {track_id}: {label}"
-                        if label != "Analyzing...":
+                        if label != "Unknown":
                             caption += f" {confidence * 100:.1f}%"
                         cv2.putText(
                             frame, caption, (x1, max(24, y1 - 8)),
@@ -1747,49 +1741,49 @@ def analyze_video(request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
     )
 
 
-@app.websocket("/ws/action-recognition")
-async def action_recognition_websocket(websocket: WebSocket) -> None:
-    await websocket.accept()
-    state = ClientState()
+# @app.websocket("/ws/action-recognition")
+# async def action_recognition_websocket(websocket: WebSocket) -> None:
+#     await websocket.accept()
+#     state = ClientState()
 
-    try:
-        while True:
-            message = await websocket.receive()
-            if message.get("type") == "websocket.disconnect":
-                break
+#     try:
+#         while True:
+#             message = await websocket.receive()
+#             if message.get("type") == "websocket.disconnect":
+#                 break
 
-            frame: np.ndarray | None = None
-            error: str | None = None
+#             frame: np.ndarray | None = None
+#             error: str | None = None
 
-            payload_bytes = message.get("bytes")
-            payload_text = message.get("text")
+#             payload_bytes = message.get("bytes")
+#             payload_text = message.get("text")
 
-            if payload_bytes is not None:
-                frame = decode_frame_bytes(payload_bytes)
-                if frame is None:
-                    error = "Could not decode binary image payload."
-            elif payload_text is not None:
-                frame, error = parse_text_payload(payload_text)
-                if error == "ping":
-                    await websocket.send_json({"type": "pong"})
-                    continue
-            else:
-                error = "Unsupported websocket message type."
+#             if payload_bytes is not None:
+#                 frame = decode_frame_bytes(payload_bytes)
+#                 if frame is None:
+#                     error = "Could not decode binary image payload."
+#             elif payload_text is not None:
+#                 frame, error = parse_text_payload(payload_text)
+#                 if error == "ping":
+#                     await websocket.send_json({"type": "pong"})
+#                     continue
+#             else:
+#                 error = "Unsupported websocket message type."
 
-            if error:
-                await websocket.send_json({"type": "error", "message": error})
-                continue
+#             if error:
+#                 await websocket.send_json({"type": "error", "message": error})
+#                 continue
 
-            if frame is None:
-                await websocket.send_json({"type": "error", "message": "Frame payload missing."})
-                continue
+#             if frame is None:
+#                 await websocket.send_json({"type": "error", "message": "Frame payload missing."})
+#                 continue
 
-            state.frame_index += 1
-            result = await app.state.pipeline.infer_frame(frame, state)
-            await websocket.send_json(result)
+#             state.frame_index += 1
+#             result = await app.state.pipeline.infer_frame(frame, state)
+#             await websocket.send_json(result)
 
-    except WebSocketDisconnect:
-        return
-    except Exception as exc:
-        await websocket.send_json({"type": "error", "message": str(exc)})
-        await websocket.close(code=1011)
+#     except WebSocketDisconnect:
+#         return
+#     except Exception as exc:
+#         await websocket.send_json({"type": "error", "message": str(exc)})
+#         await websocket.close(code=1011)

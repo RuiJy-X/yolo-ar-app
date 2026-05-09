@@ -20,6 +20,7 @@ export const ACTION_TEXT: Record<string, string> = {
 };
 
 export const FALLBACK_COLORS = [
+  "#B91C1C",
   "#7F77DD",
   "#1D9E75",
   "#BA7517",
@@ -27,7 +28,6 @@ export const FALLBACK_COLORS = [
   "#D85A30",
   "#9333EA",
   "#0E7490",
-  "#B91C1C",
 ];
 
 export const getActionColor = (action: string): string =>

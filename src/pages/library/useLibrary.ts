@@ -141,6 +141,7 @@ export const useLibraryState = () => {
   );
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(0);
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const replaceSourceVideoUrl = (nextUrl: string | null) => {
     setSourceVideoUrl((previous) => {
@@ -382,15 +383,16 @@ export const useLibraryState = () => {
     if (!videoPlayerRef.current || !Number.isFinite(frame)) return;
     const safeFps = seekFps > 0 ? seekFps : 30;
     const nextTime = Math.max(0, frame / safeFps);
+    videoPlayerRef.current.pause();
     videoPlayerRef.current.currentTime = nextTime;
     setCurrentTimeSeconds(nextTime);
-    void videoPlayerRef.current.play().catch(() => {});
   };
 
   const handleTimelineScrub: ChangeEventHandler<HTMLInputElement> = (event) => {
     const nextTime = Number(event.target.value);
     if (!Number.isFinite(nextTime) || !videoPlayerRef.current) return;
     const clamped = Math.max(0, Math.min(timelineDurationSeconds, nextTime));
+    videoPlayerRef.current.pause();
     videoPlayerRef.current.currentTime = clamped;
     setCurrentTimeSeconds(clamped);
   };
@@ -455,6 +457,23 @@ export const useLibraryState = () => {
     };
   }, [sourceVideoUrl]);
 
+  const togglePlayPause = () => {
+    const video = videoPlayerRef.current;
+    if (!video) return;
+
+    if (video.paused) {
+      video.play().catch((err) => {
+        console.error("Playback failed:", err);
+      });
+    } else {
+      video.pause();
+    }
+  };
+
+  const handlePlaybackStateChange = (playing: boolean) => {
+    setIsPlaying(playing);
+  };
+
   return {
     // refs
     fileInputRef,
@@ -480,6 +499,7 @@ export const useLibraryState = () => {
     currentTimeSeconds,
     actionTimelineTags,
     timelineDurationSeconds,
+    isPlaying,
     // setters needed by child components
     setSourcePlaybackError,
     setResultPlaybackError,
@@ -494,5 +514,8 @@ export const useLibraryState = () => {
     handleDownload,
     clearSessionVideos,
     restoreRecentVideo,
+
+    togglePlayPause,
+    handlePlaybackStateChange,
   };
 };

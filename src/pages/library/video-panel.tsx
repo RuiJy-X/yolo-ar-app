@@ -23,6 +23,7 @@ type VideoPanelProps = {
   onSourcePlaybackError: (msg: string | null) => void;
   onResultPlaybackError: (msg: string | null) => void;
   onClearResult: () => void;
+  onPlaybackStateChange: (playing: boolean) => void;
 };
 
 const VideoPanel = ({
@@ -46,6 +47,7 @@ const VideoPanel = ({
   onSourcePlaybackError,
   onResultPlaybackError,
   onClearResult,
+  onPlaybackStateChange,
 }: VideoPanelProps) => {
   return (
     <div className="rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm h-full flex-1 flex flex-col">
@@ -59,41 +61,32 @@ const VideoPanel = ({
 
       {/* Header */}
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading ">
-          Inference Video Panel
+        <div className="text-sm font-bold uppercase text-[#344054] font-heading ">
+          Video Playback
         </div>
         <ModelSelector />
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="text-sm font-semibold text-[#1D4ED8] underline underline-offset-2"
-          >
-            {file || sourceVideoUrl || resultVideoUrl
-              ? "Upload Another Video"
-              : "Upload Video"}
-          </button>
+          {(file || sourceVideoUrl || resultVideoUrl) && (
+            <Button type="button" onClick={() => fileInputRef.current?.click()}>
+              Upload Video
+            </Button>
+          )}
 
           {file && !isSubmitting && !resultVideoUrl && (
             <Button onClick={onRunInference}>Analyze</Button>
           )}
 
           {resultDownloadUrl && !isSubmitting && (
-            <button
-              type="button"
-              onClick={onDownload}
-              disabled={isDownloading}
-              className="text-sm font-semibold text-[#1D4ED8] underline underline-offset-2 disabled:text-[#94A3B8]"
-            >
+            <Button type="button" onClick={onDownload} disabled={isDownloading}>
               {isDownloading ? "Downloading..." : "Download"}
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       {/* Video container */}
-      <div className="w-full h-full rounded-md bg-black">
+      <div className="flex flex-1 flex-col w-full min-h-0 rounded-md bg-black  ">
         {sourceVideoUrl || resultVideoUrl ? (
           <video
             ref={videoPlayerRef}
@@ -113,6 +106,8 @@ const VideoPanel = ({
               onSourcePlaybackError(null);
               onResultPlaybackError(null);
             }}
+            onPlay={() => onPlaybackStateChange(true)}
+            onPause={() => onPlaybackStateChange(false)}
             onError={() => {
               if (resultVideoUrl && sourceVideoUrl) {
                 onResultPlaybackError(
@@ -128,7 +123,7 @@ const VideoPanel = ({
             className="h-full w-full object-contain"
           />
         ) : (
-          <div className="flex items-center justify-center border border-dashed border-[#CBD5E1] bg-[#F8FAFC] h-full px-4 text-center">
+          <div className="flex items-center justify-center border border-dashed border-[#CBD5E1] bg-[#F8FAFC] flex-1 px-4 text-center">
             <div>
               <div className="text-sm text-[#64748B]">
                 No video uploaded yet.
@@ -137,7 +132,7 @@ const VideoPanel = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="mt-3"
               >
-                Upload Any Video File
+                Upload Video
               </Button>
             </div>
           </div>
