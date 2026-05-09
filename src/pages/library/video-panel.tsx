@@ -1,6 +1,5 @@
 import type { RefObject, ChangeEventHandler } from "react";
 import { Button } from "@/components/ui/button";
-import ModelSelector from "@/components/model-selector";
 
 type VideoPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -15,9 +14,12 @@ type VideoPanelProps = {
   progressMessage: string | null;
   progressFrameIndex: number | null;
   progressTotalFrames: number | null;
+  canSaveToHistory: boolean;
+  historySavedAt: number | null;
   onFileChange: ChangeEventHandler<HTMLInputElement>;
   onRunInference: () => void;
   onDownload: () => void;
+  onSaveToHistory: () => void;
   onVideoLoaded: (duration: number, currentTime: number) => void;
   onTimeUpdate: (currentTime: number) => void;
   onSourcePlaybackError: (msg: string | null) => void;
@@ -39,9 +41,12 @@ const VideoPanel = ({
   progressMessage,
   progressFrameIndex,
   progressTotalFrames,
+  canSaveToHistory,
+  historySavedAt,
   onFileChange,
   onRunInference,
   onDownload,
+  onSaveToHistory,
   onVideoLoaded,
   onTimeUpdate,
   onSourcePlaybackError,
@@ -74,6 +79,17 @@ const VideoPanel = ({
 
           {file && !isSubmitting && !resultVideoUrl && (
             <Button onClick={onRunInference}>Analyze</Button>
+          )}
+
+          {(resultVideoUrl || sourceVideoUrl) && (
+            <Button
+              type="button"
+              onClick={onSaveToHistory}
+              disabled={!canSaveToHistory}
+              variant={historySavedAt ? "secondary" : "default"}
+            >
+              {historySavedAt ? "Saved" : "Save to History"}
+            </Button>
           )}
 
           {resultDownloadUrl && !isSubmitting && (

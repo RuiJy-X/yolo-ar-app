@@ -48,3 +48,16 @@ export type SessionVideoEntry = {
   createdAt: number;
   expiresAt: number;
 };
+
+export type HistoryListEntry = {
+  id: string;
+  videoUrl: string;
+  sourceVideoUrl?: string | null;
+  summary: string;
+  filename: string;
+  createdAt: number;
+};
+
+export type HistoryEntry = HistoryListEntry & {
+  analysis: AnalyzeVideoResponse;
+};

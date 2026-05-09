@@ -1,6 +1,7 @@
-import type { SessionVideoEntry } from "./types";
+import type { HistoryEntry, SessionVideoEntry } from "./types";
 
 const SESSION_MAX_ITEMS = 4;
+const HISTORY_MAX_ITEMS = 50;
 
 export const getFilenameFromUrl = (
   url: string,
@@ -30,6 +31,16 @@ export const toAbsoluteUrl = (url: string, apiBaseUrl: string) => {
 export const withCacheBust = (url: string) => {
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}t=${Date.now()}`;
+};
+
+export const stripCacheBust = (url: string) => {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    parsed.searchParams.delete("t");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 };
 
 export const pruneSessionEntries = (entries: SessionVideoEntry[]) => {
@@ -74,4 +85,68 @@ export const loadSessionEntries = (storageKey: string): SessionVideoEntry[] => {
   } catch {
     return [];
   }
+};
+
+export const pruneHistoryEntries = (entries: HistoryEntry[]) => {
+  return entries
+    .filter(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof entry.id === "string",
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, HISTORY_MAX_ITEMS);
+};
+
+export const loadHistoryEntries = (storageKey: string): HistoryEntry[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const entries = parsed.filter((item): item is HistoryEntry => {
+      return (
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.id === "string" &&
+        typeof item.videoUrl === "string" &&
+        typeof item.downloadUrl === "string" &&
+        typeof item.summary === "string" &&
+        typeof item.filename === "string" &&
+        typeof item.createdAt === "number" &&
+        typeof (item as HistoryEntry).analysis === "object"
+      );
+    });
+
+    return pruneHistoryEntries(entries);
+  } catch {
+    return [];
+  }
+};
+
+export const persistHistoryEntries = (
+  storageKey: string,
+  entries: HistoryEntry[],
+) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (entries.length === 0) {
+    window.localStorage.removeItem(storageKey);
+    return;
+  }
+
+  window.localStorage.setItem(storageKey, JSON.stringify(entries));
 };

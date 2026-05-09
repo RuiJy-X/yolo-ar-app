@@ -1,4 +1,11 @@
-import { Activity, AlertTriangle, ChevronDown, User } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Activity,
+  AlertTriangle,
+  ChevronDown,
+  Clock,
+  User,
+} from "lucide-react";
 import type { AnalyzeVideoResponse, AlertEvent } from "@/lib/types";
 import {
   getActionColor,
@@ -109,48 +116,72 @@ const shortTs = (ts: string) => ts.replace(/^00:/, "");
 function AlertCard({
   alert,
   onSeekToFrame,
+  frameTimestampMap,
 }: {
   alert: AlertEvent;
   onSeekToFrame: (frame: number) => void;
+  frameTimestampMap: Map<number, string>;
 }) {
   const runLength = alert.end_frame - alert.start_frame + 1;
   const severity = alert.severity_level.toLowerCase();
+  const startTs =
+    alert.start_timestamp || frameTimestampMap.get(alert.start_frame) || "";
+  const endTs =
+    alert.end_timestamp || frameTimestampMap.get(alert.end_frame) || "";
 
   return (
-    <button
+    <motion.button
+      initial={{ opacity: 0, y: 5 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
       type="button"
       onClick={() => onSeekToFrame(alert.start_frame)}
-      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-red-400/60"
+      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-red-400/60 hover:shadow-sm group"
     >
-      <div className="flex items-center justify-between">
-        {/* Primary: timestamps */}
-        <span className="text-sm font-semibold text-black/90 font-heading font-mono">
-          {shortTs(alert.start_timestamp ?? "")} –{" "}
-          {shortTs(alert.end_timestamp ?? "")}
+      <div className="flex items-center justify-between gap-2">
+        {/* Primary: trimmed timestamps */}
+        <span className="text-sm font-bold text-black/90 font-mono whitespace-nowrap">
+          {shortTs(startTs)} – {shortTs(endTs)}
         </span>
+
+        {/* Severity Badge */}
         <span
-          className={`rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${
+          className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold ${
             SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.medium
           }`}
         >
           {alert.severity_level}
         </span>
       </div>
-      {/* Secondary: frame range for technical reference */}
-      <div className="mt-1 flex items-center gap-1.5 text-xs text-black/40 font-mono">
-        frames {alert.start_frame}–{alert.end_frame}
-        <span className="mx-0.5">·</span>
-        <span
-          className={`inline-block size-1.5 rounded-full ${
-            SEVERITY_DOT[severity] ?? SEVERITY_DOT.medium
-          }`}
-        />
-        <User className="size-3" />
-        Person {alert.person_id}
-        <span className="mx-0.5">·</span>
-        {runLength} frames
+
+      {/* Secondary: technical reference */}
+      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-black/40 font-mono">
+        <span className="shrink-0">
+          f{alert.start_frame}–{alert.end_frame}
+        </span>
+        <span className="mx-0.5 opacity-50">·</span>
+
+        {/* Animated Status Dot */}
+        <div className="relative flex items-center justify-center">
+          <span
+            className={`size-1.5 rounded-full ${SEVERITY_DOT[severity] ?? SEVERITY_DOT.medium}`}
+          />
+          {severity === "high" && (
+            <span
+              className={`absolute size-1.5 rounded-full animate-ping opacity-75 ${SEVERITY_DOT[severity]}`}
+            />
+          )}
+        </div>
+
+        <User className="size-3 -ml-0.5 opacity-70" />
+        <span className="truncate">P{alert.person_id}</span>
+        <span className="mx-0.5 opacity-50">·</span>
+        <span className="shrink-0 group-hover:text-black/60 transition-colors">
+          {runLength} frames
+        </span>
       </div>
-    </button>
+    </motion.button>
   );
 }
 
@@ -169,6 +200,12 @@ function InstanceCard({
   const color = getActionColor(action);
   const confPct = Math.round(instance.avgConfidence * 100);
 
+  // Helper to strip milliseconds
+  const cleanTs = (ts: string) => (ts.includes(".") ? ts.split(".")[0] : ts);
+
+  const startTime = cleanTs(shortTs(instance.startTimestamp));
+  const endTime = cleanTs(shortTs(instance.endTimestamp));
+
   return (
     <button
       type="button"
@@ -176,32 +213,28 @@ function InstanceCard({
       className="w-full rounded-md border bg-white px-3 py-2 text-left transition hover:brightness-95"
       style={{ borderColor: color + "55" }}
     >
-      {/* Row 1: person + timestamp (primary) */}
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs text-black/60">
-          <User className="size-3.5" />P{instance.personId}
-        </span>
-        <span className="font-mono text-xs text-black/70 font-semibold">
-          Time Stamp:{" "}
-          {isSingleFrame
-            ? shortTs(instance.startTimestamp)
-            : `${shortTs(instance.startTimestamp)} – ${shortTs(instance.endTimestamp)}`}
-        </span>
-      </div>
+      <div className="flex items-center justify-between gap-2">
+        {/* Left Side: Person & Confidence */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="flex items-center gap-1 text-xs text-black/60">
+            <User className="size-3.5" />P{instance.personId}
+          </span>
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+            style={{
+              color: getActionText(action),
+              backgroundColor: color + "20",
+            }}
+          >
+            {confPct}%
+          </span>
+        </div>
 
-      {/* Row 2: confidence bar + frame count (secondary) */}
-      <div className="mt-2 flex items-center gap-2">
-        <span
-          className="text-xs font-semibold min-w-[36px] text-right"
-          style={{ color }}
-        >
-          <span className="text-xs text-black/50 font-mono">Confidence:</span>{" "}
-          {confPct}%
-        </span>
-        <span className="text-xs text-black/50 font-mono">
-          <span className="text-xs text-black/50 font-mono">Frame Count:</span>{" "}
-          {instance.frameCount}f
-        </span>
+        {/* Right Side: Timestamps */}
+        <div className="flex items-center font-mono text-xs text-black/80 whitespace-nowrap overflow-hidden">
+          <Clock className="size-3.5 mr-1.5 flex-shrink-0" />
+          <span>{isSingleFrame ? startTime : `${startTime}–${endTime}`}</span>
+        </div>
       </div>
     </button>
   );
@@ -233,19 +266,16 @@ function ActionSummaryRow({
         style={{ backgroundColor: color }}
       />
       {/* Label */}
-      <span className="flex-1 font-semibold font-heading text-black/70 text-sm">
+      <div className="flex-1 font-semibold font-heading text-black/70 text-sm flex gap-2 items">
         {action}
-      </span>
-      {/* Confidence chip */}
-      <span
-        className="text-xs font-semibold px-2 py-0.5 rounded-full"
-        style={{ backgroundColor: bg, color: text }}
-      >
-        <span className="text-xs text-black/50 font-mono">
-          Average Confidence:
-        </span>{" "}
-        {confPct}%
-      </span>
+        {/* Confidence chip */}
+        <span
+          className="text-xs font-semibold px-2 py-0.5 rounded-full"
+          style={{ backgroundColor: bg, color: text }}
+        >
+          <span className="text-sm text-black/50 font-mono"></span> {confPct}%
+        </span>
+      </div>
       {/* Instance count */}
       <span className="text-xs text-gray-500">
         {instances.length} {instances.length === 1 ? "instance" : "instances"}
@@ -285,6 +315,15 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
     })
     .sort((a, b) => b.avgConfidence - a.avgConfidence);
 
+  const frameTimestampMap = new Map<number, string>();
+  Object.values(analysis.grouped_detections).forEach((entries) => {
+    (entries as Detection[]).forEach((entry) => {
+      if (entry.timestamp && !frameTimestampMap.has(entry.frame_number)) {
+        frameTimestampMap.set(entry.frame_number, entry.timestamp);
+      }
+    });
+  });
+
   const alerts = analysis.alert_events ?? [];
 
   return (
@@ -317,6 +356,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
                   key={`alert-${alert.person_id}-${alert.start_frame}`}
                   alert={alert}
                   onSeekToFrame={onSeekToFrame}
+                  frameTimestampMap={frameTimestampMap}
                 />
               ))}
             </div>

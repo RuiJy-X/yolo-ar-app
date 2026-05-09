@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { AnalyzeVideoResponse, Detection } from "@/lib/types";
 import type {
+  HistoryEntry,
   SessionVideoEntry,
   VideoInferenceJobStartResponse,
   VideoInferenceJobStatusResponse,
@@ -108,7 +109,7 @@ const buildActionTimelineTags = (
   return tags.sort((a, b) => a.startFrame - b.startFrame);
 };
 
-export const useLibraryState = () => {
+export const useLibraryState = (historyId?: string | null) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoPlayerRef = useRef<HTMLVideoElement | null>(null);
 
@@ -131,6 +132,7 @@ export const useLibraryState = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [analysis, setAnalysis] = useState<AnalyzeVideoResponse | null>(null);
   const [seekFps, setSeekFps] = useState<number>(30);
+  const [historySavedAt, setHistorySavedAt] = useState<number | null>(null);
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [progressFrameIndex, setProgressFrameIndex] = useState<number | null>(
@@ -369,6 +371,60 @@ export const useLibraryState = () => {
     }
   };
 
+  const saveToHistory = async () => {
+    if (!analysis) {
+      setError("Run the analysis before saving to history.");
+      return;
+    }
+
+    const rawVideoUrl = resultDownloadUrl ?? resultVideoUrl;
+    if (!rawVideoUrl) {
+      setError("No annotated video is available to save.");
+      return;
+    }
+
+    const annotatedFilename = getFilenameFromUrl(rawVideoUrl);
+    if (!annotatedFilename) {
+      setError("Could not resolve the annotated filename.");
+      return;
+    }
+
+    const sourceFilename =
+      sourceVideoUrl && !sourceVideoUrl.startsWith("blob:")
+        ? getFilenameFromUrl(sourceVideoUrl)
+        : null;
+
+    setError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          annotatedFilename,
+          sourceFilename,
+          summary: summary ?? "Saved video analysis",
+          filename: annotatedFilename,
+          analysis,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | HistoryEntry
+        | { detail?: string };
+      if (!response.ok) {
+        throw new Error(
+          typeof payload === "object" && payload !== null && "detail" in payload
+            ? payload.detail || "Saving to history failed."
+            : "Saving to history failed.",
+        );
+      }
+
+      setHistorySavedAt(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const restoreRecentVideo = (entry: SessionVideoEntry) => {
     setResultPlaybackError(null);
     setAnalysis(null);
@@ -451,6 +507,65 @@ export const useLibraryState = () => {
   }, [recentVideos]);
 
   useEffect(() => {
+    if (!historySavedAt) return;
+    const timer = window.setTimeout(() => {
+      setHistorySavedAt(null);
+    }, 2200);
+    return () => window.clearTimeout(timer);
+  }, [historySavedAt]);
+
+  useEffect(() => {
+    if (!historyId) return;
+    let active = true;
+
+    const loadHistory = async () => {
+      setError(null);
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/history/${historyId}`);
+        const payload = (await response.json().catch(() => null)) as
+          | HistoryEntry
+          | { detail?: string };
+        if (!response.ok) {
+          throw new Error(
+            typeof payload === "object" &&
+              payload !== null &&
+              "detail" in payload
+              ? payload.detail || "History entry not found."
+              : "History entry not found.",
+          );
+        }
+
+        if (!active) return;
+        const entry = payload as HistoryEntry;
+        setAnalysis(entry.analysis ?? null);
+        setCurrentTimeSeconds(0);
+        setVideoDurationSeconds(0);
+        setResultPlaybackError(null);
+        setResultVideoUrl(
+          withCacheBust(toAbsoluteUrl(entry.videoUrl, apiBaseUrl)),
+        );
+        setResultDownloadUrl(toAbsoluteUrl(entry.videoUrl, apiBaseUrl));
+        setSummary(entry.summary ?? null);
+        if (entry.sourceVideoUrl) {
+          replaceSourceVideoUrl(
+            withCacheBust(toAbsoluteUrl(entry.sourceVideoUrl, apiBaseUrl)),
+          );
+        } else {
+          replaceSourceVideoUrl(null);
+        }
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
+
+    loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [historyId]);
+
+  useEffect(() => {
     return () => {
       if (sourceVideoUrl?.startsWith("blob:"))
         URL.revokeObjectURL(sourceVideoUrl);
@@ -500,6 +615,7 @@ export const useLibraryState = () => {
     actionTimelineTags,
     timelineDurationSeconds,
     isPlaying,
+    historySavedAt,
     // setters needed by child components
     setSourcePlaybackError,
     setResultPlaybackError,
@@ -512,6 +628,7 @@ export const useLibraryState = () => {
     seekToFrame,
     handleTimelineScrub,
     handleDownload,
+    saveToHistory,
     clearSessionVideos,
     restoreRecentVideo,
 

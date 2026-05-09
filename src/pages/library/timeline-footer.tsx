@@ -15,7 +15,6 @@ const formatSeconds = (seconds: number) => {
 };
 
 type TimelineFooterProps = {
-  height: number;
   currentTimeSeconds: number;
   timelineDurationSeconds: number;
   actionTimelineTags: ActionTimelineTag[];
@@ -48,13 +47,11 @@ function niceSpacing(raw: number): number {
 }
 
 const TimelineFooter = ({
-  height,
   currentTimeSeconds,
   timelineDurationSeconds,
   actionTimelineTags,
   isPlaying,
   onPlayPause,
-  onDividerMouseDown,
   onScrub,
   onSeekToFrame,
 }: TimelineFooterProps) => {
@@ -222,7 +219,6 @@ const TimelineFooter = ({
   return (
     <div
       id="timeline-footer"
-      style={{ height }}
       className="w-full rounded-xl border border-[#DBEAFE] bg-[#F8FAFF] flex flex-col relative"
     >
       <div className="flex flex-col h-full px-4 pt-4 pb-2 gap-3 min-h-0 overflow-hidden">

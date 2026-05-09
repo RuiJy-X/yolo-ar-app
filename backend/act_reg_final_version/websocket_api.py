@@ -71,6 +71,7 @@ OUTPUT_ROOT_DIR = CURRENT_DIR / "outputs"
 OUTPUT_UPLOAD_DIR = OUTPUT_ROOT_DIR / "uploads"
 OUTPUT_ANNOTATED_DIR = OUTPUT_ROOT_DIR / "annotated"
 OUTPUT_PREVIEW_DIR = OUTPUT_ROOT_DIR / "previews"
+OUTPUT_HISTORY_DIR = OUTPUT_ROOT_DIR / "history"
 ANNOTATED_RETENTION_SECONDS = int(os.getenv("ANNOTATED_RETENTION_SECONDS", "1800"))
 ANNOTATED_MAX_FILES = int(os.getenv("ANNOTATED_MAX_FILES", "8"))
 PREVIEW_RETENTION_SECONDS = int(os.getenv("PREVIEW_RETENTION_SECONDS", str(ANNOTATED_RETENTION_SECONDS)))
@@ -421,6 +422,44 @@ def cleanup_inference_jobs() -> None:
             del INFERENCE_JOBS[job_id]
 
 
+def history_entry_dir(entry_id: str) -> Path:
+    safe_id = Path(entry_id).name
+    return OUTPUT_HISTORY_DIR / safe_id
+
+
+def load_history_meta(entry_dir: Path) -> dict[str, Any] | None:
+    meta_path = entry_dir / "meta.json"
+    if not meta_path.exists() or not meta_path.is_file():
+        return None
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def build_history_entry(meta: dict[str, Any]) -> HistoryEntryResponse:
+    entry_id = str(meta.get("id") or "")
+    created_at = int(meta.get("createdAt") or 0)
+    summary = str(meta.get("summary") or "Saved video analysis")
+    filename = str(meta.get("filename") or "annotated_video.mp4")
+    video_name = str(meta.get("videoName") or "")
+    source_name = meta.get("sourceName")
+
+    video_url = f"/history/{entry_id}/{video_name}" if entry_id and video_name else ""
+    source_url = (
+        f"/history/{entry_id}/{source_name}" if entry_id and source_name else None
+    )
+
+    return HistoryEntryResponse(
+        id=entry_id,
+        createdAt=created_at,
+        summary=summary,
+        filename=filename,
+        videoUrl=video_url,
+        sourceVideoUrl=source_url,
+    )
+
+
 def create_inference_job(job_id: str) -> None:
     with INFERENCE_JOBS_LOCK:
         INFERENCE_JOBS[job_id] = {
@@ -716,6 +755,27 @@ class UpdateConfigRequest(BaseModel):
     action_threshold_mode: str | None = None
     action_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     action_thresholds: dict[str, float] | None = None
+
+
+class SaveHistoryRequest(BaseModel):
+    annotatedFilename: str
+    sourceFilename: str | None = None
+    summary: str | None = None
+    filename: str | None = None
+    analysis: dict[str, Any]
+
+
+class HistoryEntryResponse(BaseModel):
+    id: str
+    createdAt: int
+    summary: str
+    filename: str
+    videoUrl: str
+    sourceVideoUrl: str | None = None
+
+
+class HistoryDetailResponse(HistoryEntryResponse):
+    analysis: dict[str, Any]
 
 
 def frame_to_timestamp(frame_number: int, fps: float) -> str:
@@ -1567,7 +1627,9 @@ async def add_cross_origin_isolation_headers(request: Request, call_next: Callab
 OUTPUT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_ANNOTATED_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_ROOT_DIR)), name="outputs")
+app.mount("/history", StaticFiles(directory=str(OUTPUT_HISTORY_DIR)), name="history")
 
 
 def run_video_inference_job(
@@ -1886,6 +1948,130 @@ def download_annotated_video(filename: str) -> FileResponse:
     )
 
 
+@app.post("/api/history", response_model=HistoryDetailResponse)
+def save_history_entry(body: SaveHistoryRequest) -> HistoryDetailResponse:
+    safe_annotated = Path(body.annotatedFilename).name
+    if safe_annotated != body.annotatedFilename or not safe_annotated.startswith("annotated_"):
+        raise HTTPException(status_code=400, detail="Invalid annotated filename.")
+
+    annotated_path = OUTPUT_ANNOTATED_DIR / safe_annotated
+    if not annotated_path.exists() or not annotated_path.is_file():
+        raise HTTPException(status_code=404, detail="Annotated video not found.")
+
+    entry_id = uuid4().hex
+    entry_dir = history_entry_dir(entry_id)
+    entry_dir.mkdir(parents=True, exist_ok=False)
+
+    video_ext = annotated_path.suffix.lower() or ".mp4"
+    video_name = f"video{video_ext}"
+    shutil.copy2(annotated_path, entry_dir / video_name)
+
+    source_name: str | None = None
+    if body.sourceFilename:
+        safe_source = Path(body.sourceFilename).name
+        if safe_source == body.sourceFilename and safe_source.startswith("source_"):
+            source_path = OUTPUT_PREVIEW_DIR / safe_source
+            if source_path.exists() and source_path.is_file():
+                source_name = f"source{source_path.suffix.lower()}"
+                shutil.copy2(source_path, entry_dir / source_name)
+
+    summary = body.summary or "Saved video analysis"
+    filename = body.filename or safe_annotated
+    created_at = int(time.time() * 1000)
+
+    (entry_dir / "analysis.json").write_text(
+        json.dumps(body.analysis, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    meta = {
+        "id": entry_id,
+        "createdAt": created_at,
+        "summary": summary,
+        "filename": filename,
+        "videoName": video_name,
+        "sourceName": source_name,
+    }
+    (entry_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    entry = build_history_entry(meta)
+    return HistoryDetailResponse(**entry.dict(), analysis=body.analysis)
+
+
+@app.get("/api/history", response_model=list[HistoryEntryResponse])
+def list_history_entries() -> list[HistoryEntryResponse]:
+    if not OUTPUT_HISTORY_DIR.exists():
+        return []
+
+    entries: list[HistoryEntryResponse] = []
+    for entry_dir in OUTPUT_HISTORY_DIR.iterdir():
+        if not entry_dir.is_dir():
+            continue
+        meta = load_history_meta(entry_dir)
+        if not meta:
+            continue
+        try:
+            entries.append(build_history_entry(meta))
+        except Exception:
+            continue
+
+    entries.sort(key=lambda item: item.createdAt, reverse=True)
+    return entries
+
+
+@app.get("/api/history/{entry_id}", response_model=HistoryDetailResponse)
+def get_history_entry(entry_id: str) -> HistoryDetailResponse:
+    entry_dir = history_entry_dir(entry_id)
+    if not entry_dir.exists() or not entry_dir.is_dir():
+        raise HTTPException(status_code=404, detail="History entry not found.")
+
+    meta = load_history_meta(entry_dir)
+    if not meta:
+        raise HTTPException(status_code=404, detail="History entry metadata missing.")
+
+    analysis_path = entry_dir / "analysis.json"
+    if not analysis_path.exists():
+        raise HTTPException(status_code=404, detail="History entry analysis missing.")
+
+    try:
+        analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"History analysis parse failed: {exc}") from exc
+
+    entry = build_history_entry(meta)
+    return HistoryDetailResponse(**entry.dict(), analysis=analysis)
+
+
+@app.delete("/api/history/{entry_id}")
+def delete_history_entry(entry_id: str) -> dict[str, Any]:
+    entry_dir = history_entry_dir(entry_id)
+    if not entry_dir.exists() or not entry_dir.is_dir():
+        raise HTTPException(status_code=404, detail="History entry not found.")
+
+    shutil.rmtree(entry_dir, ignore_errors=True)
+    return {"deleted": entry_id}
+
+
+@app.delete("/api/history")
+def clear_history_entries() -> dict[str, Any]:
+    if not OUTPUT_HISTORY_DIR.exists():
+        return {"cleared": 0}
+
+    cleared = 0
+    for entry_dir in OUTPUT_HISTORY_DIR.iterdir():
+        if not entry_dir.is_dir():
+            continue
+        try:
+            shutil.rmtree(entry_dir, ignore_errors=True)
+            cleared += 1
+        except Exception:
+            continue
+
+    return {"cleared": cleared}
+
+
 @app.post("/analyze-video", response_model=AnalyzeVideoResponse)
 def analyze_video(request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
     return create_analysis_response(
@@ -1895,49 +2081,49 @@ def analyze_video(request: AnalyzeVideoRequest) -> AnalyzeVideoResponse:
     )
 
 
-# @app.websocket("/ws/action-recognition")
-# async def action_recognition_websocket(websocket: WebSocket) -> None:
-#     await websocket.accept()
-#     state = ClientState()
+@app.websocket("/ws/action-recognition")
+async def action_recognition_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    state = ClientState()
 
-#     try:
-#         while True:
-#             message = await websocket.receive()
-#             if message.get("type") == "websocket.disconnect":
-#                 break
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
 
-#             frame: np.ndarray | None = None
-#             error: str | None = None
+            frame: np.ndarray | None = None
+            error: str | None = None
 
-#             payload_bytes = message.get("bytes")
-#             payload_text = message.get("text")
+            payload_bytes = message.get("bytes")
+            payload_text = message.get("text")
 
-#             if payload_bytes is not None:
-#                 frame = decode_frame_bytes(payload_bytes)
-#                 if frame is None:
-#                     error = "Could not decode binary image payload."
-#             elif payload_text is not None:
-#                 frame, error = parse_text_payload(payload_text)
-#                 if error == "ping":
-#                     await websocket.send_json({"type": "pong"})
-#                     continue
-#             else:
-#                 error = "Unsupported websocket message type."
+            if payload_bytes is not None:
+                frame = decode_frame_bytes(payload_bytes)
+                if frame is None:
+                    error = "Could not decode binary image payload."
+            elif payload_text is not None:
+                frame, error = parse_text_payload(payload_text)
+                if error == "ping":
+                    await websocket.send_json({"type": "pong"})
+                    continue
+            else:
+                error = "Unsupported websocket message type."
 
-#             if error:
-#                 await websocket.send_json({"type": "error", "message": error})
-#                 continue
+            if error:
+                await websocket.send_json({"type": "error", "message": error})
+                continue
 
-#             if frame is None:
-#                 await websocket.send_json({"type": "error", "message": "Frame payload missing."})
-#                 continue
+            if frame is None:
+                await websocket.send_json({"type": "error", "message": "Frame payload missing."})
+                continue
 
-#             state.frame_index += 1
-#             result = await app.state.pipeline.infer_frame(frame, state)
-#             await websocket.send_json(result)
+            state.frame_index += 1
+            result = await app.state.pipeline.infer_frame(frame, state)
+            await websocket.send_json(result)
 
-#     except WebSocketDisconnect:
-#         return
-#     except Exception as exc:
-#         await websocket.send_json({"type": "error", "message": str(exc)})
-#         await websocket.close(code=1011)
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+        await websocket.close(code=1011)

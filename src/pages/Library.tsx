@@ -4,8 +4,11 @@ import { useLibraryState } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
 import Config from "./library/config";
+import { useSearchParams } from "react-router";
 
 const Library = () => {
+  const [searchParams] = useSearchParams();
+  const historyId = searchParams.get("history");
   const {
     fileInputRef,
     videoPlayerRef,
@@ -20,6 +23,7 @@ const Library = () => {
     progressMessage,
     progressFrameIndex,
     progressTotalFrames,
+    historySavedAt,
     currentTimeSeconds,
     actionTimelineTags,
     timelineDurationSeconds,
@@ -32,11 +36,15 @@ const Library = () => {
     handleFileChange,
     handleRunInference,
     handleDownload,
+    saveToHistory,
     handleTimelineScrub,
     seekToFrame,
     togglePlayPause,
     handlePlaybackStateChange,
-  } = useLibraryState();
+  } = useLibraryState(historyId);
+
+  const canSaveToHistory =
+    Boolean(analysis) && Boolean(resultDownloadUrl ?? resultVideoUrl);
 
   return (
     <AppLayout>
@@ -63,9 +71,12 @@ const Library = () => {
               progressMessage={progressMessage}
               progressFrameIndex={progressFrameIndex}
               progressTotalFrames={progressTotalFrames}
+              canSaveToHistory={canSaveToHistory}
+              historySavedAt={historySavedAt}
               onFileChange={handleFileChange}
               onRunInference={handleRunInference}
               onDownload={handleDownload}
+              onSaveToHistory={saveToHistory}
               onVideoLoaded={(duration, currentTime) => {
                 setVideoDurationSeconds(duration);
                 setCurrentTimeSeconds(currentTime);
@@ -94,8 +105,7 @@ const Library = () => {
             onSeekToFrame={seekToFrame}
             isPlaying={isPlaying}
             onPlayPause={togglePlayPause}
-            height={0}
-            onDividerMouseDown={function (e: React.MouseEvent): void {
+            onDividerMouseDown={function (): void {
               throw new Error("Function not implemented.");
             }}
           />
