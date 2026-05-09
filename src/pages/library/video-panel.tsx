@@ -64,7 +64,6 @@ const VideoPanel = ({
         <div className="text-sm font-bold uppercase text-[#344054] font-heading ">
           Video Playback
         </div>
-        <ModelSelector />
 
         <div className="flex items-center gap-2">
           {(file || sourceVideoUrl || resultVideoUrl) && (

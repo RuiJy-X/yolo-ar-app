@@ -41,6 +41,10 @@ VIDEO_POSE_MODEL_CANDIDATES = [
     YOLO_FILENAME,
     "yolo.best.pt",
 ]
+YOLO_MODEL_CHOICES = {
+    "base": "yolo11n-pose.pt",
+    "aerial": YOLO_FILENAME,
+}
 WINDOW_SIZE = 32
 MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
@@ -135,6 +139,22 @@ def flat_model_registry() -> dict[str, Path]:
         for stem, path in checkpoints.items():
             flat[f"{folder_name}/{stem}"] = path
     return flat
+
+
+def resolve_yolo_model_choice(value: str) -> tuple[str, Path]:
+    """Resolve a YOLO model choice to a (key, path) tuple."""
+    cleaned = value.strip().lower()
+    if cleaned in YOLO_MODEL_CHOICES:
+        filename = YOLO_MODEL_CHOICES[cleaned]
+        return cleaned, CURRENT_DIR / filename
+
+    for key, filename in YOLO_MODEL_CHOICES.items():
+        if cleaned == filename.lower():
+            return key, CURRENT_DIR / filename
+
+    raise ValueError(
+        f"Unknown YOLO model '{value}'. Available: {sorted(YOLO_MODEL_CHOICES.keys())}"
+    )
 
 
 LR_PAIRS = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
@@ -687,6 +707,17 @@ class SetActiveModelRequest(BaseModel):
     model_name: str
 
 
+class UpdateConfigRequest(BaseModel):
+    yolo_model: str | None = None
+    yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
+    yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
+    video_yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
+    video_yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
+    action_threshold_mode: str | None = None
+    action_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    action_thresholds: dict[str, float] | None = None
+
+
 def frame_to_timestamp(frame_number: int, fps: float) -> str:
     safe_fps = fps if fps > 0 else 25.0
     total_seconds = frame_number / safe_fps
@@ -904,6 +935,17 @@ class ActionRecognitionPipeline:
         self.video_pose_model = self._load_video_pose_model()
         self.action_model = init_action_model(checkpoint_path, self.device)
 
+        self.yolo_conf = YOLO_CONF
+        self.yolo_iou = YOLO_IOU
+        self.video_yolo_conf = VIDEO_YOLO_CONF
+        self.video_yolo_iou = VIDEO_YOLO_IOU
+        self.action_threshold_mode = "uniform"
+        self.action_threshold = DISPLAY_CONF_THRESH
+        self.action_thresholds = {
+            label: DISPLAY_CONF_THRESH for label in ACTION_MAP.values()
+        }
+        self._yolo_model_name = self._resolve_yolo_model_key(yolo_path)
+
         # Track which named model is currently loaded so the UI can reflect it.
         # Initialise by matching the loaded path against the registry.
         self._active_model_name: str = self._resolve_initial_model_name(checkpoint_path)
@@ -923,9 +965,19 @@ class ActionRecognitionPipeline:
         except ValueError:
             return checkpoint_path.stem
 
+    def _resolve_yolo_model_key(self, model_path: Path) -> str:
+        for key, filename in YOLO_MODEL_CHOICES.items():
+            if model_path.name.lower() == filename.lower():
+                return key
+        return model_path.stem
+
     @property
     def active_model_name(self) -> str:
         return self._active_model_name
+
+    @property
+    def yolo_model_name(self) -> str:
+        return self._yolo_model_name
 
     def swap_action_model(self, model_name: str) -> None:
         """
@@ -961,6 +1013,54 @@ class ActionRecognitionPipeline:
             del old_model
             if self.device == "cuda":
                 torch.cuda.empty_cache()
+
+    def swap_yolo_model(self, model_choice: str) -> None:
+        model_key, model_path = resolve_yolo_model_choice(model_choice)
+        if not model_path.exists():
+            raise FileNotFoundError(f"YOLO model not found at {model_path}")
+
+        with self._model_lock:
+            new_model = YOLO(str(model_path)).to(self.device)
+            self.yolo_model = new_model
+            self.video_pose_model = new_model
+            self._yolo_model_name = model_key
+
+    def _get_action_threshold(self, label: str) -> float:
+        if self.action_threshold_mode == "per-action":
+            return float(self.action_thresholds.get(label, self.action_threshold))
+        return float(self.action_threshold)
+
+    def update_config(self, body: UpdateConfigRequest) -> None:
+        if body.yolo_model:
+            self.swap_yolo_model(body.yolo_model)
+
+        if body.yolo_conf is not None:
+            self.yolo_conf = float(body.yolo_conf)
+        if body.yolo_iou is not None:
+            self.yolo_iou = float(body.yolo_iou)
+        if body.video_yolo_conf is not None:
+            self.video_yolo_conf = float(body.video_yolo_conf)
+        if body.video_yolo_iou is not None:
+            self.video_yolo_iou = float(body.video_yolo_iou)
+
+        if body.action_threshold_mode is not None:
+            if body.action_threshold_mode not in {"uniform", "per-action"}:
+                raise ValueError("action_threshold_mode must be 'uniform' or 'per-action'.")
+            self.action_threshold_mode = body.action_threshold_mode
+
+        if body.action_threshold is not None:
+            self.action_threshold = float(body.action_threshold)
+            if self.action_threshold_mode == "uniform":
+                for label in self.action_thresholds:
+                    self.action_thresholds[label] = self.action_threshold
+
+        if body.action_thresholds:
+            for label, value in body.action_thresholds.items():
+                if label not in self.action_thresholds:
+                    raise ValueError(f"Unknown action label '{label}'.")
+                if not 0.0 <= float(value) <= 1.0:
+                    raise ValueError("Action thresholds must be between 0 and 1.")
+                self.action_thresholds[label] = float(value)
 
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -1000,7 +1100,9 @@ class ActionRecognitionPipeline:
         next_ema = SCORE_EMA_ALPHA * prev_ema + (1.0 - SCORE_EMA_ALPHA) * probs
         pred_idx = int(np.argmax(next_ema))
         confidence = float(next_ema[pred_idx])
-        label = ACTION_MAP[pred_idx] if confidence >= DISPLAY_CONF_THRESH else "Unknown"
+        label = ACTION_MAP[pred_idx]
+        if confidence < self._get_action_threshold(label):
+            label = "Unknown"
         return label, confidence, next_ema
 
     def _update_track_from_detection(
@@ -1102,7 +1204,9 @@ class ActionRecognitionPipeline:
     def _infer_frame_sync(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
         start = time.perf_counter()
 
-        detections = self._extract_pose_detections(frame, self.yolo_model, YOLO_CONF, YOLO_IOU)
+        detections = self._extract_pose_detections(
+            frame, self.yolo_model, self.yolo_conf, self.yolo_iou
+        )
         if not detections:
             return self._no_detection_result(state, start)
 
@@ -1250,7 +1354,10 @@ class ActionRecognitionPipeline:
 
                     frame_index, frame = item
                     detections = self._extract_pose_detections(
-                        frame, self.video_pose_model, VIDEO_YOLO_CONF, VIDEO_YOLO_IOU
+                        frame,
+                        self.video_pose_model,
+                        self.video_yolo_conf,
+                        self.video_yolo_iou,
                     )
                     counters["detected_people_total"] += len(detections)
                     counters["yolo_confidences"].extend(
@@ -1590,6 +1697,32 @@ def healthcheck() -> dict[str, Any]:
     }
 
 
+def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
+    return {
+        "yolo_model": pipeline.yolo_model_name,
+        "yolo_models": [
+            {
+                "key": key,
+                "label": (
+                    "Base Model (yolo11n-pose.pt)"
+                    if key == "base"
+                    else "Aerial Pose Model (yolo-best.pt)"
+                ),
+                "filename": filename,
+            }
+            for key, filename in YOLO_MODEL_CHOICES.items()
+        ],
+        "yolo_conf": pipeline.yolo_conf,
+        "yolo_iou": pipeline.yolo_iou,
+        "video_yolo_conf": pipeline.video_yolo_conf,
+        "video_yolo_iou": pipeline.video_yolo_iou,
+        "action_threshold_mode": pipeline.action_threshold_mode,
+        "action_threshold": pipeline.action_threshold,
+        "action_thresholds": pipeline.action_thresholds,
+        "actions": list(ACTION_MAP.values()),
+    }
+
+
 # ── Model registry endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/models")
@@ -1639,6 +1772,27 @@ def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
         "active_model": pipeline.active_model_name,
         "status": "swapped",
     }
+
+
+@app.get("/api/config")
+def get_runtime_config() -> dict[str, Any]:
+    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    return build_runtime_config(pipeline)
+
+
+@app.post("/api/config")
+def update_runtime_config(body: UpdateConfigRequest) -> dict[str, Any]:
+    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    try:
+        pipeline.update_config(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Config update failed: {exc}") from exc
+
+    return build_runtime_config(pipeline)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

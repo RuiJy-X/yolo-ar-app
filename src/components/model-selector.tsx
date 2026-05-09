@@ -124,20 +124,19 @@ const ModelSelector = () => {
     "bg-white text-[#1d2939] border-[#D6E4FF]",
     "focus:outline-none focus:ring-2 focus:ring-blue-400/40",
     "transition cursor-pointer disabled:opacity-60 disabled:cursor-wait",
-    "hover:border-blue-400",
+    "hover:border-blue-400 w-full",
   ].join(" ");
 
   return (
-    <div className="flex items-center gap-3 flex-wrap">
+    <div className="grid grid-cols-1 items-center gap-3 flex-wrap">
       {/* Label */}
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-[#344054]/70 uppercase tracking-wide select-none">
-        <BrainCircuit className="size-3.5 text-blue-500" />
+      <span className="flex items-center gap-1.5 text-xs font-semibold text-primary uppercase tracking-wide select-none">
         InfoGCN Model
       </span>
 
       {/* Folder selector */}
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-[#344054]/50 select-none">Config</span>
+      <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+        <span className="text-xs text-[#344054]/80 select-none">Config</span>
         <div className="relative">
           <select
             value={activeFolder}
@@ -161,15 +160,12 @@ const ModelSelector = () => {
         </div>
       </div>
 
-      {/* Divider */}
-      <span className="text-[#D6E4FF] select-none">/</span>
-
       {/* Checkpoint selector */}
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-[#344054]/50 select-none">
+      <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+        <span className="text-xs text-[#344054]/80 select-none">
           Checkpoint
         </span>
-        <div className="relative">
+        <div className="relative ">
           <select
             value={activeCheckpoint}
             disabled={switching || checkpoints.length === 0}
