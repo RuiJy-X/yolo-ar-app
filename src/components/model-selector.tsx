@@ -137,7 +137,7 @@ const ModelSelector = () => {
 
       {/* Folder selector */}
       <div className="flex items-center gap-1">
-        <span className="text-xs text-[#344054]/50 select-none">Family</span>
+        <span className="text-xs text-[#344054]/50 select-none">Config</span>
         <div className="relative">
           <select
             value={activeFolder}

@@ -5,7 +5,7 @@ import Library from "./pages/Library";
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: RealTime,
+    Component: Library,
   },
   {
     path: "/realtime",

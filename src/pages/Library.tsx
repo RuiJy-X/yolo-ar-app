@@ -1,30 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import AppLayout from "@/applayout";
 import Logs from "@/components/Logs";
-import MetricsCards from "@/components/library/metrics-cards";
 import { useLibraryState } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
 
 const Library = () => {
   // ── Resize: timeline height (vertical drag) ──────────────────────────────
-  const [timelineHeightPx, setTimelineHeightPx] = useState(90);
+  const [timelineHeightPx, setTimelineHeightPx] = useState(130);
   const isTimelineDragging = useRef(false);
-  // Add below the timeline resize state
-  const [metricsHeightPx, setMetricsHeightPx] = useState(100);
-  const isMetricsDragging = useRef(false);
 
   // ── Resize: left/right panel split (horizontal drag) ─────────────────────
   const [leftWidthPx, setLeftWidthPx] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isDragging = useRef(false);
-
-  const handleMetricsDividerMouseDown = (e: React.MouseEvent) => {
-    isMetricsDragging.current = true;
-    document.body.style.cursor = "ns-resize";
-    document.body.style.userSelect = "none";
-    e.preventDefault();
-  };
 
   const handleTimelineDividerMouseDown = (e: React.MouseEvent) => {
     isTimelineDragging.current = true;
@@ -48,17 +37,8 @@ const Library = () => {
         if (footerEl) {
           const rect = footerEl.getBoundingClientRect();
           setTimelineHeightPx(
-            Math.max(56, Math.min(300, rect.bottom - e.clientY)),
+            Math.max(80, Math.min(360, rect.bottom - e.clientY)),
           );
-        }
-      }
-
-      // Metrics
-      if (isMetricsDragging.current) {
-        const metricsEl = document.getElementById("metrics-row");
-        if (metricsEl) {
-          const rect = metricsEl.getBoundingClientRect();
-          setMetricsHeightPx(Math.max(60, Math.min(300, e.clientY - rect.top)));
         }
       }
 
@@ -72,7 +52,6 @@ const Library = () => {
 
     const onMouseUp = () => {
       isTimelineDragging.current = false;
-      isMetricsDragging.current = false;
       isDragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
@@ -84,7 +63,7 @@ const Library = () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, []); // single effect, no deps needed since we use refs
+  }, []);
 
   // ── All data / logic lives in the hook ───────────────────────────────────
   const {
@@ -118,33 +97,9 @@ const Library = () => {
 
   return (
     <AppLayout>
-      {/* Main content area: flex column, fills remaining height, no overflow */}
+      {/* Main content area: flex column, fills remaining height */}
       <div className="flex flex-col w-full min-h-0 flex-1 overflow-hidden">
-        {/* Metrics row — fixed height, no shrink/grow */}
-
-        <div
-          id="metrics-row"
-          className="w-full overflow-hidden"
-          style={{ height: metricsHeightPx, flexShrink: 0 }}
-        >
-          <MetricsCards analysis={analysis} />
-        </div>
-        {/* Metrics resize divider */}
-        <div
-          onMouseDown={handleMetricsDividerMouseDown}
-          className="w-full flex items-center justify-center cursor-ns-resize select-none"
-          style={{ height: 8, flexShrink: 0, background: "transparent" }}
-        >
-          <div
-            style={{
-              width: 40,
-              height: 2,
-              borderRadius: 2,
-              background: "#D6E4FF",
-            }}
-          />
-        </div>
-        {/* Video + Logs row — takes all remaining space, shrinks when timeline grows */}
+        {/* Video + Logs row — takes all space above the timeline */}
         <div
           ref={containerRef}
           className="flex w-full overflow-hidden"
@@ -206,14 +161,14 @@ const Library = () => {
           </div>
 
           <div
-            className="overflow-auto"
+            className="h-full"
             style={{ flex: "1 1 0", minWidth: 200, minHeight: 0 }}
           >
             <Logs analysis={analysis} onSeekToFrame={seekToFrame} />
           </div>
         </div>
 
-        {/* Timeline footer — flex-shrink-0 so IT holds its height; the row above shrinks */}
+        {/* Timeline footer */}
         {(resultVideoUrl || sourceVideoUrl) && (
           <div style={{ flexShrink: 0 }}>
             <TimelineFooter

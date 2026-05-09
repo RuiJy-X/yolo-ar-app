@@ -1,5 +1,10 @@
 import { Activity, AlertTriangle, ChevronDown, User } from "lucide-react";
 import type { AnalyzeVideoResponse, AlertEvent } from "@/lib/types";
+import {
+  getActionColor,
+  getActionBg,
+  getActionText,
+} from "@/pages/library/action-colors";
 
 type LogsProps = {
   analysis: AnalyzeVideoResponse | null;
@@ -16,7 +21,6 @@ type Detection = {
   timestamp: string;
 };
 
-/** A run of consecutive frames for one person doing one action. */
 type ActionInstance = {
   personId: number;
   startFrame: number;
@@ -29,20 +33,11 @@ type ActionInstance = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/**
- * Collapse a flat list of per-frame detections (already filtered to one action
- * label) into consecutive-frame instances.
- *
- * Two frames are considered "consecutive" when they belong to the same person
- * AND differ by at most MAX_GAP frames (allows for the occasional missed frame
- * inside what is conceptually one continuous action segment).
- */
-const MAX_GAP = 4; // frames; tune as needed
+const MAX_GAP = 4;
 
 function collapseToInstances(entries: Detection[]): ActionInstance[] {
   if (!entries.length) return [];
 
-  // Sort by person, then frame so we can do a single linear pass.
   const sorted = [...entries].sort(
     (a, b) => a.person_id - b.person_id || a.frame_number - b.frame_number,
   );
@@ -74,12 +69,10 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
     const withinGap = cur.frame_number - runEnd <= MAX_GAP;
 
     if (samePerson && withinGap) {
-      // Extend current run
       runEnd = cur.frame_number;
       runEndTs = cur.timestamp;
       runConfs.push(cur.confidence);
     } else {
-      // Flush current run and start a new one
       flush();
       runPersonId = cur.person_id;
       runStart = cur.frame_number;
@@ -91,11 +84,10 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
   }
   flush();
 
-  // Sort output by start frame so the list is chronological
   return instances.sort((a, b) => a.startFrame - b.startFrame);
 }
 
-// ── Severity styles (shared with AlertCard) ────────────────────────────────
+// ── Severity styles ────────────────────────────────────────────────────────
 
 const SEVERITY_STYLES: Record<string, string> = {
   critical: "bg-red-50 text-red-800 border-red-200",
@@ -109,7 +101,10 @@ const SEVERITY_DOT: Record<string, string> = {
   medium: "bg-blue-500",
 };
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+// Trim timestamp to mm:ss.ms — drop the leading 00: hour if present
+const shortTs = (ts: string) => ts.replace(/^00:/, "");
+
+// ── AlertCard ──────────────────────────────────────────────────────────────
 
 function AlertCard({
   alert,
@@ -128,8 +123,10 @@ function AlertCard({
       className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-red-400/60"
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-black/90 font-heading">
-          Frames {alert.start_frame} – {alert.end_frame}
+        {/* Primary: timestamps */}
+        <span className="text-sm font-semibold text-black/90 font-heading font-mono">
+          {shortTs(alert.start_timestamp ?? "")} –{" "}
+          {shortTs(alert.end_timestamp ?? "")}
         </span>
         <span
           className={`rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${
@@ -139,7 +136,10 @@ function AlertCard({
           {alert.severity_level}
         </span>
       </div>
-      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-black/50">
+      {/* Secondary: frame range for technical reference */}
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-black/40 font-mono">
+        frames {alert.start_frame}–{alert.end_frame}
+        <span className="mx-0.5">·</span>
         <span
           className={`inline-block size-1.5 rounded-full ${
             SEVERITY_DOT[severity] ?? SEVERITY_DOT.medium
@@ -147,55 +147,115 @@ function AlertCard({
         />
         <User className="size-3" />
         Person {alert.person_id}
-        <span className="mx-1">·</span>
+        <span className="mx-0.5">·</span>
         {runLength} frames
       </div>
     </button>
   );
 }
 
+// ── InstanceCard ───────────────────────────────────────────────────────────
+
 function InstanceCard({
   instance,
+  action,
   onSeekToFrame,
 }: {
   instance: ActionInstance;
+  action: string;
   onSeekToFrame: (frame: number) => void;
 }) {
   const isSingleFrame = instance.startFrame === instance.endFrame;
+  const color = getActionColor(action);
+  const confPct = Math.round(instance.avgConfidence * 100);
 
   return (
     <button
       type="button"
       onClick={() => onSeekToFrame(instance.startFrame)}
-      className="w-full rounded-md border border-blue-500/30 bg-white px-3 py-2 text-left transition hover:border-blue-500/60"
+      className="w-full rounded-md border bg-white px-3 py-2 text-left transition hover:brightness-95"
+      style={{ borderColor: color + "55" }}
     >
-      {/* Row 1: person + timestamp range */}
-      <div className="flex items-center justify-between text-xs text-black/60">
-        <span className="flex items-center gap-1.5">
+      {/* Row 1: person + timestamp (primary) */}
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs text-black/60">
           <User className="size-3.5" />P{instance.personId}
         </span>
-        <span className="font-mono text-black/70">
+        <span className="font-mono text-xs text-black/70 font-semibold">
           {isSingleFrame
-            ? instance.startTimestamp
-            : `${instance.startTimestamp} – ${instance.endTimestamp}`}
+            ? shortTs(instance.startTimestamp)
+            : `${shortTs(instance.startTimestamp)} – ${shortTs(instance.endTimestamp)}`}
         </span>
       </div>
 
-      {/* Row 2: frame range + confidence */}
-      <div className="mt-1 flex items-center justify-between">
-        <span className="text-sm font-semibold text-black/90 font-heading">
-          {isSingleFrame
-            ? `Frame ${instance.startFrame}`
-            : `Frames ${instance.startFrame} – ${instance.endFrame}`}
-          <span className="ml-2 text-xs font-normal text-black/40">
-            ({instance.frameCount} frame{instance.frameCount !== 1 ? "s" : ""})
-          </span>
+      {/* Row 2: confidence bar + frame count (secondary) */}
+      <div className="mt-2 flex items-center gap-2">
+        {/* Confidence bar */}
+        <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${confPct}%`, backgroundColor: color }}
+          />
+        </div>
+        <span
+          className="text-xs font-semibold min-w-[36px] text-right"
+          style={{ color }}
+        >
+          {confPct}%
         </span>
-        <span className="text-sm font-semibold text-blue-600">
-          {(instance.avgConfidence * 100).toFixed(1)}%
+        <span className="text-xs text-black/30 font-mono">
+          {instance.frameCount}f
         </span>
       </div>
     </button>
+  );
+}
+
+// ── Action summary row ─────────────────────────────────────────────────────
+
+function ActionSummaryRow({
+  action,
+  instances,
+  avgConfidence,
+  open,
+}: {
+  action: string;
+  instances: ActionInstance[];
+  avgConfidence: number;
+  open: boolean;
+}) {
+  const color = getActionColor(action);
+  const bg = getActionBg(action);
+  const text = getActionText(action);
+  const confPct = Math.round(avgConfidence * 100);
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-3">
+      {/* Color dot */}
+      <span
+        className="inline-block size-2 rounded-full flex-shrink-0"
+        style={{ backgroundColor: color }}
+      />
+      {/* Label */}
+      <span className="flex-1 font-semibold font-heading text-black/70 text-sm">
+        {action}
+      </span>
+      {/* Confidence chip */}
+      <span
+        className="text-xs font-semibold px-2 py-0.5 rounded-full"
+        style={{ backgroundColor: bg, color: text }}
+      >
+        {confPct}%
+      </span>
+      {/* Instance count */}
+      <span className="text-xs text-gray-500">
+        {instances.length} {instances.length === 1 ? "instance" : "instances"}
+      </span>
+      <ChevronDown
+        className="size-4 transition-transform text-black/40"
+        style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+      />
+    </div>
   );
 }
 
@@ -204,7 +264,7 @@ function InstanceCard({
 const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   if (!analysis) {
     return (
-      <div className="w-full h-full rounded-md border border-[#D6E4FF] bg-white p-4 text-slate-100">
+      <div className="w-full h-full rounded-md border border-[#D6E4FF] bg-white p-4">
         <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] flex items-center gap-2">
           <Activity className="size-4" />
           Detections
@@ -218,28 +278,29 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
     );
   }
 
-  // Build instances for every action group
   const groupedActions = Object.entries(analysis.grouped_detections)
-    .map(([action, entries]) => ({
-      action,
-      instances: collapseToInstances(entries as Detection[]),
-    }))
-    .sort((a, b) => b.instances.length - a.instances.length);
+    .map(([action, entries]) => {
+      const instances = collapseToInstances(entries as Detection[]);
+      const avgConfidence = analysis.action_confidence_scores?.[action] ?? 0;
+      return { action, instances, avgConfidence };
+    })
+    .sort((a, b) => b.avgConfidence - a.avgConfidence);
 
   const alerts = analysis.alert_events ?? [];
 
   return (
-    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white text-slate-100 shadow-sm">
-      <div className="flex items-center gap-2 p-3 text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading border-b border-[#D6E4FF]">
+    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white shadow-sm flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 p-3 text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading border-b border-[#D6E4FF] flex-shrink-0">
         <Activity className="size-4" />
         Detections
       </div>
 
-      <div className="divide-y divide-[#D6E4FF]">
+      <div className="flex-1 overflow-y-auto divide-y divide-[#D6E4FF]">
         {/* ── Alerts accordion ── */}
         {alerts.length > 0 && (
           <details className="group" open>
-            <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-slate-50">
+            <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-slate-50 list-none">
               <span className="flex items-center gap-2 font-semibold font-heading text-black/80">
                 <AlertTriangle className="size-4 text-red-500" />
                 Alerts
@@ -251,7 +312,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
                 <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
               </span>
             </summary>
-            <div className="space-y-2 px-3 pb-3 max-h-[400px] overflow-y-auto">
+            <div className="space-y-2 px-3 pb-3">
               {alerts.map((alert) => (
                 <AlertCard
                   key={`alert-${alert.person_id}-${alert.start_frame}`}
@@ -263,24 +324,23 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
           </details>
         )}
 
-        {/* ── Action detection accordions ── */}
-        {groupedActions.map(({ action, instances }) => (
+        {/* ── Action accordions — sorted by confidence ── */}
+        {groupedActions.map(({ action, instances, avgConfidence }) => (
           <details key={action} className="group">
-            <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-slate-50">
-              <span className="font-semibold font-heading text-black/70">
-                {action}
-              </span>
-              <span className="flex items-center gap-2 text-xs text-gray-600">
-                {instances.length}{" "}
-                {instances.length === 1 ? "instance" : "instances"}
-                <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-              </span>
+            <summary className="list-none cursor-pointer hover:bg-slate-50">
+              <ActionSummaryRow
+                action={action}
+                instances={instances}
+                avgConfidence={avgConfidence}
+                open={false}
+              />
             </summary>
-            <div className="space-y-2 px-3 pb-3 max-h-[400px] overflow-y-auto">
+            <div className="space-y-2 px-3 pb-3">
               {instances.map((instance) => (
                 <InstanceCard
                   key={`${action}-p${instance.personId}-f${instance.startFrame}`}
                   instance={instance}
+                  action={action}
                   onSeekToFrame={onSeekToFrame}
                 />
               ))}

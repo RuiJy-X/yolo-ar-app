@@ -37,16 +37,16 @@ from utils import import_class  # noqa: E402
 
 YOLO_FILENAME = "yolo-best.pt"
 VIDEO_POSE_MODEL_CANDIDATES = [
+    "yolo11n-pose.pt",
     YOLO_FILENAME,
     "yolo.best.pt",
-    "yolo11n-pose.pt",
 ]
 WINDOW_SIZE = 32
 MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
 VISIBILITY_THRESH = 0.20
 MIN_FRAMES_FOR_INFERENCE = 16
-DISPLAY_CONF_THRESH = 0.55
+DISPLAY_CONF_THRESH = 0.25  
 SCORE_EMA_ALPHA = 0.75
 YOLO_CONF = 0.60
 YOLO_IOU = 0.60
