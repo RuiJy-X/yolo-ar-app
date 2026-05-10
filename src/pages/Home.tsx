@@ -259,7 +259,6 @@ const StatsStrip = ({
         value={loading ? "—" : stats.totalActions}
         label="Total Actions"
       />
-
       <StatCard
         icon={<AlertTriangle size={14} style={{ color: "#ef4444" }} />}
         value={loading ? "—" : stats.waveAlerts}
@@ -394,9 +393,22 @@ const BackendStatus = ({
   );
 };
 
-// ── ActionFrequencyChart ───────────────────────────────────────────────────
+// ── ActionDistributionPie ───────────────────────────────────────────────────
 
-const ActionFrequencyChart = ({ entries }: { entries: HistoryListEntry[] }) => {
+const ACTION_COLORS = [
+  "#0052ff",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#14b8a6",
+];
+
+const ActionDistributionPie = ({
+  entries,
+}: {
+  entries: HistoryListEntry[];
+}) => {
   const actionFrequency = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const e of entries) {
@@ -414,46 +426,31 @@ const ActionFrequencyChart = ({ entries }: { entries: HistoryListEntry[] }) => {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [entries]);
 
-  const maxCount = Math.max(...actionFrequency.map((a) => a[1]), 1);
+  const total = actionFrequency.reduce((sum, [, count]) => sum + count, 0);
 
-  if (actionFrequency.length === 0) {
-    return (
-      <div
-        className="rounded-lg overflow-hidden"
-        style={{
-          border: "0.5px solid #ededed",
-          background: "#ffffff",
-          boxShadow: "var(--shadow-1)",
-        }}
-      >
-        <div
-          className="px-5 py-3"
-          style={{ borderBottom: "0.5px solid #ededed" }}
-        >
-          <span
-            className="text-[12px] font-semibold uppercase tracking-[0.08em]"
-            style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
-          >
-            Action Distribution
-          </span>
-        </div>
-        <div className="px-5 py-12 text-center">
-          <p style={{ fontSize: 12, color: "#9a9a9a" }}>No action data yet</p>
-        </div>
-      </div>
-    );
-  }
+  const pieStyle = useMemo(() => {
+    if (total <= 0) {
+      return { background: "#f0f0f0" };
+    }
+    let current = 0;
+    const segments = actionFrequency.map(([, count], index) => {
+      const start = (current / total) * 100;
+      current += count;
+      const end = (current / total) * 100;
+      return `${ACTION_COLORS[index % ACTION_COLORS.length]} ${start}% ${end}%`;
+    });
+    return { background: `conic-gradient(${segments.join(", ")})` };
+  }, [actionFrequency, total]);
 
   return (
     <div
-      className="rounded-lg overflow-hidden"
+      className="rounded-lg overflow-hidden h-full"
       style={{
         border: "0.5px solid #ededed",
         background: "#ffffff",
         boxShadow: "var(--shadow-1)",
       }}
     >
-      {/* Header */}
       <div
         className="px-5 py-3"
         style={{ borderBottom: "0.5px solid #ededed" }}
@@ -466,36 +463,49 @@ const ActionFrequencyChart = ({ entries }: { entries: HistoryListEntry[] }) => {
         </span>
       </div>
 
-      {/* Body */}
-      <div className="px-5 py-4 space-y-3">
-        {actionFrequency.map(([action, count]) => (
-          <div key={action} className="flex items-center gap-3">
-            <span
-              className="text-[13px] font-medium shrink-0"
-              style={{ color: "#171717", minWidth: 80 }}
-            >
-              {action}
-            </span>
-            <div
-              className="h-1.5 rounded-full flex-1 flex items-center"
-              style={{ background: "#f0f0f0" }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  background: "#0052ff",
-                  width: `${(count / maxCount) * 100}%`,
-                }}
-              />
-            </div>
-            <span
-              className="text-[11px] font-mono shrink-0"
-              style={{ color: "#9a9a9a", minWidth: 30, textAlign: "right" }}
-            >
-              {count}
-            </span>
+      <div className="px-5 py-4 flex flex-col gap-4 h-full">
+        {actionFrequency.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center py-8">
+            <p style={{ fontSize: 12, color: "#9a9a9a" }}>No action data yet</p>
           </div>
-        ))}
+        ) : (
+          <div className="flex items-center gap-4">
+            <div className="relative w-32 h-32 shrink-0">
+              <div className="absolute inset-0 rounded-full" style={pieStyle} />
+              <div className="absolute inset-[22%] rounded-full bg-white border border-[#ededed] flex flex-col items-center justify-center text-center">
+                <span className="text-[18px] font-bold text-[#171717] leading-none">
+                  {actionFrequency.length}
+                </span>
+                <span className="text-[10px] uppercase tracking-[0.08em] text-[#9a9a9a] font-mono">
+                  Actions
+                </span>
+              </div>
+            </div>
+
+            <div className="min-w-0 flex-1 space-y-2">
+              {actionFrequency.slice(0, 6).map(([action, count], index) => {
+                const percent =
+                  total > 0 ? Math.round((count / total) * 100) : 0;
+                return (
+                  <div key={action} className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{
+                        background: ACTION_COLORS[index % ACTION_COLORS.length],
+                      }}
+                    />
+                    <span className="text-[12px] font-medium text-[#171717] truncate flex-1">
+                      {action}
+                    </span>
+                    <span className="text-[11px] font-mono text-[#9a9a9a] shrink-0">
+                      {count} · {percent}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -619,7 +629,6 @@ const Home = () => {
         style={{ width: "100%" }}
       >
         <div className="flex flex-col gap-4 py-4 w-full">
-          {/* ── Stats Strip ── */}
           {/* ── Quick-action cards + Backend Status ── */}
           <div className="grid grid-cols-2 gap-3" style={{ minHeight: 112 }}>
             {/* Left: Quick-action cards */}
@@ -736,7 +745,12 @@ const Home = () => {
             {/* Right: Backend Status */}
             <BackendStatus healthData={healthData} healthError={healthError} />
           </div>
-          <StatsStrip entries={entries} loading={loading} />
+
+          {/* ── Stats + Action Distribution ── */}
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)] gap-3 items-stretch">
+            <StatsStrip entries={entries} loading={loading} />
+            <ActionDistributionPie entries={entries} />
+          </div>
 
           {/* ── Resume Card (if entries exist) ── */}
           {entries.length > 0 && entries[0] && (
@@ -745,9 +759,6 @@ const Home = () => {
               onOpen={() => navigate(`/library?history=${entries[0].id}`)}
             />
           )}
-
-          {/* ── Action Frequency Chart ── */}
-          <ActionFrequencyChart entries={entries} />
 
           {/* ── History panel ── */}
           <div
