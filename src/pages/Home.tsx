@@ -368,7 +368,7 @@ const Home = () => {
 
                   <div className="flex items-center gap-2 sm:shrink-0">
                     <Button
-                      variant="secondary"
+                      variant="primary"
                       size="sm"
                       className="flex-1 sm:flex-none"
                       onClick={() => navigate(`/library?history=${entry.id}`)}
@@ -377,9 +377,8 @@ const Home = () => {
                       Open
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="destructive"
                       size="sm"
-                      className="text-slate-400 hover:text-red-600 hover:bg-red-50 flex-1 sm:flex-none"
                       disabled={deletingId === entry.id}
                       onClick={() => handleDeleteEntry(entry)}
                     >

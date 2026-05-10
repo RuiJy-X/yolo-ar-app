@@ -395,13 +395,27 @@ export const useLibraryState = (historyId?: string | null) => {
         analysisPayload = analyzeJson as AnalyzeVideoResponse;
       }
 
+      // Set FPS *before* analysis so actionTimelineTags are built with the
+      // correct value from the very first render — avoids a flicker where tags
+      // are positioned with stale FPS then jump once state settles.
+      const newFps = output.fps > 0 ? output.fps : 30;
+      setSeekFps(newFps);
       setAnalysis(analysisPayload);
-      setSeekFps(output.fps > 0 ? output.fps : 30);
       setCurrentTimeSeconds(0);
-      setVideoDurationSeconds(0);
+      // Do NOT reset videoDurationSeconds here. The video element key will
+      // change (new resultVideoUrl), causing onLoadedMetadata to fire and set
+      // the real duration. Resetting to 0 first causes a render where
+      // timelineDurationSeconds is derived only from inferredDurationSeconds,
+      // which shifts tag positions momentarily and misaligns seek targets.
 
       if (sourcePlaybackUrl)
         replaceSourceVideoUrl(withCacheBust(sourcePlaybackUrl));
+
+      // Now that fps and analysis are already in state, it's safe to reset the
+      // video duration. The very next render will have correct tag positions
+      // (from the new analysis+fps), and onLoadedMetadata will promptly fill in
+      // the real duration when the new video element mounts.
+      setVideoDurationSeconds(0);
 
       const summaryText = `Frames: ${output.frames_processed} | Tracks: ${output.tracks_created} | Detections: ${output.people_instances_detected} | FPS: ${output.fps} | Resolution: ${output.resolution.width}x${output.resolution.height} | Codec: ${output.output_codec ?? "unknown"} | Processing: ${output.processing_seconds ?? "n/a"}s`;
       const retentionSeconds =
@@ -482,7 +496,14 @@ export const useLibraryState = (historyId?: string | null) => {
           sourceFilename,
           summary: summary ?? "Saved video analysis",
           filename: annotatedFilename,
-          analysis,
+          // Wrap the bare AnalyzeVideoResponse in an envelope that includes fps
+          // so that when this history entry is reloaded, storedFps is recoverable
+          // and seekToFrame uses the correct frame rate. Without this, analysis.fps
+          // would be undefined and seekFps would fall back to 30, misaligning seeks.
+          analysis: {
+            fps: seekFps,
+            analysis_summary: analysis,
+          },
         }),
       });
 
@@ -628,10 +649,15 @@ export const useLibraryState = (historyId?: string | null) => {
             ? ((entry.analysis as Record<string, unknown>).fps as number)
             : null;
 
-        setAnalysis(normalizedAnalysis);
-        if (storedFps && storedFps > 0) setSeekFps(storedFps);
         setCurrentTimeSeconds(0);
-        setVideoDurationSeconds(0);
+        // Set FPS before analysis for the same reason as post-inference: tags
+        // must be built with the correct FPS on the very first render so their
+        // positions and seek targets are correct from the start.
+        if (storedFps && storedFps > 0) setSeekFps(storedFps);
+        setAnalysis(normalizedAnalysis);
+        // Do NOT reset videoDurationSeconds here — let onLoadedMetadata set it
+        // once the new video element fires. Resetting early causes a transient
+        // render where timeline tag positions are wrong.
         setResultPlaybackError(null);
         setLoadedHistoryId(entry.id); // remember which history entry this is
         setResultVideoUrl(

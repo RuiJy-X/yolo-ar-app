@@ -20,6 +20,8 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
         dashed:
           "border-dashed border-primary bg-transparent text-primary hover:bg-primary/10 aria-expanded:bg-primary/10",
+        primary:
+          "bg-primary text-primary-foreground hover:bg-primary/80 aria-expanded:bg-primary aria-expanded:text-primary-foreground",
       },
       size: {
         default:

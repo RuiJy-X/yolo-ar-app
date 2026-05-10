@@ -1873,13 +1873,23 @@ def run_history_reinference_job(
             encoding="utf-8",
         )
 
-        # Derive the analysis and write it back too so /api/history/<id> stays fresh.
-        analysis_obj = result.get("analysis_summary")
-        if analysis_obj:
-            (entry_dir / "analysis.json").write_text(
-                json.dumps(analysis_obj, ensure_ascii=True, indent=2),
-                encoding="utf-8",
-            )
+        # Write the full result object (including fps, frames_processed, etc.)
+        # back to analysis.json so that when the history entry is re-loaded the
+        # frontend can recover the correct FPS for timeline seek calculations.
+        # The frontend's normalizeAnalysis() already knows how to unwrap
+        # analysis_summary from this envelope, so the shape is compatible.
+        # Previously this only wrote analysis_summary (the bare AnalyzeVideoResponse),
+        # which stripped fps — causing every seek to use the wrong frame rate on
+        # the next page load.
+        full_result = {
+            **result,
+            "output_video_url": f"/history/{entry_id}/{history_video_name}",
+            "source_video_url": f"/outputs/previews/{preview_name}",
+        }
+        (entry_dir / "analysis.json").write_text(
+            json.dumps(full_result, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
 
         cleanup_annotated_outputs()
         cleanup_preview_outputs()
