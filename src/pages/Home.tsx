@@ -15,8 +15,23 @@ import {
   ChevronDown,
   Clock,
   Plus,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
+  Cpu,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface HealthData {
+  status: "ok" | "error";
+  model?: string;
+  action_model?: string;
+  device?: string;
+  gpu_name?: string;
+}
 
 const apiBaseUrl =
   import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -99,6 +114,15 @@ const EntryRow = ({
       >
         {entry.filename || "Untitled Analysis"}
       </p>
+      {entry.hasWaveAlert && (
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full mt-1"
+          style={{ background: "rgba(239,68,68,0.1)", color: "#dc2626" }}
+        >
+          <AlertTriangle size={9} />
+          Wave alert
+        </span>
+      )}
       <div className="flex items-center gap-1.5 mt-0.5">
         <Clock size={10} style={{ color: "#9a9a9a" }} />
         <span className="text-[11px] font-mono" style={{ color: "#9a9a9a" }}>
@@ -151,6 +175,332 @@ const EntryRow = ({
   </div>
 );
 
+// ── StatsStrip ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  icon: React.ReactNode;
+  value: string | number;
+  label: string;
+  highlight?: boolean;
+}
+
+const StatCard = ({ icon, value, label, highlight }: StatCardProps) => (
+  <div
+    className="rounded-lg p-4 flex flex-col items-center justify-center text-center"
+    style={{
+      border: "0.5px solid #ededed",
+      background: "#fff",
+      boxShadow: "var(--shadow-1)",
+    }}
+  >
+    <div
+      className="w-7 h-7 rounded-[6px] flex items-center justify-center mb-2.5 shrink-0"
+      style={{
+        background: highlight ? "rgba(239,68,68,0.08)" : "rgba(0,82,255,0.08)",
+      }}
+    >
+      {icon}
+    </div>
+    <p
+      className="font-bold"
+      style={{
+        fontSize: 22,
+        color: "#171717",
+        margin: "0 0 4px 0",
+        lineHeight: 1,
+      }}
+    >
+      {value}
+    </p>
+    <p style={{ fontSize: 11, color: "#9a9a9a", margin: 0 }}>{label}</p>
+  </div>
+);
+
+const StatsStrip = ({
+  entries,
+  loading,
+}: {
+  entries: HistoryListEntry[];
+  loading: boolean;
+}) => {
+  const stats = useMemo(() => {
+    const totalSessions = entries.length;
+    const totalActions = entries.reduce((count, entry) => {
+      if (Array.isArray(entry.detectedActions)) {
+        return (
+          count + entry.detectedActions.filter((action) => action.trim()).length
+        );
+      }
+      return count + (entry.topAction ? 1 : 0);
+    }, 0);
+    const waveAlerts = entries.filter((e) => e.hasWaveAlert).length;
+    const minutesProcessed =
+      entries.reduce((acc, e) => acc + (e.durationSeconds ?? 0), 0) / 60;
+
+    return {
+      totalSessions,
+      totalActions,
+      waveAlerts,
+      minutesProcessed: isFinite(minutesProcessed)
+        ? Math.round(minutesProcessed)
+        : 0,
+    };
+  }, [entries]);
+
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      <StatCard
+        icon={<FileVideo size={14} style={{ color: "#0052ff" }} />}
+        value={loading ? "—" : stats.totalSessions}
+        label="Total Sessions"
+      />
+      <StatCard
+        icon={<Activity size={14} style={{ color: "#0052ff" }} />}
+        value={loading ? "—" : stats.totalActions}
+        label="Total Actions"
+      />
+
+      <StatCard
+        icon={<AlertTriangle size={14} style={{ color: "#ef4444" }} />}
+        value={loading ? "—" : stats.waveAlerts}
+        label="Wave Alerts"
+        highlight
+      />
+    </div>
+  );
+};
+
+// ── ResumeCard ─────────────────────────────────────────────────────────────
+
+const ResumeCard = ({
+  entry,
+  onOpen,
+}: {
+  entry: HistoryListEntry;
+  onOpen: () => void;
+}) => (
+  <div
+    className="flex items-center gap-3 rounded-lg p-4"
+    style={{
+      border: "0.5px solid #ededed",
+      background: "#fafafa",
+      boxShadow: "var(--shadow-1)",
+    }}
+  >
+    <div
+      className="w-8 h-8 rounded-[6px] flex items-center justify-center shrink-0"
+      style={{ background: "rgba(0,82,255,0.08)" }}
+    >
+      <FileVideo size={14} style={{ color: "#0052ff" }} />
+    </div>
+    <div className="flex-1 min-w-0">
+      <p
+        className="text-[12px] font-medium truncate"
+        style={{ color: "#9a9a9a" }}
+      >
+        Resume last session
+      </p>
+      <p
+        className="text-[13px] font-medium truncate"
+        style={{ color: "#171717" }}
+      >
+        {entry.filename || "Untitled Analysis"}
+      </p>
+    </div>
+    <button
+      onClick={onOpen}
+      className="px-3 py-1.5 rounded-[6px] text-[12px] font-medium"
+      style={{ background: "#0052ff", color: "#fff" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "#0041cc")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "#0052ff")}
+    >
+      Open
+    </button>
+  </div>
+);
+
+// ── BackendStatus ──────────────────────────────────────────────────────────
+
+const BackendStatus = ({
+  healthData,
+  healthError,
+}: {
+  healthData: HealthData | null;
+  healthError: boolean;
+}) => {
+  const isOnline = healthData?.status === "ok" && !healthError;
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        border: "0.5px solid #ededed",
+        background: "#ffffff",
+        boxShadow: "var(--shadow-1)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="px-5 py-3"
+        style={{ borderBottom: "0.5px solid #ededed" }}
+      >
+        <span
+          className="text-[12px] font-semibold uppercase tracking-[0.08em]"
+          style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
+        >
+          System
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-3 space-y-3">
+        {/* Backend Status */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {isOnline ? (
+              <Wifi size={13} style={{ color: "#16a34a" }} />
+            ) : (
+              <WifiOff size={13} style={{ color: "#dc2626" }} />
+            )}
+            <span style={{ fontSize: 12, color: "#171717" }}>Backend</span>
+          </div>
+          <span
+            className="text-[11px] font-semibold px-2 py-1 rounded-[4px]"
+            style={{
+              background: isOnline
+                ? "rgba(34,197,94,0.1)"
+                : "rgba(239,68,68,0.1)",
+              color: isOnline ? "#16a34a" : "#dc2626",
+            }}
+          >
+            {isOnline ? "Online" : "Offline"}
+          </span>
+        </div>
+
+        {/* Device */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Cpu size={13} style={{ color: "#9a9a9a" }} />
+            <span style={{ fontSize: 12, color: "#171717" }}>Device</span>
+          </div>
+          <span className="text-[11px] font-mono" style={{ color: "#9a9a9a" }}>
+            {healthData?.device === "cuda"
+              ? `cuda · ${healthData.gpu_name || "GPU"}`
+              : healthData?.device || "—"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── ActionFrequencyChart ───────────────────────────────────────────────────
+
+const ActionFrequencyChart = ({ entries }: { entries: HistoryListEntry[] }) => {
+  const actionFrequency = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of entries) {
+      const actions = Array.isArray(e.detectedActions)
+        ? e.detectedActions
+        : e.topAction
+          ? [e.topAction]
+          : [];
+      for (const action of actions) {
+        const label = action.trim();
+        if (!label) continue;
+        counts[label] = (counts[label] ?? 0) + 1;
+      }
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [entries]);
+
+  const maxCount = Math.max(...actionFrequency.map((a) => a[1]), 1);
+
+  if (actionFrequency.length === 0) {
+    return (
+      <div
+        className="rounded-lg overflow-hidden"
+        style={{
+          border: "0.5px solid #ededed",
+          background: "#ffffff",
+          boxShadow: "var(--shadow-1)",
+        }}
+      >
+        <div
+          className="px-5 py-3"
+          style={{ borderBottom: "0.5px solid #ededed" }}
+        >
+          <span
+            className="text-[12px] font-semibold uppercase tracking-[0.08em]"
+            style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
+          >
+            Action Distribution
+          </span>
+        </div>
+        <div className="px-5 py-12 text-center">
+          <p style={{ fontSize: 12, color: "#9a9a9a" }}>No action data yet</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        border: "0.5px solid #ededed",
+        background: "#ffffff",
+        boxShadow: "var(--shadow-1)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="px-5 py-3"
+        style={{ borderBottom: "0.5px solid #ededed" }}
+      >
+        <span
+          className="text-[12px] font-semibold uppercase tracking-[0.08em]"
+          style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
+        >
+          Action Distribution
+        </span>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4 space-y-3">
+        {actionFrequency.map(([action, count]) => (
+          <div key={action} className="flex items-center gap-3">
+            <span
+              className="text-[13px] font-medium shrink-0"
+              style={{ color: "#171717", minWidth: 80 }}
+            >
+              {action}
+            </span>
+            <div
+              className="h-1.5 rounded-full flex-1 flex items-center"
+              style={{ background: "#f0f0f0" }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  background: "#0052ff",
+                  width: `${(count / maxCount) * 100}%`,
+                }}
+              />
+            </div>
+            <span
+              className="text-[11px] font-mono shrink-0"
+              style={{ color: "#9a9a9a", minWidth: 30, textAlign: "right" }}
+            >
+              {count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const Home = () => {
@@ -161,6 +511,9 @@ const Home = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [waveOnly, setWaveOnly] = useState(false);
+  const [healthData, setHealthData] = useState<HealthData | null>(null);
+  const [healthError, setHealthError] = useState(false);
 
   const loadHistory = async () => {
     setLoading(true);
@@ -188,6 +541,11 @@ const Home = () => {
 
   useEffect(() => {
     loadHistory();
+    // Fetch health data
+    fetch(`${apiBaseUrl}/health`)
+      .then((r) => r.json())
+      .then(setHealthData)
+      .catch(() => setHealthError(true));
   }, []);
 
   const availableDates = useMemo(() => {
@@ -201,14 +559,17 @@ const Home = () => {
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
-    if (!selectedDate) return entries;
-    return entries.filter(
-      (e) =>
-        Number.isFinite(e.createdAt) &&
-        e.createdAt > 0 &&
-        toDateKey(e.createdAt) === selectedDate,
-    );
-  }, [entries, selectedDate]);
+    let result = selectedDate
+      ? entries.filter(
+          (e) =>
+            Number.isFinite(e.createdAt) &&
+            e.createdAt > 0 &&
+            toDateKey(e.createdAt) === selectedDate,
+        )
+      : entries;
+    if (waveOnly) result = result.filter((e) => e.hasWaveAlert);
+    return result;
+  }, [entries, selectedDate, waveOnly]);
 
   const handleClearHistory = async () => {
     if (entries.length === 0 || clearing) return;
@@ -254,115 +615,139 @@ const Home = () => {
   return (
     <AppLayout>
       <div
-        className="flex flex-col flex-1 min-h-0 overflow-y-auto w-full"
-        style={{ maxWidth: 860, margin: "0 auto", width: "100%" }}
+        className="flex flex-col flex-1 min-h-0 overflow-y-auto w-full px-4 md:px-6 lg:px-8"
+        style={{ width: "100%" }}
       >
-        <div className="flex flex-col gap-4 py-4 px-1">
-          {/* ── Quick-action cards ── */}
+        <div className="flex flex-col gap-4 py-4 w-full">
+          {/* ── Stats Strip ── */}
+          {/* ── Quick-action cards + Backend Status ── */}
           <div className="grid grid-cols-2 gap-3" style={{ minHeight: 112 }}>
-            {/* Realtime */}
-            <Link
-              to="/realtime"
-              className="group flex justify-between rounded-lg p-4 transition-all"
-              style={{
-                background:
-                  "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(226,236,255,0.98) 100%)",
-                border: "0.5px solid rgba(0,82,255,0.12)",
-                boxShadow: "var(--shadow-1)",
-                textDecoration: "none",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.borderColor = "#0052ff";
-                (e.currentTarget as HTMLElement).style.boxShadow =
-                  "0 0 0 1px #0052ff22, var(--shadow-1)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.borderColor = "#ededed";
-                (e.currentTarget as HTMLElement).style.boxShadow =
-                  "var(--shadow-1)";
-              }}
-            >
-              <div>
-                <div
-                  className="w-8 h-8 rounded-[6px] flex items-center justify-center mb-3"
-                  style={{ background: "rgba(0,82,255,0.08)" }}
-                >
-                  <Camera size={15} style={{ color: "#0052ff" }} />
-                </div>
+            {/* Left: Quick-action cards */}
+            <div className="flex flex-col gap-3">
+              {/* Realtime */}
+              <Link
+                to="/realtime"
+                className="group flex justify-between rounded-lg p-4 transition-all"
+                style={{
+                  background:
+                    "linear-gradient(145deg, rgba(255,255,255,0.98) 0%, rgba(226,236,255,0.98) 100%)",
+                  border: "0.5px solid rgba(0,82,255,0.12)",
+                  boxShadow: "var(--shadow-1)",
+                  textDecoration: "none",
+                  flex: 1,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor =
+                    "#0052ff";
+                  (e.currentTarget as HTMLElement).style.boxShadow =
+                    "0 0 0 1px #0052ff22, var(--shadow-1)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor =
+                    "#ededed";
+                  (e.currentTarget as HTMLElement).style.boxShadow =
+                    "var(--shadow-1)";
+                }}
+              >
                 <div>
-                  <p
-                    className="font-medium"
-                    style={{ fontSize: 13, color: "#171717", margin: 0 }}
+                  <div
+                    className="w-8 h-8 rounded-[6px] flex items-center justify-center mb-3"
+                    style={{ background: "rgba(0,82,255,0.08)" }}
                   >
-                    Realtime analysis
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: "#9a9a9a",
-                      margin: "2px 0 0",
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    Stream live camera inference
-                  </p>
+                    <Camera size={15} style={{ color: "#0052ff" }} />
+                  </div>
+                  <div>
+                    <p
+                      className="font-medium"
+                      style={{ fontSize: 13, color: "#171717", margin: 0 }}
+                    >
+                      Realtime analysis
+                    </p>
+                    <p
+                      style={{
+                        fontSize: 11,
+                        color: "#9a9a9a",
+                        margin: "2px 0 0",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Stream live camera inference
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center justify-center bg-black/90 rounded-xs w-6 h-6 justify-center">
-                <Plus size={15} className="text-white" />
-              </div>
-            </Link>
+                <div className="flex items-center justify-center bg-black/90 rounded-xs w-6 h-6">
+                  <Plus size={15} className="text-white" />
+                </div>
+              </Link>
 
-            {/* Library */}
-            <Link
-              to="/library"
-              className="group flex  justify-between rounded-lg p-4 transition-all "
-              style={{
-                background: "linear-gradient(145deg, #0052ff 0%, #7ca2ff 100%)",
-                border: "0.5px solid rgba(0,82,255,0.22)",
-                boxShadow: "var(--shadow-1)",
-                textDecoration: "none",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background =
-                  "linear-gradient(145deg, #0048e6 0%, #5f8eff 100%)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.background =
-                  "linear-gradient(145deg, #0052ff 0%, #7ca2ff 100%)";
-              }}
-            >
-              <div>
-                <div
-                  className="w-8 h-8 rounded-[6px] flex items-center justify-center mb-3"
-                  style={{ background: "rgba(255,255,255,0.15)" }}
-                >
-                  <FileVideo size={15} style={{ color: "#ffffff" }} />
-                </div>
+              {/* Library */}
+              <Link
+                to="/library"
+                className="group flex  justify-between rounded-lg p-4 transition-all "
+                style={{
+                  background:
+                    "linear-gradient(145deg, #0052ff 0%, #7ca2ff 100%)",
+                  border: "0.5px solid rgba(0,82,255,0.22)",
+                  boxShadow: "var(--shadow-1)",
+                  textDecoration: "none",
+                  flex: 1,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.background =
+                    "linear-gradient(145deg, #0048e6 0%, #5f8eff 100%)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background =
+                    "linear-gradient(145deg, #0052ff 0%, #7ca2ff 100%)";
+                }}
+              >
                 <div>
-                  <p
-                    className="font-medium"
-                    style={{ fontSize: 13, color: "#ffffff", margin: 0 }}
+                  <div
+                    className="w-8 h-8 rounded-[6px] flex items-center justify-center mb-3"
+                    style={{ background: "rgba(255,255,255,0.15)" }}
                   >
-                    Analyze video
-                  </p>
-                  <p
-                    style={{
-                      fontSize: 11,
-                      color: "rgba(255,255,255,0.6)",
-                      margin: "2px 0 0",
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    Upload and process footage
-                  </p>
+                    <FileVideo size={15} style={{ color: "#ffffff" }} />
+                  </div>
+                  <div>
+                    <p
+                      className="font-medium"
+                      style={{ fontSize: 13, color: "#ffffff", margin: 0 }}
+                    >
+                      Analyze video
+                    </p>
+                    <p
+                      style={{
+                        fontSize: 11,
+                        color: "rgba(255,255,255,0.6)",
+                        margin: "2px 0 0",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Upload and process footage
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center bg-white rounded-xs w-6 h-6 justify-center">
-                <Plus size={15} className="text-black/90" />
-              </div>
-            </Link>
+                <div className="flex items-center bg-white rounded-xs w-6 h-6 justify-center">
+                  <Plus size={15} className="text-black/90" />
+                </div>
+              </Link>
+            </div>
+
+            {/* Right: Backend Status */}
+            <BackendStatus healthData={healthData} healthError={healthError} />
           </div>
+          <StatsStrip entries={entries} loading={loading} />
+
+          {/* ── Resume Card (if entries exist) ── */}
+          {entries.length > 0 && entries[0] && (
+            <ResumeCard
+              entry={entries[0]}
+              onOpen={() => navigate(`/library?history=${entries[0].id}`)}
+            />
+          )}
+
+          {/* ── Action Frequency Chart ── */}
+          <ActionFrequencyChart entries={entries} />
 
           {/* ── History panel ── */}
           <div
@@ -457,6 +842,24 @@ const Home = () => {
                   >
                     <X size={10} />
                     Clear
+                  </button>
+                )}
+
+                {/* Wave Alert Filter */}
+                {entries.some((e) => e.hasWaveAlert) && (
+                  <button
+                    onClick={() => setWaveOnly((prev) => !prev)}
+                    style={{
+                      height: 28,
+                      border: "0.5px solid #dfdfdf",
+                      background: waveOnly ? "rgba(239,68,68,0.08)" : "#fff",
+                      color: waveOnly ? "#dc2626" : "#9a9a9a",
+                      borderColor: waveOnly ? "#fca5a5" : "#dfdfdf",
+                    }}
+                    className="flex items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors"
+                  >
+                    <AlertTriangle size={10} />
+                    Alerts only
                   </button>
                 )}
 

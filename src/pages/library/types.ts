@@ -56,6 +56,10 @@ export type HistoryListEntry = {
   summary: string;
   filename: string;
   createdAt: number;
+  durationSeconds?: number;
+  detectedActions?: string[];
+  topAction?: string;
+  hasWaveAlert?: boolean;
 };
 
 export type HistoryEntry = HistoryListEntry & {

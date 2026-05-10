@@ -410,6 +410,59 @@ def load_history_meta(entry_dir: Path) -> dict[str, Any] | None:
         return None
 
 
+def _analysis_summary_payload(analysis: dict[str, Any]) -> dict[str, Any] | None:
+    nested = analysis.get("analysis_summary")
+    if isinstance(nested, dict):
+        return nested
+    if "grouped_detections" in analysis or "alert_events" in analysis:
+        return analysis
+    return None
+
+
+def _detected_actions_from_analysis(analysis: dict[str, Any]) -> list[str]:
+    summary = _analysis_summary_payload(analysis)
+    if not summary:
+        return []
+
+    grouped = summary.get("grouped_detections")
+    if not isinstance(grouped, dict):
+        return []
+
+    actions: list[str] = []
+    for action in grouped.keys():
+        label = str(action).strip()
+        if label and label not in actions:
+            actions.append(label)
+    return actions
+
+
+def _has_wave_alert_from_analysis(analysis: dict[str, Any]) -> bool:
+    wave_logs = analysis.get("waveAlertLogs")
+    if isinstance(wave_logs, list) and len(wave_logs) > 0:
+        return True
+
+    summary = _analysis_summary_payload(analysis)
+    if not summary:
+        return False
+
+    alerts = summary.get("alert_events")
+    return isinstance(alerts, list) and len(alerts) > 0
+
+
+def _duration_seconds_from_video(video_path: Path) -> float | None:
+    capture = cv2.VideoCapture(str(video_path))
+    try:
+        if not capture.isOpened():
+            return None
+        frame_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        if frame_count <= 0.0 or fps <= 0.0:
+            return None
+        return round(frame_count / fps, 3)
+    finally:
+        capture.release()
+
+
 def build_history_entry(meta: dict[str, Any]) -> HistoryEntryResponse:
     entry_id = str(meta.get("id") or "")
     created_at = int(meta.get("createdAt") or 0)
@@ -417,6 +470,24 @@ def build_history_entry(meta: dict[str, Any]) -> HistoryEntryResponse:
     filename = str(meta.get("filename") or "annotated_video.mp4")
     video_name = str(meta.get("videoName") or "")
     source_name = meta.get("sourceName")
+    duration_seconds = meta.get("durationSeconds")
+    detected_actions = meta.get("detectedActions")
+    has_wave_alert = bool(meta.get("hasWaveAlert") or False)
+
+    normalized_actions = (
+        [str(action) for action in detected_actions if str(action).strip()]
+        if isinstance(detected_actions, list)
+        else []
+    )
+
+    try:
+        normalized_duration = (
+            round(float(duration_seconds), 3)
+            if duration_seconds is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        normalized_duration = None
 
     video_url = f"/history/{entry_id}/{video_name}" if entry_id and video_name else ""
     source_url = (
@@ -430,6 +501,9 @@ def build_history_entry(meta: dict[str, Any]) -> HistoryEntryResponse:
         filename=filename,
         videoUrl=video_url,
         sourceVideoUrl=source_url,
+        durationSeconds=normalized_duration,
+        detectedActions=normalized_actions,
+        hasWaveAlert=has_wave_alert,
     )
 
 
@@ -721,6 +795,9 @@ class HistoryEntryResponse(BaseModel):
     filename: str
     videoUrl: str
     sourceVideoUrl: str | None = None
+    durationSeconds: float | None = None
+    detectedActions: list[str] = Field(default_factory=list)
+    hasWaveAlert: bool = False
 
 
 class HistoryDetailResponse(HistoryEntryResponse):
@@ -2116,6 +2193,9 @@ def save_history_entry(body: SaveHistoryRequest) -> HistoryDetailResponse:
     summary = body.summary or "Saved video analysis"
     filename = body.filename or safe_annotated
     created_at = int(time.time() * 1000)
+    duration_seconds = _duration_seconds_from_video(annotated_path)
+    detected_actions = _detected_actions_from_analysis(body.analysis)
+    has_wave_alert = _has_wave_alert_from_analysis(body.analysis)
 
     (entry_dir / "analysis.json").write_text(
         json.dumps(body.analysis, ensure_ascii=True, indent=2),
@@ -2128,6 +2208,9 @@ def save_history_entry(body: SaveHistoryRequest) -> HistoryDetailResponse:
         "filename": filename,
         "videoName": video_name,
         "sourceName": source_name,
+        "durationSeconds": duration_seconds,
+        "detectedActions": detected_actions,
+        "hasWaveAlert": has_wave_alert,
     }
     (entry_dir / "meta.json").write_text(
         json.dumps(meta, ensure_ascii=True, indent=2),

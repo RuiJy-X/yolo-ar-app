@@ -124,8 +124,8 @@ const RealTimeDoc = () => (
       action labels and mathematical confidence scores. A critical safety
       feature of this module is the Waving Alert System, which acts as a
       Distress Signal Protocol; it monitors for "Waving" actions and triggers a
-      high-visibility alert if the movement is sustained for 64 consecutive
-      frames (approximately 2 seconds). To ensure no data is lost, the
+      high-visibility alert if the movement is sustained for 32 consecutive
+      frames (approximately 1 second). To ensure no data is lost, the
       application utilizes an Auto-Archiving feature: when the camera is
       stopped, the entire recording and its corresponding inference data are
       automatically packaged and saved to your Home Dashboard, allowing you to
@@ -141,7 +141,8 @@ const RealTimeDoc = () => (
           <h4 className="font-bold">Waving Alert Protocol</h4>
           <p className="text-sm text-slate-700">
             The system monitors for SOS or distress signals. If a "Waving"
-            action is sustained for <strong>64 consecutive frames</strong>, a
+            action is sustained for{" "}
+            <strong>32 consecutive frames (WAVE_THRESHOLD = 32)</strong>, a
             visual alert is triggered in the interface.
           </p>
         </div>
