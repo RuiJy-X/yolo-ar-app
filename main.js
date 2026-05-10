@@ -80,25 +80,41 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: 'Aerview',
+    title: "Aerview",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: false, // Allow loading local resources (e.g. model files) in development; safe since we disable nodeIntegration and contextIsolation is true
     },
     show: false,
   });
 
-  mainWindow.loadURL('http://localhost:8000');
-  mainWindow.once('ready-to-show', () => mainWindow.show());
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.loadURL("http://localhost:8000");
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
   mainWindow.setMenuBarVisibility(false);
 }
 
 app.whenReady().then(async () => {
   // Grant camera permission for RealTime page
-  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(permission === 'media');
+  // Allow all local connections including WebSocket
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8000 ws://localhost:8000",
+        ],
+      },
+    });
   });
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      callback(permission === "media");
+    },
+  );
 
   startBackend();
 
@@ -107,8 +123,9 @@ app.whenReady().then(async () => {
     createWindow();
   } catch (err) {
     dialog.showErrorBox(
-      'Aerview failed to start',
-      'The backend could not be reached.\n\nMake sure no other app is using port 8000.\n\n' + err.message
+      "Aerview failed to start",
+      "The backend could not be reached.\n\nMake sure no other app is using port 8000.\n\n" +
+        err.message,
     );
     app.quit();
   }
