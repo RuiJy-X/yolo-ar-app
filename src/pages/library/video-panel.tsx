@@ -1,5 +1,6 @@
 import type { RefObject, ChangeEventHandler } from "react";
 import { Button } from "@/components/ui/button";
+import { Download, Save, Upload } from "lucide-react";
 
 type VideoPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -72,7 +73,12 @@ const VideoPanel = ({
 
         <div className="flex items-center gap-2">
           {(file || sourceVideoUrl || resultVideoUrl) && (
-            <Button type="button" onClick={() => fileInputRef.current?.click()}>
+            <Button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xs "
+            >
+              <Upload />
               Upload Video
             </Button>
           )}
@@ -81,20 +87,29 @@ const VideoPanel = ({
             <Button onClick={onRunInference}>Analyze</Button>
           )}
 
+          {resultDownloadUrl && !isSubmitting && (
+            <Button
+              type="button"
+              variant={"outline"}
+              onClick={onDownload}
+              disabled={isDownloading}
+              className="text-xs"
+            >
+              <Download />
+              {isDownloading ? "Downloading..." : "Download"}
+            </Button>
+          )}
+
           {(resultVideoUrl || sourceVideoUrl) && (
             <Button
               type="button"
               onClick={onSaveToHistory}
               disabled={!canSaveToHistory}
               variant={historySavedAt ? "secondary" : "default"}
+              className="text-xs"
             >
-              {historySavedAt ? "Saved" : "Save to History"}
-            </Button>
-          )}
-
-          {resultDownloadUrl && !isSubmitting && (
-            <Button type="button" onClick={onDownload} disabled={isDownloading}>
-              {isDownloading ? "Downloading..." : "Download"}
+              <Save />
+              {historySavedAt ? "Saved" : "Save"}
             </Button>
           )}
         </div>

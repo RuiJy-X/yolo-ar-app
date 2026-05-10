@@ -5,7 +5,20 @@ import RealTimeVideo, {
 } from "@/components/realtime-video";
 import Config from "./library/config";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, X } from "lucide-react";
+import { useNavigate } from "react-router";
+import {
+  AlertTriangle,
+  ChevronDown,
+  X,
+  Save,
+  Loader2,
+  CheckCircle2,
+  ExternalLink,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+const apiBaseUrl =
+  import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 
 // ─── Waving Toast ─────────────────────────────────────────────────────────────
 
@@ -16,9 +29,90 @@ type WaveToast = {
 
 const WAVE_THRESHOLD = 32; // consecutive frames required
 
+// ─── Save-to-history state ────────────────────────────────────────────────────
+
+type SaveState =
+  | { status: "idle" }
+  | { status: "uploading"; progress: number; message: string }
+  | { status: "processing"; progress: number; message: string }
+  | { status: "saving" }
+  | { status: "done"; historyId: string }
+  | { status: "error"; message: string };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function mimeToExtension(mimeType: string): string {
+  if (mimeType.startsWith("video/mp4")) return ".mp4";
+  return ".webm";
+}
+
+function buildSessionSummary(
+  logs: string[],
+  alertCount: number,
+  frameCount: number,
+): string {
+  const actionCounts: Record<string, number> = {};
+  for (const line of logs) {
+    const match = line.match(/action=(\w+)/);
+    if (match) {
+      const label = match[1];
+      actionCounts[label] = (actionCounts[label] ?? 0) + 1;
+    }
+  }
+  const topActions = Object.entries(actionCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([l]) => l)
+    .join(", ");
+
+  const parts: string[] = [`${frameCount} frames processed`];
+  if (topActions) parts.push(`top actions: ${topActions}`);
+  if (alertCount > 0) parts.push(`${alertCount} waving alert(s)`);
+  return `Live session — ${parts.join("; ")}`;
+}
+
+// Poll the job status endpoint until done or failed
+async function pollJobUntilDone(
+  jobId: string,
+  onProgress: (percent: number, message: string) => void,
+  signal: AbortSignal,
+): Promise<{ result: Record<string, unknown> }> {
+  while (!signal.aborted) {
+    await new Promise((r) => setTimeout(r, 1200));
+    if (signal.aborted) break;
+
+    const res = await fetch(`${apiBaseUrl}/api/infer-video/${jobId}`, {
+      signal,
+    });
+    if (!res.ok) throw new Error("Failed to poll inference job.");
+
+    const job = (await res.json()) as {
+      status: string;
+      progress_percent?: number;
+      progress_message?: string;
+      result?: Record<string, unknown>;
+      error?: string;
+    };
+
+    onProgress(
+      job.progress_percent ?? 0,
+      job.progress_message ?? "Processing…",
+    );
+
+    if (job.status === "completed" && job.result) {
+      return { result: job.result };
+    }
+    if (job.status === "failed") {
+      throw new Error(job.error ?? "Inference job failed.");
+    }
+  }
+  throw new DOMException("Aborted", "AbortError");
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const RealTime = () => {
+  const navigate = useNavigate();
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [latestAction, setLatestAction] = useState<string | null>(null);
@@ -28,6 +122,7 @@ const RealTime = () => {
     "disconnected" | "connecting" | "connected"
   >("disconnected");
   const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
+
   // ─── Waving Alerts Accordion ──────────────────────────────────────────────────
 
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
@@ -37,6 +132,26 @@ const RealTime = () => {
   const [waveToasts, setWaveToasts] = useState<WaveToast[]>([]);
   const consecutiveWaveRef = useRef(0);
   const toastIdRef = useRef(0);
+
+  // ─── Save-to-history state ────────────────────────────────────────────────
+
+  const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
+  const saveAbortRef = useRef<AbortController | null>(null);
+
+  // Keep a live snapshot of logs/alerts/frames for use in the save callback
+  const logsRef = useRef<string[]>([]);
+  const waveAlertLogsRef = useRef<string[]>([]);
+  const frameCountRef = useRef(0);
+
+  useEffect(() => {
+    logsRef.current = logs;
+  }, [logs]);
+  useEffect(() => {
+    waveAlertLogsRef.current = waveAlertLogs;
+  }, [waveAlertLogs]);
+  useEffect(() => {
+    frameCountRef.current = frameCount;
+  }, [frameCount]);
 
   const appendLog = useCallback((line: string) => {
     setLogs((previous) => [line, ...previous].slice(0, 80));
@@ -72,7 +187,6 @@ const RealTime = () => {
       // Resolve the dominant action label across persons
       const resolveLabel = (): string => {
         if (payload.persons && payload.persons.length > 0) {
-          // Pick the label with highest confidence across all tracked persons
           return payload.persons.reduce(
             (best, p) =>
               (p.action?.confidence ?? 0) > (best.confidence ?? 0)
@@ -105,7 +219,7 @@ const RealTime = () => {
         `[${ts}] frame=${payload.frame_index ?? "-"} detection=${detection} action=${label} conf=${confidence} latency=${payload.timing_ms ?? "-"}ms`,
       );
 
-      // ── Consecutive waving detection ────────────────────────────────────
+      // ── Consecutive waving detection ─────────────────────────────────────
       const isWaving = label.toLowerCase().includes("wav");
 
       if (isWaving) {
@@ -117,7 +231,6 @@ const RealTime = () => {
 
           setWaveToasts((prev) => [...prev, { id: newId, timestamp: alertTs }]);
 
-          // Store in dedicated alert log instead of general log
           setWaveAlertLogs((prev) => [
             `[${alertTs}] ⚠ WAVING ALERT — ${WAVE_THRESHOLD} consecutive frames`,
             ...prev,
@@ -130,7 +243,240 @@ const RealTime = () => {
     [appendLog],
   );
 
-  
+  // ─── Recording complete → upload → poll → save to history ─────────────────
+
+  const handleRecordingComplete = useCallback(
+    async (blob: Blob, mimeType: string) => {
+      // Reset any previous save state
+      setSaveState({
+        status: "uploading",
+        progress: 0,
+        message: "Uploading recording…",
+      });
+
+      const abortCtrl = new AbortController();
+      saveAbortRef.current = abortCtrl;
+
+      try {
+        const ext = mimeToExtension(mimeType);
+        const filename = `session_${Date.now()}${ext}`;
+        const formData = new FormData();
+        formData.append("file", new File([blob], filename, { type: mimeType }));
+
+        // 1. Upload to infer-video (async job)
+        const uploadRes = await fetch(`${apiBaseUrl}/api/infer-video`, {
+          method: "POST",
+          body: formData,
+          signal: abortCtrl.signal,
+        });
+        if (!uploadRes.ok) {
+          const detail = await uploadRes.json().catch(() => ({}));
+          throw new Error(
+            (detail as { detail?: string }).detail ?? "Upload failed.",
+          );
+        }
+        const { job_id } = (await uploadRes.json()) as { job_id: string };
+
+        setSaveState({
+          status: "processing",
+          progress: 0,
+          message: "Starting inference pipeline…",
+        });
+
+        // 2. Poll until complete
+        const { result } = await pollJobUntilDone(
+          job_id,
+          (percent, message) => {
+            setSaveState({ status: "processing", progress: percent, message });
+          },
+          abortCtrl.signal,
+        );
+
+        setSaveState({ status: "saving" });
+
+        // 3. Save to history
+        const annotatedFilename =
+          (result.output_video_url as string).split("/").pop() ?? "";
+        const sourceFilename =
+          (result.source_video_url as string)?.split("/").pop() ?? undefined;
+
+        const currentLogs = logsRef.current;
+        const currentAlerts = waveAlertLogsRef.current;
+        const currentFrames = frameCountRef.current;
+
+        const summary = buildSessionSummary(
+          currentLogs,
+          currentAlerts.length,
+          currentFrames,
+        );
+
+        const histRes = await fetch(`${apiBaseUrl}/api/history`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            annotatedFilename,
+            sourceFilename,
+            summary,
+            filename: `Live Session ${new Date().toLocaleString()}`,
+            analysis: {
+              ...(result as object),
+              realtimeLogs: currentLogs,
+              waveAlertLogs: currentAlerts,
+            },
+          }),
+          signal: abortCtrl.signal,
+        });
+
+        if (!histRes.ok) {
+          throw new Error("Failed to save to history.");
+        }
+
+        const histEntry = (await histRes.json()) as { id: string };
+        setSaveState({ status: "done", historyId: histEntry.id });
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        setSaveState({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [],
+  );
+
+  // When camera becomes active, reset save state and logs
+  const handleSetCameraActive = useCallback((active: boolean) => {
+    if (active) {
+      setSaveState({ status: "idle" });
+      setLogs([]);
+      setWaveAlertLogs([]);
+      setFrameCount(0);
+      setDetectionCount(0);
+      setLatestAction(null);
+      consecutiveWaveRef.current = 0;
+    }
+    setIsCameraActive(active);
+  }, []);
+
+  const dismissSaveState = useCallback(() => {
+    saveAbortRef.current?.abort();
+    setSaveState({ status: "idle" });
+  }, []);
+
+  // ─── Save status banner ───────────────────────────────────────────────────
+
+  const renderSaveBanner = () => {
+    if (saveState.status === "idle") return null;
+
+    if (saveState.status === "done") {
+      return (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-5 py-3 shadow-lg min-w-[320px]">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-900">
+              Session saved!
+            </p>
+            <p className="text-xs text-emerald-700">
+              Annotated video and logs saved to history.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-xs h-7 px-2"
+              onClick={() =>
+                navigate(`/library?history=${saveState.historyId}`)
+              }
+            >
+              <ExternalLink className="h-3 w-3 mr-1" />
+              Open
+            </Button>
+            <button
+              onClick={dismissSaveState}
+              className="rounded p-0.5 text-emerald-500 hover:bg-emerald-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (saveState.status === "error") {
+      return (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-red-300 bg-red-50 px-5 py-3 shadow-lg min-w-[320px] max-w-md">
+          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-900">Save failed</p>
+            <p className="text-xs text-red-700 truncate">{saveState.message}</p>
+          </div>
+          <button
+            onClick={dismissSaveState}
+            className="rounded p-0.5 text-red-400 hover:bg-red-100 shrink-0"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      );
+    }
+
+    // uploading / processing / saving
+    const isSaving = saveState.status === "saving";
+    const progress =
+      saveState.status === "uploading" || saveState.status === "processing"
+        ? saveState.progress
+        : isSaving
+          ? 99
+          : 0;
+    const message =
+      saveState.status === "uploading" || saveState.status === "processing"
+        ? saveState.message
+        : "Saving to history…";
+
+    return (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 rounded-xl border border-blue-200 bg-white px-5 py-3 shadow-lg min-w-[320px]">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50">
+            {isSaving ? (
+              <Save className="h-4 w-4 text-blue-500 animate-pulse" />
+            ) : (
+              <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-800">
+              {saveState.status === "uploading"
+                ? "Uploading session…"
+                : saveState.status === "processing"
+                  ? "Processing with AI…"
+                  : "Saving to history…"}
+            </p>
+            <p className="text-xs text-slate-500 truncate">{message}</p>
+          </div>
+          <button
+            onClick={dismissSaveState}
+            className="rounded p-0.5 text-slate-400 hover:bg-slate-100 shrink-0"
+            title="Cancel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {/* Progress bar */}
+        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+            style={{ width: `${Math.max(2, progress)}%` }}
+          />
+        </div>
+        {saveState.status === "processing" && (
+          <p className="text-[10px] text-slate-400 text-right">
+            {Math.round(progress)}%
+          </p>
+        )}
+      </div>
+    );
+  };
 
   return (
     <AppLayout>
@@ -163,6 +509,9 @@ const RealTime = () => {
             </div>
           ))}
         </div>
+
+        {/* ── Save status banner ───────────────────────────────────────────── */}
+        {renderSaveBanner()}
 
         {/* Main Section: Config | Video | Logs */}
         <div className="flex flex-1 min-h-0 w-full">
@@ -198,10 +547,11 @@ const RealTime = () => {
             <div className="h-full flex flex-col overflow-hidden">
               <RealTimeVideo
                 isCameraActive={isCameraActive}
-                setIsCameraActive={setIsCameraActive}
+                setIsCameraActive={handleSetCameraActive}
                 onInference={handleInference}
                 onConnectionStateChange={setConnectionState}
                 onCameraLabelChange={setCameraLabel}
+                onRecordingComplete={handleRecordingComplete}
               />
             </div>
           </div>
@@ -261,6 +611,38 @@ const RealTime = () => {
               </div>
             </div>
 
+            {/* Save status (compact, inside logs panel) */}
+            {saveState.status !== "idle" &&
+              saveState.status !== "done" &&
+              saveState.status !== "error" && (
+                <div className="border-b border-gray-200 bg-blue-50 px-3 py-2 shrink-0 flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
+                  <span className="text-[10px] text-blue-700 truncate">
+                    {saveState.status === "uploading"
+                      ? "Uploading…"
+                      : saveState.status === "processing"
+                        ? `Processing ${Math.round(saveState.progress)}%`
+                        : "Saving…"}
+                  </span>
+                </div>
+              )}
+            {saveState.status === "done" && (
+              <div className="border-b border-gray-200 bg-emerald-50 px-3 py-2 shrink-0 flex items-center gap-2">
+                <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
+                <span className="text-[10px] text-emerald-700 flex-1">
+                  Saved to history
+                </span>
+                <button
+                  className="text-[10px] text-emerald-600 underline"
+                  onClick={() =>
+                    navigate(`/library?history=${saveState.historyId}`)
+                  }
+                >
+                  Open
+                </button>
+              </div>
+            )}
+
             {/* Waving Alerts Accordion */}
             {waveAlertLogs.length > 0 && (
               <div className="border-b border-gray-200 shrink-0">
@@ -296,6 +678,7 @@ const RealTime = () => {
                 )}
               </div>
             )}
+
             {/* Log scroll area */}
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
               {logs.length === 0 ? (

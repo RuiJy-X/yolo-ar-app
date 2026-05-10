@@ -1,4 +1,5 @@
 import ModelSelector from "@/components/model-selector";
+import { Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const apiBaseUrl =
@@ -265,6 +266,12 @@ const Config = ({ className }: ConfigProps) => {
         <div className="grid gap-2">
           <div className="text-xs font-semibold text-primary">
             Action Confidence Thresholds
+          </div>
+          <div className=" flex  items-center  gap-3 text-[10px] leading-tight text-[#667085] border bg-yellow-100  border-yellow-500 rounded-sm p-2">
+            <Info className="text-blue-600 " size={32} />
+            Higher threshold (0.60+) reduce false positives but might miss
+            actions. Lower threshold (0.20-) are more sensitive. Adjust based on
+            your preference global vs per-action thresholds.
           </div>
           <label className="flex items-center gap-2 text-xs text-[#344054]/70">
             <input

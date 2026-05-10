@@ -67,17 +67,53 @@ const groupIntoRuns = (frames: number[]) => {
   return runs;
 };
 
+/**
+ * Unwrap the analysis object coming from either:
+ *  - a normal Library inference run  → already an AnalyzeVideoResponse
+ *  - a realtime session history entry → the full job result object, where
+ *    the AnalyzeVideoResponse lives under `analysis_summary`
+ */
+function normalizeAnalysis(raw: unknown): AnalyzeVideoResponse | null {
+  if (raw == null || typeof raw !== "object") return null;
+
+  const obj = raw as Record<string, unknown>;
+
+  // Already a proper AnalyzeVideoResponse — has grouped_detections at top level
+  if (obj.grouped_detections != null) {
+    return obj as unknown as AnalyzeVideoResponse;
+  }
+
+  // Realtime session: AnalyzeVideoResponse is nested under analysis_summary
+  if (
+    obj.analysis_summary != null &&
+    typeof obj.analysis_summary === "object"
+  ) {
+    const nested = obj.analysis_summary as Record<string, unknown>;
+    if (nested.grouped_detections != null) {
+      return nested as unknown as AnalyzeVideoResponse;
+    }
+  }
+
+  return null;
+}
+
 const buildActionTimelineTags = (
   analysis: AnalyzeVideoResponse | null,
   fps: number,
 ): ActionTimelineTag[] => {
   if (!analysis) return [];
 
+  // Guard: grouped_detections may be missing/null on malformed entries
+  if (!analysis.grouped_detections) return [];
+
   const safeFps = fps > 0 ? fps : 30;
   const tags: ActionTimelineTag[] = [];
 
   Object.entries(analysis.grouped_detections).forEach(
     ([action, detections], actionIdx) => {
+      // Guard: detections array may be missing
+      if (!Array.isArray(detections)) return;
+
       const byPerson = new Map<number, number[]>();
       detections.forEach((entry: Detection) => {
         const frames = byPerson.get(entry.person_id) ?? [];
@@ -537,7 +573,21 @@ export const useLibraryState = (historyId?: string | null) => {
 
         if (!active) return;
         const entry = payload as HistoryEntry;
-        setAnalysis(entry.analysis ?? null);
+
+        // Normalize the analysis: realtime session entries store the full job
+        // result object (with analysis_summary nested inside) rather than a
+        // bare AnalyzeVideoResponse, so we unwrap it here.
+        const normalizedAnalysis = normalizeAnalysis(entry.analysis);
+
+        // Derive FPS from the stored job result if available
+        const storedFps =
+          entry.analysis &&
+          typeof (entry.analysis as Record<string, unknown>).fps === "number"
+            ? ((entry.analysis as Record<string, unknown>).fps as number)
+            : null;
+
+        setAnalysis(normalizedAnalysis);
+        if (storedFps && storedFps > 0) setSeekFps(storedFps);
         setCurrentTimeSeconds(0);
         setVideoDurationSeconds(0);
         setResultPlaybackError(null);

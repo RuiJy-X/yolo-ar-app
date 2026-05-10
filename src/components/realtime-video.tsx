@@ -64,6 +64,8 @@ type RealTimeVideoProps = {
     state: "disconnected" | "connecting" | "connected",
   ) => void;
   onCameraLabelChange?: (label: string) => void;
+  /** Called with the recorded Blob when the camera is stopped */
+  onRecordingComplete?: (blob: Blob, mimeType: string) => void;
 };
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
@@ -218,6 +220,20 @@ function drawOverlay(
   drawPerson(ctx, syntheticPerson, toDisplay);
 }
 
+// Pick the best supported MIME type for recording
+function pickRecordingMimeType(): string {
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+    "video/mp4",
+  ];
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  }
+  return "";
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const RealTimeVideo = ({
@@ -226,6 +242,7 @@ const RealTimeVideo = ({
   onInference,
   onConnectionStateChange,
   onCameraLabelChange,
+  onRecordingComplete,
 }: RealTimeVideoProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -237,11 +254,17 @@ const RealTimeVideo = ({
   const latestPayloadRef = useRef<InferencePayload | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
+  // ── MediaRecorder refs ──────────────────────────────────────────────────────
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingMimeTypeRef = useRef<string>("");
+
   const [error, setError] = useState<string | null>(null);
   const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
   const [connectionState, setConnectionState] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
+  const [isRecording, setIsRecording] = useState(false);
 
   const wsUrl =
     import.meta.env.VITE_ACTION_WS_URL ??
@@ -340,6 +363,53 @@ const RealTimeVideo = ({
     return preferred?.deviceId ?? null;
   }, []);
 
+  // ── Start MediaRecorder on a given stream ─────────────────────────────────
+  const startRecording = useCallback((stream: MediaStream) => {
+    if (!window.MediaRecorder) return;
+    const mimeType = pickRecordingMimeType();
+    recordedChunksRef.current = [];
+    recordingMimeTypeRef.current = mimeType;
+
+    try {
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+      recorder.start(1000); // collect in 1-second chunks
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch {
+      // Recording not supported — silent fail, inference still works
+    }
+  }, []);
+
+  // ── Stop MediaRecorder and fire callback with the blob ────────────────────
+  const stopRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    recorder.onstop = () => {
+      const chunks = recordedChunksRef.current;
+      if (chunks.length > 0) {
+        const mime = recordingMimeTypeRef.current || "video/webm";
+        const blob = new Blob(chunks, { type: mime });
+        onRecordingComplete?.(blob, mime);
+      }
+      recordedChunksRef.current = [];
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    };
+
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  }, [onRecordingComplete]);
+
   const startCamera = async () => {
     try {
       setError(null);
@@ -369,6 +439,7 @@ const RealTimeVideo = ({
         );
       }
 
+      startRecording(stream);
       setIsCameraActive(true);
     } catch (err) {
       setError(
@@ -383,6 +454,9 @@ const RealTimeVideo = ({
     stopOverlayLoop();
     closeSocket();
     latestPayloadRef.current = null;
+    // Stop recording BEFORE tearing down the stream so the recorder can
+    // finish collecting its last chunk from the still-live tracks.
+    stopRecording();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) {
@@ -525,6 +599,12 @@ const RealTimeVideo = ({
       stopFrameLoop();
       stopOverlayLoop();
       closeSocket();
+      // Do NOT call stopRecording here — the component unmounting during an
+      // active session should still fire onRecordingComplete via the normal
+      // stopCamera path. Just clean up silently.
+      if (mediaRecorderRef.current?.state !== "inactive") {
+        mediaRecorderRef.current?.stop();
+      }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       if (videoRef.current) {
@@ -533,8 +613,6 @@ const RealTimeVideo = ({
       }
     };
   }, [closeSocket, stopFrameLoop, stopOverlayLoop]);
-
-  
 
   return (
     <div className="content-stretch flex flex-col h-full w-full items-stretch justify-center rounded-lg relative">
@@ -566,6 +644,14 @@ const RealTimeVideo = ({
           ref={overlayRef}
           className="absolute inset-0 w-full h-full pointer-events-none z-10"
         />
+
+        {/* Recording indicator */}
+        {isRecording && (
+          <div className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
+            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            REC
+          </div>
+        )}
 
         {/* Stop button */}
         {isCameraActive && (
