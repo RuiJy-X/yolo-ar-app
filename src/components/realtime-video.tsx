@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Camera } from "lucide-react";
+import { Camera, CameraOff } from "lucide-react";
 
-// Body12 bone connections (matching backend BODY12_BONES)
+// Body12 bone connections
 const BODY12_BONES: [number, number][] = [
   [0, 1],
   [0, 2],
@@ -20,7 +19,6 @@ const BODY12_BONES: [number, number][] = [
 
 const VISIBILITY_THRESH = 0.2;
 
-// Deterministic per-track colour — matches backend track_color()
 function trackColor(trackId: number): string {
   const r = ((37 * trackId) % 200) + 30;
   const g = ((17 * trackId) % 200) + 30;
@@ -28,12 +26,7 @@ function trackColor(trackId: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-export type Keypoint = {
-  id: number;
-  x: number;
-  y: number;
-  confidence: number;
-};
+export type Keypoint = { id: number; x: number; y: number; confidence: number };
 
 export type PersonDetection = {
   person_id: number;
@@ -45,9 +38,7 @@ export type PersonDetection = {
 export type InferencePayload = {
   type: string;
   frame_index?: number;
-  /** Multi-person detections (new field from updated backend) */
   persons?: PersonDetection[];
-  /** Legacy single-person fields — kept for backwards compatibility */
   detection?: boolean;
   timing_ms?: number;
   message?: string;
@@ -64,11 +55,10 @@ type RealTimeVideoProps = {
     state: "disconnected" | "connecting" | "connected",
   ) => void;
   onCameraLabelChange?: (label: string) => void;
-  /** Called with the recorded Blob when the camera is stopped */
   onRecordingComplete?: (blob: Blob, mimeType: string) => void;
 };
 
-// ─── Drawing helpers ──────────────────────────────────────────────────────────
+// ── Drawing helpers ──────────────────────────────────────────────────────────
 
 function buildCoordMapper(
   video: HTMLVideoElement,
@@ -77,10 +67,8 @@ function buildCoordMapper(
 ) {
   const srcW = Math.min(640, video.videoWidth);
   const srcH = video.videoHeight * (srcW / video.videoWidth);
-
   const videoAspect = srcW / srcH;
   const displayAspect = displayW / displayH;
-
   let renderW: number, renderH: number, offsetX: number, offsetY: number;
   if (videoAspect > displayAspect) {
     renderH = displayH;
@@ -93,10 +81,8 @@ function buildCoordMapper(
     offsetX = 0;
     offsetY = (displayH - renderH) / 2;
   }
-
   const scaleX = renderW / srcW;
   const scaleY = renderH / srcH;
-
   return (x: number, y: number): [number, number] => [
     offsetX + x * scaleX,
     offsetY + y * scaleY,
@@ -112,16 +98,15 @@ function drawPerson(
   const label = person.action?.label ?? "Unknown";
   const confidence = person.action?.confidence ?? 0;
   const isKnown = label !== "Unknown" && label !== "No person detected";
-
   const [bx1, by1, bx2, by2] = person.bbox;
   const [dx1, dy1] = toDisplay(bx1, by1);
   const [dx2, dy2] = toDisplay(bx2, by2);
 
   // Bounding box
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.shadowColor = color;
-  ctx.shadowBlur = 6;
+  ctx.shadowBlur = 8;
   ctx.strokeRect(dx1, dy1, dx2 - dx1, dy2 - dy1);
   ctx.shadowBlur = 0;
 
@@ -129,34 +114,33 @@ function drawPerson(
   const pillText = isKnown
     ? `ID ${person.person_id} · ${label}  ${(confidence * 100).toFixed(1)}%`
     : `ID ${person.person_id} · ${label}`;
-  ctx.font = "bold 12px 'ui-monospace', monospace";
+  ctx.font = "500 12px 'Inter Variable', ui-monospace, monospace";
   const textW = ctx.measureText(pillText).width;
-  const pillPad = 6;
+  const pillPad = 7;
   const pillH = 22;
   const pillY = Math.max(0, dy1 - pillH - 4);
 
-  // Pill background uses the track colour at reduced opacity
-  ctx.fillStyle = color.replace("rgb(", "rgba(").replace(")", ",0.82)");
+  ctx.fillStyle = "rgba(28,28,28,0.85)";
   ctx.beginPath();
   ctx.roundRect(dx1, pillY, textW + pillPad * 2, pillH, 4);
   ctx.fill();
   ctx.fillStyle = "#ffffff";
   ctx.fillText(pillText, dx1 + pillPad, pillY + 15);
 
-  // Skeleton — bones
+  // Skeleton — bones (yellow, matching the action-color scheme)
   const kpts = person.keypoints ?? [];
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   for (const [src, dst] of BODY12_BONES) {
-    const a = kpts[src];
-    const b = kpts[dst];
+    const a = kpts[src],
+      b = kpts[dst];
     if (!a || !b) continue;
     if (a.confidence < VISIBILITY_THRESH || b.confidence < VISIBILITY_THRESH)
       continue;
     const [ax, ay] = toDisplay(a.x, a.y);
     const [bx, by] = toDisplay(b.x, b.y);
     ctx.beginPath();
-    ctx.strokeStyle = "rgba(250,204,21,0.85)";
-    ctx.shadowColor = "rgba(250,204,21,0.45)";
+    ctx.strokeStyle = "rgba(255,219,19,0.8)";
+    ctx.shadowColor = "rgba(255,219,19,0.4)";
     ctx.shadowBlur = 4;
     ctx.moveTo(ax, ay);
     ctx.lineTo(bx, by);
@@ -169,10 +153,10 @@ function drawPerson(
     if (kpt.confidence < VISIBILITY_THRESH) continue;
     const [kx, ky] = toDisplay(kpt.x, kpt.y);
     ctx.beginPath();
-    ctx.arc(kx, ky, 4, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(250,204,21,1)";
-    ctx.shadowColor = "rgba(250,204,21,0.6)";
-    ctx.shadowBlur = 6;
+    ctx.arc(kx, ky, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffdb13";
+    ctx.shadowColor = "rgba(255,219,19,0.5)";
+    ctx.shadowBlur = 5;
     ctx.fill();
   }
   ctx.shadowBlur = 0;
@@ -185,42 +169,35 @@ function drawOverlay(
 ) {
   const ctx = overlayCanvas.getContext("2d");
   if (!ctx) return;
-
   const displayW = video.clientWidth;
   const displayH = video.clientHeight;
   if (overlayCanvas.width !== displayW || overlayCanvas.height !== displayH) {
     overlayCanvas.width = displayW;
     overlayCanvas.height = displayH;
   }
-
   ctx.clearRect(0, 0, displayW, displayH);
-
   const toDisplay = buildCoordMapper(video, displayW, displayH);
 
-  // ── Multi-person path (new backend) ──────────────────────────────────────
   if (payload.persons && payload.persons.length > 0) {
-    for (const person of payload.persons) {
-      drawPerson(ctx, person, toDisplay);
-    }
+    for (const person of payload.persons) drawPerson(ctx, person, toDisplay);
     return;
   }
-
-  // ── Legacy single-person fallback ────────────────────────────────────────
   if (!payload.detection || !payload.bbox) return;
-
-  const syntheticPerson: PersonDetection = {
-    person_id: 1,
-    action: {
-      label: payload.action?.label ?? "Unknown",
-      confidence: payload.action?.confidence ?? 0,
+  drawPerson(
+    ctx,
+    {
+      person_id: 1,
+      action: {
+        label: payload.action?.label ?? "Unknown",
+        confidence: payload.action?.confidence ?? 0,
+      },
+      bbox: payload.bbox,
+      keypoints: payload.keypoints ?? [],
     },
-    bbox: payload.bbox,
-    keypoints: payload.keypoints ?? [],
-  };
-  drawPerson(ctx, syntheticPerson, toDisplay);
+    toDisplay,
+  );
 }
 
-// Pick the best supported MIME type for recording
 function pickRecordingMimeType(): string {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -234,7 +211,7 @@ function pickRecordingMimeType(): string {
   return "";
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ── Component ────────────────────────────────────────────────────────────────
 
 const RealTimeVideo = ({
   isCameraActive,
@@ -253,14 +230,11 @@ const RealTimeVideo = ({
   const sendingRef = useRef(false);
   const latestPayloadRef = useRef<InferencePayload | null>(null);
   const animFrameRef = useRef<number | null>(null);
-
-  // ── MediaRecorder refs ──────────────────────────────────────────────────────
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const recordingMimeTypeRef = useRef<string>("");
 
   const [error, setError] = useState<string | null>(null);
-  const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
   const [connectionState, setConnectionState] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
@@ -270,7 +244,6 @@ const RealTimeVideo = ({
     import.meta.env.VITE_ACTION_WS_URL ??
     "ws://localhost:8000/ws/action-recognition";
 
-  // Helper to update connection state and notify parent
   const updateConnectionState = useCallback(
     (state: "disconnected" | "connecting" | "connected") => {
       setConnectionState(state);
@@ -279,23 +252,17 @@ const RealTimeVideo = ({
     [onConnectionStateChange],
   );
 
-  // Helper to update camera label and notify parent
   const updateCameraLabel = useCallback(
-    (label: string) => {
-      setCameraLabel(label);
-      onCameraLabelChange?.(label);
-    },
+    (label: string) => onCameraLabelChange?.(label),
     [onCameraLabelChange],
   );
 
   const startOverlayLoop = useCallback(() => {
     const loop = () => {
-      const video = videoRef.current;
-      const canvas = overlayRef.current;
-      const payload = latestPayloadRef.current;
-      if (video && canvas && payload) {
-        drawOverlay(canvas, video, payload);
-      }
+      const video = videoRef.current,
+        canvas = overlayRef.current,
+        payload = latestPayloadRef.current;
+      if (video && canvas && payload) drawOverlay(canvas, video, payload);
       animFrameRef.current = requestAnimationFrame(loop);
     };
     animFrameRef.current = requestAnimationFrame(loop);
@@ -307,10 +274,8 @@ const RealTimeVideo = ({
       animFrameRef.current = null;
     }
     const canvas = overlayRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext("2d");
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    }
+    if (canvas)
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
   const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
@@ -318,11 +283,11 @@ const RealTimeVideo = ({
     if (!video) return;
     video.srcObject = stream;
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve) =>
         video.addEventListener("loadedmetadata", () => resolve(), {
           once: true,
-        });
-      });
+        }),
+      );
     }
     await video.play();
   }, []);
@@ -356,95 +321,74 @@ const RealTimeVideo = ({
     string | null
   > => {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoInputs = devices.filter((d) => d.kind === "videoinput");
-    const preferred = videoInputs.find((d) =>
-      d.label.toLowerCase().includes("droidcam"),
-    );
+    const preferred = devices
+      .filter((d) => d.kind === "videoinput")
+      .find((d) => d.label.toLowerCase().includes("droidcam"));
     return preferred?.deviceId ?? null;
   }, []);
 
-  // ── Start MediaRecorder on a given stream ─────────────────────────────────
   const startRecording = useCallback((stream: MediaStream) => {
     if (!window.MediaRecorder) return;
     const mimeType = pickRecordingMimeType();
     recordedChunksRef.current = [];
     recordingMimeTypeRef.current = mimeType;
-
     try {
       const recorder = new MediaRecorder(
         stream,
         mimeType ? { mimeType } : undefined,
       );
       recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
+        if (e.data?.size > 0) recordedChunksRef.current.push(e.data);
       };
-      recorder.start(1000); // collect in 1-second chunks
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
     } catch {
-      // Recording not supported — silent fail, inference still works
+      /* silent fail */
     }
   }, []);
 
-  // ── Stop MediaRecorder and fire callback with the blob ────────────────────
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
-
     recorder.onstop = () => {
       const chunks = recordedChunksRef.current;
       if (chunks.length > 0) {
         const mime = recordingMimeTypeRef.current || "video/webm";
-        const blob = new Blob(chunks, { type: mime });
-        onRecordingComplete?.(blob, mime);
+        onRecordingComplete?.(new Blob(chunks, { type: mime }), mime);
       }
       recordedChunksRef.current = [];
       mediaRecorderRef.current = null;
       setIsRecording(false);
     };
-
-    if (recorder.state !== "inactive") {
-      recorder.stop();
-    }
+    if (recorder.state !== "inactive") recorder.stop();
   }, [onRecordingComplete]);
 
   const startCamera = async () => {
     try {
       setError(null);
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Your browser does not support camera capture APIs.");
-      }
-
+      if (!navigator.mediaDevices?.getUserMedia)
+        throw new Error("Browser does not support camera APIs.");
       let stream = await openCameraStream();
       const fallbackTrack = stream.getVideoTracks()[0];
       const preferredDeviceId = await pickPreferredCameraId();
       const currentDeviceId = fallbackTrack?.getSettings().deviceId;
-
       if (preferredDeviceId && preferredDeviceId !== currentDeviceId) {
         stream.getTracks().forEach((t) => t.stop());
         stream = await openCameraStream(preferredDeviceId);
       }
-
       const selectedTrack = stream.getVideoTracks()[0];
       updateCameraLabel(selectedTrack?.label || "Unknown camera");
       streamRef.current = stream;
       await attachStreamToVideo(stream);
-
-      const preview = videoRef.current;
-      if (preview && preview.videoWidth === 0 && preview.videoHeight === 0) {
-        throw new Error(
-          "Camera opened but no frames were received. If using DroidCam, ensure no other app is locking the stream.",
-        );
+      if (videoRef.current && videoRef.current.videoWidth === 0) {
+        throw new Error("Camera opened but no frames received.");
       }
-
       startRecording(stream);
       setIsCameraActive(true);
     } catch (err) {
       setError(
-        "Error accessing camera: " +
-          (err instanceof Error ? err.message : String(err)),
+        "Camera error: " + (err instanceof Error ? err.message : String(err)),
       );
     }
   };
@@ -454,8 +398,6 @@ const RealTimeVideo = ({
     stopOverlayLoop();
     closeSocket();
     latestPayloadRef.current = null;
-    // Stop recording BEFORE tearing down the stream so the recorder can
-    // finish collecting its last chunk from the still-live tracks.
     stopRecording();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -469,23 +411,23 @@ const RealTimeVideo = ({
 
   useEffect(() => {
     if (!isCameraActive || !videoRef.current || !streamRef.current) return;
-    attachStreamToVideo(streamRef.current).catch((err) => {
+    attachStreamToVideo(streamRef.current).catch((err) =>
       setError(
-        "Camera stream started but playback failed: " +
+        "Playback failed: " +
           (err instanceof Error ? err.message : String(err)),
-      );
-    });
+      ),
+    );
   }, [attachStreamToVideo, isCameraActive]);
 
   useEffect(() => {
     if (!isCameraActive || !streamRef.current) return;
     const track = streamRef.current.getVideoTracks()[0];
     if (!track) {
-      setError("No video track found on camera stream.");
+      setError("No video track found.");
       return;
     }
     const onEnded = () => {
-      setError("Camera stream ended unexpectedly.");
+      setError("Camera stream ended.");
       stopCamera();
     };
     track.addEventListener("ended", onEnded);
@@ -497,13 +439,10 @@ const RealTimeVideo = ({
       closeSocket();
       return;
     }
-
     updateConnectionState("connecting");
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
-
     ws.onopen = () => updateConnectionState("connected");
-
     ws.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as InferencePayload;
@@ -513,10 +452,8 @@ const RealTimeVideo = ({
         setError("Backend response could not be parsed.");
       }
     };
-
     ws.onerror = () => setError("WebSocket connection error.");
     ws.onclose = () => updateConnectionState("disconnected");
-
     wsRef.current = ws;
     return () => closeSocket();
   }, [closeSocket, isCameraActive, onInference, wsUrl]);
@@ -526,37 +463,29 @@ const RealTimeVideo = ({
       stopFrameLoop();
       return;
     }
-
     const sendFrame = () => {
-      const ws = wsRef.current;
-      const video = videoRef.current;
+      const ws = wsRef.current,
+        video = videoRef.current;
       if (
         !ws ||
         ws.readyState !== WebSocket.OPEN ||
         !video ||
-        video.videoWidth === 0 ||
-        video.videoHeight === 0
+        video.videoWidth === 0
       )
         return;
-
       if (sendingRef.current || ws.bufferedAmount > 1_000_000) return;
-
       const maxWidth = 640;
       const scale = Math.min(1, maxWidth / video.videoWidth);
       const width = Math.max(2, Math.floor(video.videoWidth * scale));
       const height = Math.max(2, Math.floor(video.videoHeight * scale));
-
       const canvas = sendCanvasRef.current ?? document.createElement("canvas");
       sendCanvasRef.current = canvas;
       canvas.width = width;
       canvas.height = height;
-
       const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) return;
-
       ctx.drawImage(video, 0, 0, width, height);
       sendingRef.current = true;
-
       canvas.toBlob(
         (blob) => {
           if (!blob) {
@@ -567,11 +496,9 @@ const RealTimeVideo = ({
             .arrayBuffer()
             .then((buffer) => {
               const socket = wsRef.current;
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(buffer);
-              }
+              if (socket?.readyState === WebSocket.OPEN) socket.send(buffer);
             })
-            .catch(() => setError("Failed to encode frame before sending."))
+            .catch(() => setError("Failed to encode frame."))
             .finally(() => {
               sendingRef.current = false;
             });
@@ -580,17 +507,12 @@ const RealTimeVideo = ({
         0.72,
       );
     };
-
     sendIntervalRef.current = window.setInterval(sendFrame, 150);
     return () => stopFrameLoop();
   }, [isCameraActive, stopFrameLoop]);
 
   useEffect(() => {
-    if (isCameraActive) {
-      startOverlayLoop();
-    } else {
-      stopOverlayLoop();
-    }
+    isCameraActive ? startOverlayLoop() : stopOverlayLoop();
     return () => stopOverlayLoop();
   }, [isCameraActive, startOverlayLoop, stopOverlayLoop]);
 
@@ -599,12 +521,8 @@ const RealTimeVideo = ({
       stopFrameLoop();
       stopOverlayLoop();
       closeSocket();
-      // Do NOT call stopRecording here — the component unmounting during an
-      // active session should still fire onRecordingComplete via the normal
-      // stopCamera path. Just clean up silently.
-      if (mediaRecorderRef.current?.state !== "inactive") {
+      if (mediaRecorderRef.current?.state !== "inactive")
         mediaRecorderRef.current?.stop();
-      }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       if (videoRef.current) {
@@ -614,64 +532,104 @@ const RealTimeVideo = ({
     };
   }, [closeSocket, stopFrameLoop, stopOverlayLoop]);
 
+  const connDot =
+    connectionState === "connected"
+      ? "bg-[#0052ff]"
+      : connectionState === "connecting"
+        ? "bg-amber-400 animate-pulse"
+        : "bg-[#9a9a9a]";
+
   return (
-    <div className="content-stretch flex flex-col h-full w-full items-stretch justify-center rounded-lg relative">
-      <div className="relative w-full h-full rounded-lg bg-black overflow-hidden">
-        {/* Start camera overlay */}
-        {!isCameraActive && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center">
-            <Button onClick={startCamera}>
-              <Camera /> Open Camera
-            </Button>
+    <div className="w-full h-full rounded-lg overflow-hidden bg-[#1c1c1c] relative">
+      {/* Empty state */}
+      {!isCameraActive && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4">
+          <div className="w-14 h-14 rounded-[12px] bg-[#202020] border border-[#dfdfdf]/10 flex items-center justify-center">
+            <Camera size={22} className="text-[#9a9a9a]" />
           </div>
-        )}
-
-        {/* Live video */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`w-full h-full object-cover transition-opacity ${
-            isCameraActive
-              ? "opacity-100 pointer-events-auto"
-              : "opacity-0 pointer-events-none"
-          }`}
-        />
-
-        {/* Inference overlay canvas */}
-        <canvas
-          ref={overlayRef}
-          className="absolute inset-0 w-full h-full pointer-events-none z-10"
-        />
-
-        {/* Recording indicator */}
-        {isRecording && (
-          <div className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
-            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            REC
+          <div className="text-center">
+            <p className="text-[14px] font-medium text-[#ffffff]">
+              No camera feed
+            </p>
+            <p className="text-[12px] text-[#9a9a9a] mt-0.5">
+              Start camera to begin inference
+            </p>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={startCamera}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+          >
+            <Camera size={14} />
+            Open Camera
+          </button>
+        </div>
+      )}
 
-        {/* Stop button */}
-        {isCameraActive && (
-          <div className="absolute top-4 right-4 z-20">
-            <Button
-              variant="destructive"
-              className="bg-red-500 hover:bg-red-600 text-white font-heading font-semibold"
-              onClick={stopCamera}
-            >
-              <Camera /> Stop Camera
-            </Button>
-          </div>
-        )}
+      {/* Live video */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={`w-full h-full object-cover transition-opacity ${
+          isCameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      />
 
-        {error && (
-          <div className="absolute bottom-4 left-4 right-4 z-20 rounded-md bg-red-500/80 px-3 py-2 text-sm text-white">
-            {error}
+      {/* Inference overlay canvas */}
+      <canvas
+        ref={overlayRef}
+        className="absolute inset-0 w-full h-full pointer-events-none z-10"
+      />
+
+      {/* Status bar (top) */}
+      {isCameraActive && (
+        <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+          {/* Connection status */}
+          <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
+            <span className={`h-1.5 w-1.5 rounded-full ${connDot}`} />
+            <span className="text-[11px] font-medium text-[#ffffff]">
+              {connectionState === "connected"
+                ? "Live"
+                : connectionState === "connecting"
+                  ? "Connecting…"
+                  : "Offline"}
+            </span>
           </div>
-        )}
-      </div>
+
+          {/* Recording indicator */}
+          {isRecording && (
+            <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[11px] font-medium text-[#ffffff]">
+                REC
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stop button */}
+      {isCameraActive && (
+        <div className="absolute top-3 right-3 z-20">
+          <button
+            type="button"
+            onClick={stopCamera}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#1c1c1c]/80 text-[#ffffff] border border-white/10 hover:bg-[#1c1c1c] backdrop-blur-sm transition-colors"
+          >
+            <CameraOff size={13} />
+            Stop
+          </button>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="absolute bottom-3 left-3 right-3 z-20 rounded-[8px] bg-red-900/90 border border-red-700/50 px-3 py-2 text-[12px] text-red-200 backdrop-blur-sm">
+          {error}
+        </div>
+      )}
     </div>
   );
 };

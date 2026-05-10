@@ -1,6 +1,6 @@
 import type { RefObject, ChangeEventHandler } from "react";
-import { Button } from "@/components/ui/button";
 import { Download, Save, Upload } from "lucide-react";
+import TitleMono from "@/components/titile-mono";
 
 type VideoPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -56,7 +56,11 @@ const VideoPanel = ({
   onPlaybackStateChange,
 }: VideoPanelProps) => {
   return (
-    <div className="rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm h-full flex-1 flex flex-col">
+    <div
+      className="flex flex-col h-full overflow-hidden rounded-lg bg-[#ffffff] border border-[#ededed]"
+      style={{ boxShadow: "var(--shadow-1)" }}
+    >
+      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -65,61 +69,64 @@ const VideoPanel = ({
         className="hidden"
       />
 
-      {/* Header */}
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-bold uppercase text-[#344054] font-heading ">
-          Video Playback
-        </div>
-
+      {/* ── Panel header ── */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#ededed] shrink-0">
+        <TitleMono text="Video Analysis" />
+        
         <div className="flex items-center gap-2">
           {(file || sourceVideoUrl || resultVideoUrl) && (
-            <Button
+            <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="text-xs "
-              variant={"dashed"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium border border-[#dfdfdf] bg-[#ffffff] text-[#171717] hover:bg-[#fafafa] transition-colors"
             >
-              <Upload />
-              Upload Video
-            </Button>
+              <Upload size={13} />
+              Upload
+            </button>
           )}
 
           {(file || sourceVideoUrl) && !isSubmitting && (
-            <Button onClick={onRunInference}>
+            <button
+              type="button"
+              onClick={onRunInference}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+            >
               {resultVideoUrl ? "Re-analyze" : "Analyze"}
-            </Button>
+            </button>
           )}
 
           {resultDownloadUrl && !isSubmitting && (
-            <Button
+            <button
               type="button"
-              variant={"outline"}
               onClick={onDownload}
               disabled={isDownloading}
-              className="text-xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium border border-[#dfdfdf] bg-[#ffffff] text-[#171717] hover:bg-[#fafafa] disabled:opacity-40 transition-colors"
             >
-              <Download />
-              {isDownloading ? "Downloading..." : "Download"}
-            </Button>
+              <Download size={13} />
+              {isDownloading ? "Downloading…" : "Download"}
+            </button>
           )}
 
           {(resultVideoUrl || sourceVideoUrl) && (
-            <Button
+            <button
               type="button"
               onClick={onSaveToHistory}
               disabled={!canSaveToHistory}
-              variant={historySavedAt ? "secondary" : "default"}
-              className="text-xs"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium border transition-colors disabled:opacity-40 ${
+                historySavedAt
+                  ? "border-[#0052ff]/40 bg-[#0052ff]/8 text-[#0041cc]"
+                  : "border-[#dfdfdf] bg-[#ffffff] text-[#171717] hover:bg-[#fafafa]"
+              }`}
             >
-              <Save />
+              <Save size={13} />
               {historySavedAt ? "Saved" : "Save"}
-            </Button>
+            </button>
           )}
         </div>
       </div>
 
-      {/* Video container */}
-      <div className="flex flex-1 flex-col w-full min-h-0 rounded-md bg-black  ">
+      {/* ── Video area ── */}
+      <div className="relative flex-1 min-h-0 bg-[#1c1c1c]">
         {sourceVideoUrl || resultVideoUrl ? (
           <video
             ref={videoPlayerRef}
@@ -149,54 +156,61 @@ const VideoPanel = ({
                 onClearResult();
                 return;
               }
-              onSourcePlaybackError(
-                "Browser cannot decode this video preview.",
-              );
+              onSourcePlaybackError("Browser cannot decode this video.");
             }}
             className="h-full w-full object-contain"
           />
         ) : (
-          <div className="flex items-center justify-center border border-dashed border-[#CBD5E1] bg-[#F8FAFC] flex-1 px-4 text-center">
-            <div>
-              <div className="text-sm text-[#64748B]">
-                No video uploaded yet.
-              </div>
-              <Button
-                variant={"dashed"}
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-3"
-              >
-                Upload Video
-              </Button>
+          /* Empty state */
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+            <div className="w-12 h-12 rounded-[12px] border border-[#dfdfdf] bg-[#202020] flex items-center justify-center">
+              <Upload size={18} className="text-[#9a9a9a]" />
             </div>
+            <div>
+              <p className="text-[14px] font-medium text-[#9a9a9a]">
+                No video uploaded
+              </p>
+              <p className="text-[12px] text-[#707070] mt-1">
+                Upload a video file to begin analysis
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+            >
+              <Upload size={13} />
+              Upload Video
+            </button>
           </div>
         )}
 
-        {/* Progress overlay */}
+        {/* ── Progress overlay ── */}
         {isSubmitting && (
-          <div className="absolute inset-x-0 top-0 z-10 bg-black/60 p-4 backdrop-blur-sm transition-opacity">
-            <div className="flex items-center justify-between gap-4 text-white">
-              <div className="flex flex-col">
-                <span className="text-xs font-bold uppercase tracking-wider opacity-80">
+          <div className="absolute inset-0 z-10 bg-[#1c1c1c]/80 backdrop-blur-[2px] flex flex-col items-center justify-center gap-4 px-8">
+            <div className="w-full max-w-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[12px] font-medium text-[#ffffff]/70 uppercase tracking-[0.06em]">
                   Processing
                 </span>
-                <span className="text-sm font-medium">
-                  {progressMessage ?? "Analyzing..."}
+                <span className="text-[12px] font-mono text-[#0052ff]">
+                  {typeof progressFrameIndex === "number" && progressTotalFrames
+                    ? `${progressFrameIndex} / ${progressTotalFrames}`
+                    : `${Math.round(progressPercent)}%`}
                 </span>
               </div>
-              <div className="text-right text-xs font-mono">
-                {typeof progressFrameIndex === "number" && progressTotalFrames
-                  ? `${progressFrameIndex} / ${progressTotalFrames} frames`
-                  : `${Math.round(progressPercent)}%`}
+              <p className="text-[14px] text-[#ffffff] mb-3">
+                {progressMessage ?? "Analyzing…"}
+              </p>
+              {/* Progress bar */}
+              <div className="h-1 w-full rounded-full bg-[#ffffff]/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[#0052ff] transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, progressPercent))}%`,
+                  }}
+                />
               </div>
-            </div>
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-              <div
-                className="h-full bg-[#3B82F6] shadow-[0_0_8px_rgba(59,130,246,0.5)] transition-all duration-500 ease-out"
-                style={{
-                  width: `${Math.min(100, Math.max(0, progressPercent))}%`,
-                }}
-              />
             </div>
           </div>
         )}

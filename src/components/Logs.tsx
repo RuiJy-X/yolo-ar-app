@@ -12,13 +12,12 @@ import {
   getActionBg,
   getActionText,
 } from "@/pages/library/action-colors";
+import TitleMono from "./titile-mono";
 
 type LogsProps = {
   analysis: AnalyzeVideoResponse | null;
   onSeekToFrame: (frame: number) => void;
 };
-
-// ── Types ──────────────────────────────────────────────────────────────────
 
 type Detection = {
   frame_number: number;
@@ -38,19 +37,14 @@ type ActionInstance = {
   avgConfidence: number;
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
 const MAX_GAP = 4;
 
 function collapseToInstances(entries: Detection[]): ActionInstance[] {
   if (!entries.length) return [];
-
   const sorted = [...entries].sort(
     (a, b) => a.person_id - b.person_id || a.frame_number - b.frame_number,
   );
-
   const instances: ActionInstance[] = [];
-
   let runPersonId = sorted[0].person_id;
   let runStart = sorted[0].frame_number;
   let runEnd = sorted[0].frame_number;
@@ -58,7 +52,7 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
   let runEndTs = sorted[0].timestamp;
   let runConfs: number[] = [sorted[0].confidence];
 
-  const flush = () => {
+  const flush = () =>
     instances.push({
       personId: runPersonId,
       startFrame: runStart,
@@ -68,14 +62,10 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
       frameCount: runEnd - runStart + 1,
       avgConfidence: runConfs.reduce((a, b) => a + b, 0) / runConfs.length,
     });
-  };
 
   for (let i = 1; i < sorted.length; i++) {
     const cur = sorted[i];
-    const samePerson = cur.person_id === runPersonId;
-    const withinGap = cur.frame_number - runEnd <= MAX_GAP;
-
-    if (samePerson && withinGap) {
+    if (cur.person_id === runPersonId && cur.frame_number - runEnd <= MAX_GAP) {
       runEnd = cur.frame_number;
       runEndTs = cur.timestamp;
       runConfs.push(cur.confidence);
@@ -90,16 +80,22 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
     }
   }
   flush();
-
   return instances.sort((a, b) => a.startFrame - b.startFrame);
 }
 
-// ── Severity styles ────────────────────────────────────────────────────────
-
-const SEVERITY_STYLES: Record<string, string> = {
-  critical: "bg-red-50 text-red-800 border-red-200",
-  high: "bg-amber-50 text-amber-800 border-amber-200",
-  medium: "bg-blue-50 text-blue-800 border-blue-200",
+const SEVERITY_STYLES: Record<string, { pill: string; border: string }> = {
+  critical: {
+    pill: "bg-red-50 text-red-700 border-red-200",
+    border: "border-red-200",
+  },
+  high: {
+    pill: "bg-amber-50 text-amber-700 border-amber-200",
+    border: "border-amber-200",
+  },
+  medium: {
+    pill: "bg-blue-50 text-blue-700 border-blue-200",
+    border: "border-blue-200",
+  },
 };
 
 const SEVERITY_DOT: Record<string, string> = {
@@ -108,10 +104,10 @@ const SEVERITY_DOT: Record<string, string> = {
   medium: "bg-blue-500",
 };
 
-// Trim timestamp to mm:ss.ms — drop the leading 00: hour if present
 const shortTs = (ts: string) => ts.replace(/^00:/, "");
+const cleanTs = (ts: string) => (ts.includes(".") ? ts.split(".")[0] : ts);
 
-// ── AlertCard ──────────────────────────────────────────────────────────────
+// ── AlertCard ──
 
 function AlertCard({
   alert,
@@ -122,70 +118,59 @@ function AlertCard({
   onSeekToFrame: (frame: number) => void;
   frameTimestampMap: Map<number, string>;
 }) {
-  const runLength = alert.end_frame - alert.start_frame + 1;
   const severity = alert.severity_level.toLowerCase();
+  const style = SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.medium;
   const startTs =
     alert.start_timestamp || frameTimestampMap.get(alert.start_frame) || "";
   const endTs =
     alert.end_timestamp || frameTimestampMap.get(alert.end_frame) || "";
+  const runLength = alert.end_frame - alert.start_frame + 1;
 
   return (
     <motion.button
-      initial={{ opacity: 0, y: 5 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{ scale: 1.005 }}
+      whileTap={{ scale: 0.995 }}
       type="button"
       onClick={() => onSeekToFrame(alert.start_frame)}
-      className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition-colors hover:border-red-400/60 hover:shadow-sm group"
+      className={`w-full text-left rounded-[8px] border px-3 py-2.5 bg-[#ffffff] transition-shadow hover:shadow-sm ${style.border}`}
     >
       <div className="flex items-center justify-between gap-2">
-        {/* Primary: trimmed timestamps */}
-        <span className="text-sm font-bold text-black/90 font-mono whitespace-nowrap">
+        <span className="text-[13px] font-semibold text-[#171717] font-mono">
           {shortTs(startTs)} – {shortTs(endTs)}
         </span>
-
-        {/* Severity Badge */}
         <span
-          className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold ${
-            SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.medium
-          }`}
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.pill}`}
         >
           {alert.severity_level}
         </span>
       </div>
-
-      {/* Secondary: technical reference */}
-      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-black/40 font-mono">
-        <span className="shrink-0">
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[#9a9a9a] font-mono">
+        <span>
           f{alert.start_frame}–{alert.end_frame}
         </span>
-        <span className="mx-0.5 opacity-50">·</span>
-
-        {/* Animated Status Dot */}
-        <div className="relative flex items-center justify-center">
+        <span className="opacity-40">·</span>
+        <div className="relative flex items-center">
           <span
             className={`size-1.5 rounded-full ${SEVERITY_DOT[severity] ?? SEVERITY_DOT.medium}`}
           />
           {severity === "high" && (
             <span
-              className={`absolute size-1.5 rounded-full animate-ping opacity-75 ${SEVERITY_DOT[severity]}`}
+              className={`absolute size-1.5 rounded-full animate-ping opacity-60 ${SEVERITY_DOT[severity]}`}
             />
           )}
         </div>
-
-        <User className="size-3 -ml-0.5 opacity-70" />
-        <span className="truncate">P{alert.person_id}</span>
-        <span className="mx-0.5 opacity-50">·</span>
-        <span className="shrink-0 group-hover:text-black/60 transition-colors">
-          {runLength} frames
-        </span>
+        <User className="size-3" />
+        <span>P{alert.person_id}</span>
+        <span className="opacity-40">·</span>
+        <span>{runLength} frames</span>
       </div>
     </motion.button>
   );
 }
 
-// ── InstanceCard ───────────────────────────────────────────────────────────
+// ── InstanceCard ──
 
 function InstanceCard({
   instance,
@@ -196,13 +181,11 @@ function InstanceCard({
   action: string;
   onSeekToFrame: (frame: number) => void;
 }) {
-  const isSingleFrame = instance.startFrame === instance.endFrame;
   const color = getActionColor(action);
+  const bg = getActionBg(action);
+  const text = getActionText(action);
+  const isSingleFrame = instance.startFrame === instance.endFrame;
   const confPct = Math.round(instance.avgConfidence * 100);
-
-  // Helper to strip milliseconds
-  const cleanTs = (ts: string) => (ts.includes(".") ? ts.split(".")[0] : ts);
-
   const startTime = cleanTs(shortTs(instance.startTimestamp));
   const endTime = cleanTs(shortTs(instance.endTimestamp));
 
@@ -210,37 +193,31 @@ function InstanceCard({
     <button
       type="button"
       onClick={() => onSeekToFrame(instance.startFrame)}
-      className="w-full rounded-md border bg-white px-3 py-2 text-left transition hover:brightness-95"
-      style={{ borderColor: color + "55" }}
+      className="w-full text-left rounded-[8px] border bg-[#ffffff] px-3 py-2 transition-shadow hover:shadow-sm"
+      style={{ borderColor: color + "44" }}
     >
       <div className="flex items-center justify-between gap-2">
-        {/* Left Side: Person & Confidence */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <span className="flex items-center gap-1 text-xs text-black/60">
-            <User className="size-3.5" />P{instance.personId}
+        <div className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1 text-[12px] text-[#707070]">
+            <User className="size-3" />P{instance.personId}
           </span>
           <span
-            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-            style={{
-              color: getActionText(action),
-              backgroundColor: color + "20",
-            }}
+            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+            style={{ color: text, background: bg }}
           >
             {confPct}%
           </span>
         </div>
-
-        {/* Right Side: Timestamps */}
-        <div className="flex items-center font-mono text-xs text-black/80 whitespace-nowrap overflow-hidden">
-          <Clock className="size-3.5 mr-1.5 flex-shrink-0" />
-          <span>{isSingleFrame ? startTime : `${startTime}–${endTime}`}</span>
+        <div className="flex items-center gap-1 font-mono text-[12px] text-[#707070]">
+          <Clock className="size-3" />
+          {isSingleFrame ? startTime : `${startTime}–${endTime}`}
         </div>
       </div>
     </button>
   );
 }
 
-// ── Action summary row ─────────────────────────────────────────────────────
+// ── ActionSummaryRow ──
 
 function ActionSummaryRow({
   action,
@@ -259,48 +236,45 @@ function ActionSummaryRow({
   const confPct = Math.round(avgConfidence * 100);
 
   return (
-    <div className="flex items-center gap-2 px-4 py-3">
-      {/* Color dot */}
+    <div className="flex items-center gap-2.5 px-4 py-3">
       <span
-        className="inline-block size-2 rounded-full flex-shrink-0"
-        style={{ backgroundColor: color }}
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ background: color }}
       />
-      {/* Label */}
-      <div className="flex-1 font-semibold font-heading text-black/70 text-sm flex gap-2 items">
+      <span className="flex-1 text-[13px] font-medium text-[#171717]">
         {action}
-        {/* Confidence chip */}
-        <span
-          className="text-xs font-semibold px-2 py-0.5 rounded-full"
-          style={{ backgroundColor: bg, color: text }}
-        >
-          <span className="text-sm text-black/50 font-mono"></span> {confPct}%
-        </span>
-      </div>
-      {/* Instance count */}
-      <span className="text-xs text-gray-500">
-        {instances.length} {instances.length === 1 ? "instance" : "instances"}
       </span>
+      <span
+        className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+        style={{ background: bg, color: text }}
+      >
+        {confPct}%
+      </span>
+      <span className="text-[11px] text-[#9a9a9a]">{instances.length}</span>
       <ChevronDown
-        className="size-4 transition-transform text-black/40"
+        className="size-3.5 text-[#9a9a9a] transition-transform"
         style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
       />
     </div>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ── Main ──
 
 const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   if (!analysis) {
     return (
-      <div className="w-full h-full rounded-md border border-[#D6E4FF] bg-white p-4">
-        <div className="text-sm font-semibold uppercase tracking-wide text-[#344054] flex items-center gap-2">
-          <Activity className="size-4" />
-          Detections
+      <div
+        className="w-full h-full rounded-lg border border-[#ededed] bg-[#ffffff] flex flex-col"
+        style={{ boxShadow: "var(--shadow-1)" }}
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[#ededed]">
+          <Activity className="size-3.5 text-[#1a1a1a]" />
+          <TitleMono text="Detections" />
         </div>
-        <div className="h-full flex items-center justify-center">
-          <p className="text-sm text-[#344054]/80">
-            Run the analysis to view grouped action logs.
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-[13px] text-[#9a9a9a] text-center px-6">
+            Run analysis to view action logs.
           </p>
         </div>
       </div>
@@ -327,30 +301,38 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
   const alerts = analysis.alert_events ?? [];
 
   return (
-    <div className="w-full h-full rounded-xl border border-[#D6E4FF] bg-white shadow-sm flex flex-col overflow-hidden">
+    <div
+      className="w-full h-full rounded-lg border border-[#ededed] bg-[#ffffff] flex flex-col overflow-hidden"
+      style={{ boxShadow: "var(--shadow-1)" }}
+    >
       {/* Header */}
-      <div className="flex items-center gap-2 p-3 text-sm font-semibold uppercase tracking-wide text-[#344054] font-heading border-b border-[#D6E4FF] flex-shrink-0">
-        <Activity className="size-4" />
-        Detections
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[#ededed] shrink-0">
+        <Activity className="size-3.5 text-[#9a9a9a]" />
+        <span
+          className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9a9a]"
+          style={{ fontFamily: "var(--mono)" }}
+        >
+          Detections
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto divide-y divide-[#D6E4FF]">
-        {/* ── Alerts accordion ── */}
+      <div className="flex-1 overflow-y-auto divide-y divide-[#ededed]">
+        {/* Alerts */}
         {alerts.length > 0 && (
           <details className="group" open>
-            <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 text-sm hover:bg-slate-50 list-none">
-              <span className="flex items-center gap-2 font-semibold font-heading text-black/80">
-                <AlertTriangle className="size-4 text-red-500" />
+            <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 hover:bg-[#fafafa] list-none transition-colors">
+              <span className="flex items-center gap-2 text-[13px] font-medium text-[#171717]">
+                <AlertTriangle className="size-3.5 text-red-500" />
                 Alerts
               </span>
-              <span className="flex items-center gap-2 text-xs text-gray-600">
-                <span className="rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-xs font-semibold text-red-800">
-                  {alerts.length} {alerts.length === 1 ? "event" : "events"}
+              <span className="flex items-center gap-2">
+                <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                  {alerts.length}
                 </span>
-                <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                <ChevronDown className="size-3.5 text-[#9a9a9a] transition-transform group-open:rotate-180" />
               </span>
             </summary>
-            <div className="space-y-2 px-3 pb-3">
+            <div className="flex flex-col gap-1.5 px-3 pb-3">
               {alerts.map((alert) => (
                 <AlertCard
                   key={`alert-${alert.person_id}-${alert.start_frame}`}
@@ -363,10 +345,10 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
           </details>
         )}
 
-        {/* ── Action accordions — sorted by confidence ── */}
+        {/* Actions */}
         {groupedActions.map(({ action, instances, avgConfidence }) => (
           <details key={action} className="group">
-            <summary className="list-none cursor-pointer hover:bg-slate-50">
+            <summary className="list-none cursor-pointer hover:bg-[#fafafa] transition-colors">
               <ActionSummaryRow
                 action={action}
                 instances={instances}
@@ -374,7 +356,7 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
                 open={false}
               />
             </summary>
-            <div className="space-y-2 px-3 pb-3">
+            <div className="flex flex-col gap-1.5 px-3 pb-3">
               {instances.map((instance) => (
                 <InstanceCard
                   key={`${action}-p${instance.personId}-f${instance.startFrame}`}

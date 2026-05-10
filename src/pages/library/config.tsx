@@ -1,7 +1,6 @@
 import ModelSelector from "@/components/model-selector";
-import { Info, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 
 const apiBaseUrl =
   import.meta.env?.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -32,9 +31,13 @@ type DraftConfig = {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-type ConfigProps = {
-  className?: string;
-};
+const inputCls =
+  "w-full rounded-[6px] border border-[#dfdfdf] bg-[#ffffff] px-3 py-2 text-[13px] text-[#171717] outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/30 transition-colors";
+
+const labelCls =
+  "text-[11px] font-medium text-[#707070] uppercase tracking-[0.06em]";
+
+type ConfigProps = { className?: string };
 
 const Config = ({ className }: ConfigProps) => {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
@@ -103,16 +106,7 @@ const Config = ({ className }: ConfigProps) => {
       const res = await fetch(`${apiBaseUrl}/api/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          yolo_model: draft.yolo_model,
-          yolo_conf: draft.yolo_conf,
-          yolo_iou: draft.yolo_iou,
-          video_yolo_conf: draft.video_yolo_conf,
-          video_yolo_iou: draft.video_yolo_iou,
-          action_threshold_mode: draft.action_threshold_mode,
-          action_threshold: draft.action_threshold,
-          action_thresholds: draft.action_thresholds,
-        }),
+        body: JSON.stringify(draft),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -143,158 +137,134 @@ const Config = ({ className }: ConfigProps) => {
   if (loading || !draft || !config) {
     return (
       <div
-        className={`rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm flex flex-col h-full ${
-          className ?? ""
-        }`}
+        className={`flex flex-col h-full rounded-lg bg-[#ffffff] border border-[#ededed] ${className ?? ""}`}
+        style={{ boxShadow: "var(--shadow-1)" }}
       >
-        <div className="text-xs font-semibold uppercase ">
-          Model Configuration
+        <div className="px-4 py-3 border-b border-[#ededed]">
+          <span
+            className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9a9a]"
+            style={{ fontFamily: "var(--mono)" }}
+          >
+            Configuration
+          </span>
         </div>
-        <div className="mt-2 text-xs text-[#344054]/60">Loading settings…</div>
+        <div className="flex items-center justify-center flex-1 text-[13px] text-[#9a9a9a]">
+          Loading…
+        </div>
       </div>
     );
   }
 
   return (
     <div
-      className={`rounded-md border border-[#D6E4FF] bg-white p-3 shadow-sm flex flex-col min-h-0 ${
-        className ?? ""
-      }`}
+      className={`flex flex-col min-h-0 rounded-lg bg-[#ffffff] border border-[#ededed] ${className ?? ""}`}
+      style={{ boxShadow: "var(--shadow-1)" }}
     >
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase">
-          Model Configuration
-        </div>
-        <Button
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#ededed] shrink-0">
+        <span
+          className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#1a1a1a]"
+          style={{ fontFamily: "var(--mono)" }}
+        >
+          Configuration
+        </span>
+        <button
           type="button"
-          variant={"default"}
           onClick={handleSave}
           disabled={saving}
-          className="text-xs"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] disabled:opacity-50 transition-colors"
         >
-          <Save />
+          <Save size={13} />
           {saving ? "Saving…" : "Save"}
-        </Button>
+        </button>
       </div>
 
+      {/* Status messages */}
       {error && (
-        <div className="mt-2 text-xs font-medium text-red-500">{error}</div>
+        <div className="mx-4 mt-3 px-3 py-2 rounded-[6px] bg-red-50 border border-red-200 text-[12px] text-red-700">
+          {error}
+        </div>
       )}
       {savedMessage && (
-        <div className="mt-2 text-xs font-medium text-emerald-600">
+        <div className="mx-4 mt-3 px-3 py-2 rounded-[6px] bg-[#0052ff]/10 border border-[#0052ff]/30 text-[12px] text-[#0041cc]">
           {savedMessage}
         </div>
       )}
 
-      <div className="mt-3 grid gap-4 overflow-auto min-h-0">
-        <div className="grid gap-1.5 p-1">
-          <label className="text-xs font-semibold text-primary">
-            YOLO Pose Model
-          </label>
-          <select
-            value={draft.yolo_model}
-            onChange={(e) => setDraft({ ...draft, yolo_model: e.target.value })}
-            className="w-full rounded-md border border-[#D6E4FF] bg-white p-2  text-xs font-medium text-[#1D2939]"
-          >
-            {config.yolo_models.map((model) => (
-              <option key={model.key} value={model.key}>
-                {model.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <ModelSelector />
-        {/* <div className="grid gap-2">
-          <div className="text-xs font-semibold text-[#344054]/70">
-            YOLO Detection Thresholds
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="grid gap-1 text-xs text-[#344054]/70">
-              Confidence
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                value={draft.yolo_conf}
-                onChange={(e) => updateDraftNumber("yolo_conf", e.target.value)}
-                className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs"
-              />
-            </label>
-            <label className="grid gap-1 text-xs text-[#344054]/70">
-              IOU
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                value={draft.yolo_iou}
-                onChange={(e) => updateDraftNumber("yolo_iou", e.target.value)}
-                className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs"
-              />
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="grid gap-1 text-xs text-[#344054]/70">
-              Video Confidence
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                value={draft.video_yolo_conf}
-                onChange={(e) =>
-                  updateDraftNumber("video_yolo_conf", e.target.value)
-                }
-                className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs"
-              />
-            </label>
-            <label className="grid gap-1 text-xs text-[#344054]/70">
-              Video IOU
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                value={draft.video_yolo_iou}
-                onChange={(e) =>
-                  updateDraftNumber("video_yolo_iou", e.target.value)
-                }
-                className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs"
-              />
-            </label>
-          </div>
-        </div> */}
-
-        <div className="grid gap-2">
-          <div className="text-xs font-semibold text-primary">
-            Action Confidence Thresholds
-          </div>
-          {/* <div className=" flex  items-center  gap-3 text-[10px] leading-tight text-[#667085] border bg-yellow-100  border-yellow-500 rounded-sm p-2">
-            <Info className="text-blue-600 " size={32} />
-            Higher threshold (0.60+) reduce false positives but might miss
-            actions. Lower threshold (0.20-) are more sensitive. Adjust based on
-            your preference global vs per-action thresholds.
-          </div> */}
-          <label className="flex items-center gap-2 text-xs text-[#344054]/70">
-            <input
-              type="checkbox"
-              checked={draft.action_threshold_mode === "uniform"}
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-5">
+        {/* YOLO Pose Model */}
+        <div className="flex flex-col gap-2">
+          <label className={labelCls}>YOLO Pose Model</label>
+          <div className="relative">
+            <select
+              value={draft.yolo_model}
               onChange={(e) =>
+                setDraft({ ...draft, yolo_model: e.target.value })
+              }
+              className={inputCls + " appearance-none pr-7"}
+            >
+              {config.yolo_models.map((model) => (
+                <option key={model.key} value={model.key}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9a9a9a]">
+              ▾
+            </span>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-[#ededed]" />
+
+        {/* InfoGCN model selector */}
+        <ModelSelector />
+
+        {/* Divider */}
+        <div className="h-px bg-[#ededed]" />
+
+        {/* Action Confidence Thresholds */}
+        <div className="flex flex-col gap-3">
+          <label className={labelCls}>Action Thresholds</label>
+
+          {/* Uniform toggle */}
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <span
+              onClick={() =>
                 setDraft({
                   ...draft,
-                  action_threshold_mode: e.target.checked
-                    ? "uniform"
-                    : "per-action",
+                  action_threshold_mode:
+                    draft.action_threshold_mode === "uniform"
+                      ? "per-action"
+                      : "uniform",
                 })
               }
-            />
-            Use the same threshold for all actions
+              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
+                draft.action_threshold_mode === "uniform"
+                  ? "bg-[#0052ff]"
+                  : "bg-[#dfdfdf]"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  draft.action_threshold_mode === "uniform"
+                    ? "translate-x-3.5"
+                    : "translate-x-0"
+                }`}
+              />
+            </span>
+            <span className="text-[13px] text-[#707070]">
+              Uniform threshold
+            </span>
           </label>
 
           {draft.action_threshold_mode === "uniform" ? (
-            <label className="grid grid-cols-[auto_1fr] items-center m-1 gap-3 text-xs text-[#344054]">
-              Threshold
+            <div className="flex items-center gap-3">
+              <span className="text-[13px] text-[#707070] shrink-0 w-20">
+                Threshold
+              </span>
               <input
                 type="number"
                 min={0}
@@ -304,17 +274,14 @@ const Config = ({ className }: ConfigProps) => {
                 onChange={(e) =>
                   updateDraftNumber("action_threshold", e.target.value)
                 }
-                className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs text-[#344054] "
+                className={inputCls}
               />
-            </label>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {actions.map((action) => (
-                <label
-                  key={action}
-                  className="grid gap-1 text-xs text-[#344054] m-1"
-                >
-                  {action}
+                <div key={action} className="flex flex-col gap-1">
+                  <span className="text-[11px] text-[#9a9a9a]">{action}</span>
                   <input
                     type="number"
                     min={0}
@@ -324,9 +291,9 @@ const Config = ({ className }: ConfigProps) => {
                     onChange={(e) =>
                       updateActionThreshold(action, e.target.value)
                     }
-                    className="rounded-md border border-[#D6E4FF] px-2.5 py-2 text-xs text-[#344054]"
+                    className={inputCls}
                   />
-                </label>
+                </div>
               ))}
             </div>
           )}

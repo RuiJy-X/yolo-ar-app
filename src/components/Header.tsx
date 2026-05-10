@@ -10,14 +10,31 @@ const Header = ({
   className?: string;
 }) => {
   return (
-    <div
-      className={`flex flex-col font-heading font-bold justify-center leading-[0] min-h-px min-w-px relative text-text-h text-[48px] tracking-[-2.4px] ${className}`}
-    >
-      <p className="leading-[72px]">{title}</p>
-      {/* description */}
-      <div className="flex flex-col font-sans font-medium justify-center leading-[0]  relative shrink-0 text-[var(--text)] text-sm tracking-[0px]">
-        <p className="leading-[28px]">{description}</p>
-      </div>
+    <div className={`flex flex-col gap-1.5 ${className ?? ""}`}>
+      <h1
+        className="text-[#171717] font-medium"
+        style={{
+          fontFamily: "var(--heading)",
+          fontSize: 36,
+          lineHeight: 1.15,
+          letterSpacing: "-0.72px",
+          margin: 0,
+        }}
+      >
+        {title}
+      </h1>
+      <p
+        className="text-[#707070]"
+        style={{
+          fontFamily: "var(--sans)",
+          fontSize: 15,
+          lineHeight: 1.5,
+          fontWeight: 400,
+          margin: 0,
+        }}
+      >
+        {description}
+      </p>
     </div>
   );
 };

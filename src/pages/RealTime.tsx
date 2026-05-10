@@ -16,6 +16,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import TitleMono from "@/components/titile-mono";
 
 const apiBaseUrl =
   import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -523,9 +524,7 @@ const RealTime = () => {
           {/* 2. Video Panel (50%) */}
           <div className="bg-white flex flex-col w-1/2 p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-bold tracking-tight text-[#344054]">
-                Real-Time Inference
-              </div>
+              <TitleMono text="Real-Time Inference" />
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-[#344054]">
                   <span
@@ -560,9 +559,7 @@ const RealTime = () => {
           <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden flex flex-col">
             {/* Panel header */}
             <div className="p-3 border-b border-gray-200 bg-white shrink-0">
-              <div className="text-xs font-semibold uppercase text-[#344054]">
-                Inference Logs
-              </div>
+              <TitleMono text="Inference Logs" />
             </div>
 
             {/* Live stats */}
@@ -583,11 +580,17 @@ const RealTime = () => {
                 </div>
                 <div className="mt-0.5">
                   {isCameraActive ? (
-                    <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 px-1.5 py-0">
+                    <Badge
+                      variant={"link"}
+                      className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 px-1.5 py-0"
+                    >
                       Live
                     </Badge>
                   ) : (
-                    <Badge className="text-[10px] bg-gray-100 text-gray-500 border-gray-200 px-1.5 py-0">
+                    <Badge
+                      variant={"destructive"}
+                      className="text-[10px] bg-red-500 text-white border-gray-200 px-1.5 py-0"
+                    >
                       Idle
                     </Badge>
                   )}
