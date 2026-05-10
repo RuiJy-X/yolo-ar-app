@@ -130,7 +130,7 @@ const ModelSelector = () => {
   return (
     <div className="grid grid-cols-1 items-center gap-3 flex-wrap">
       {/* Label */}
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-primary uppercase tracking-wide select-none">
+      <span className="flex items-center gap-1.5 text-xs font-semibold text-primary  tracking-wide select-none">
         InfoGCN Model
       </span>
 

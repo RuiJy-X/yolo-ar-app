@@ -46,6 +46,9 @@ const NavBar = () => {
               <NavLink to="/realtime" className={getLinkStyle}>
                 <p className="leading-[normal]">Realtime</p>
               </NavLink>
+              <NavLink to="/help" className={getLinkStyle}>
+                <p className="leading-[normal]">Help</p>
+              </NavLink>
             </div>
           </div>
         </div>

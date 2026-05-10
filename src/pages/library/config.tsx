@@ -1,6 +1,7 @@
 import ModelSelector from "@/components/model-selector";
-import { Info } from "lucide-react";
+import { Info, Save } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 
 const apiBaseUrl =
   import.meta.env?.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -146,7 +147,7 @@ const Config = ({ className }: ConfigProps) => {
           className ?? ""
         }`}
       >
-        <div className="text-xs font-semibold uppercase text-[#344054]/70">
+        <div className="text-xs font-semibold uppercase ">
           Model Configuration
         </div>
         <div className="mt-2 text-xs text-[#344054]/60">Loading settings…</div>
@@ -161,17 +162,19 @@ const Config = ({ className }: ConfigProps) => {
       }`}
     >
       <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase text-[#344054]">
+        <div className="text-xs font-semibold uppercase">
           Model Configuration
         </div>
-        <button
+        <Button
           type="button"
+          variant={"default"}
           onClick={handleSave}
           disabled={saving}
-          className="rounded-md border border-[#2563EB] bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1D4ED8] disabled:opacity-60"
+          className="text-xs"
         >
+          <Save />
           {saving ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
 
       {error && (

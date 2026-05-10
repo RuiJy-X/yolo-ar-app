@@ -165,24 +165,34 @@ const Home = () => {
       <div className="max-w-5xl mx-auto w-full space-y-6 py-6 overflow-auto">
         {/* Quick-action cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-auto sm:h-40">
+          {/* Realtime Analysis Link */}
           <Link
             to="/realtime"
-            className="group relative flex flex-col items-center justify-center h-full space-y-3 border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50/30 transition-all duration-300"
+            className="group relative flex flex-col items-center justify-center h-full space-y-3 border-2 border-slate-200 
+               bg-gradient-to-br from-white via-white to-blue-200/50 
+               hover:border-blue-500 hover:from-blue-50/50 to-blue-200/50 
+               transition-all duration-300 shadow-sm"
           >
             <div className="p-3 rounded-full bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
               <History className="h-6 w-6 animate-pulse" />
             </div>
             <div className="text-center">
-              <div className="text-lg font-bold">Realtime Analysis</div>
+              <div className="text-lg font-bold font-heading tracking-tight">
+                Realtime Analysis
+              </div>
               <p className="text-xs text-slate-500 font-normal">
                 Stream live video for instant feedback
               </p>
             </div>
           </Link>
 
+          {/* Library / Analyze Video Link */}
           <Link
             to="/Library"
-            className="group relative flex flex-col items-center justify-center h-full space-y-3 border-2 border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all duration-300"
+            className="group relative flex flex-col items-center justify-center h-full space-y-3 border-2 border-slate-200 
+               bg-gradient-to-br from-white via-white to-indigo-200/50 
+               hover:border-indigo-500 hover:from-indigo-50/50 hover:to-indigo-200/50 
+               transition-all duration-300 shadow-sm"
           >
             <div className="p-3 rounded-full bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
               <FileVideo className="h-6 w-6" />
@@ -209,11 +219,11 @@ const Home = () => {
 
           <div className="flex items-center gap-3">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={loadHistory}
               disabled={loading}
-              className="bg-white"
+              className="bg-blue-600 text-white"
             >
               <RotateCw
                 className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
@@ -226,7 +236,7 @@ const Home = () => {
               onClick={handleClearHistory}
               disabled={loading || clearing || entries.length === 0}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="mr-2 h-4 w-4 " />
               {clearing ? "Clearing..." : "Clear All"}
             </Button>
           </div>
