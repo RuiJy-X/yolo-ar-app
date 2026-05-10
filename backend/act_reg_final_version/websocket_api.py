@@ -91,56 +91,29 @@ INFERENCE_JOBS_LOCK = threading.Lock()
 RESULTS_DIR = CURRENT_DIR / "results"
 
 
-def discover_action_models() -> dict[str, dict[str, Path]]:
+def discover_action_models() -> list[str]:
     """
-    Return a nested dict:
-        {
-            "model_16": {
-                "best_model_1":  Path(".../model_16/best_model_1.pt"),
-                "best_model_2":  Path(".../model_16/best_model_2.pt"),
-                ...
-            },
-            "model_64": { ... },
-        }
-
-    Matches any file whose name starts with "best_model" and ends with ".pt"
-    inside an immediate subdirectory of RESULTS_DIR, so it works regardless of
-    whether the files are named best_model.pt, best_model_1.pt, best_model_10.pt,
-    best_epoch_5.pt, etc.
+    Scans RESULTS_DIR for .pt files directly (e.g., results/model_name.pt).
+    Returns a list of model names (stems).
     """
-    found: dict[str, dict[str, Path]] = {}
     if not RESULTS_DIR.exists():
-        return found
-
-    for folder in sorted(RESULTS_DIR.iterdir()):
-        if not folder.is_dir():
-            continue
-
-        checkpoints: dict[str, Path] = {}
-        for pt_file in sorted(folder.glob("best_model*.pt")):
-            # Use the stem (filename without extension) as the checkpoint key,
-            # e.g. "best_model_1", "best_model_10".
-            checkpoints[pt_file.stem] = pt_file
-
-        if checkpoints:
-            found[folder.name] = checkpoints
-
-    return found
-
+        return []
+    
+    # Matches any .pt file directly in the results folder
+    return [pt_file.stem for pt_file in sorted(RESULTS_DIR.glob("*.pt"))]
 
 def flat_model_registry() -> dict[str, Path]:
     """
-    Flatten discover_action_models() into a single dict keyed by
-    "folder/checkpoint_stem" so swap_action_model can accept a single string.
-
-    Example keys: "model_16/best_model_1", "model_64/best_model_10"
+    Returns a dict keyed by the model name (stem) mapping to its full Path.
+    Example: {"model_16": Path(".../results/model_16.pt")}
     """
     flat: dict[str, Path] = {}
-    for folder_name, checkpoints in discover_action_models().items():
-        for stem, path in checkpoints.items():
-            flat[f"{folder_name}/{stem}"] = path
-    return flat
+    if not RESULTS_DIR.exists():
+        return flat
 
+    for pt_file in sorted(RESULTS_DIR.glob("*.pt")):
+        flat[pt_file.stem] = pt_file
+    return flat
 
 def resolve_yolo_model_choice(value: str) -> tuple[str, Path]:
     """Resolve a YOLO model choice to a (key, path) tuple."""
@@ -494,41 +467,17 @@ def get_inference_job(job_id: str) -> dict[str, Any] | None:
 
 
 def pick_deployment_checkpoint(base_dir: Path) -> Path:
-    report_paths = sorted((base_dir / "results" / "uav_transfer").glob("fold_*/epoch_*_report.csv"))
-    best_acc = -1.0
-    best_fold: str | None = None
-
-    for path in report_paths:
-        try:
-            with path.open("r", encoding="utf-8") as file:
-                rows = [line.strip().split(",") for line in file if line.strip()]
-        except OSError:
-            continue
-
-        acc_rows = [row for row in rows if row and row[0] == "accuracy"]
-        if not acc_rows:
-            continue
-
-        try:
-            acc = float(acc_rows[0][3])
-        except (IndexError, ValueError):
-            continue
-
-        if acc > best_acc:
-            best_acc = acc
-            best_fold = path.parent.name
-
-    if best_fold:
-        candidate = base_dir / "results" / "uav_transfer" / best_fold / "best_model.pt"
-        if candidate.exists():
-            return candidate
-
-    fallback = base_dir / "results" / "uav_transfer" / "fold_1" / "best_model.pt"
+    # Change this to your new preferred default file in results/
+    fallback = base_dir / "results" / "best_model.pt"
     if fallback.exists():
         return fallback
+    
+    # Or pick the first available .pt file
+    models = discover_action_models()
+    if models:
+        return base_dir / "results" / f"{models[0]}.pt"
 
-    raise FileNotFoundError("No suitable deployment checkpoint found under results/uav_transfer")
-
+    raise FileNotFoundError("No model files found in results/")
 
 def coco17_to_body12(coco_kpts: np.ndarray | None) -> np.ndarray:
     out = np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32)
@@ -1788,29 +1737,21 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
 # ── Model registry endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/models")
-def list_models() -> dict[str, Any]:
+def list_models():
     """
-    Return all discoverable InfoGCN checkpoints and which one is currently active.
-
-    Response shape:
-    {
-        "folders": {
-            "model_16": ["best_model_1", "best_model_2", ...],
-            "model_64": ["best_model_1", ...]
-        },
-        "active_model": "model_16/best_model_1"
-    }
+    Returns the list of available models and the currently active one.
     """
+    # registry is now a list of model names (stems), e.g., ["model_16", "model_64"]
     registry = discover_action_models()
-    pipeline: ActionRecognitionPipeline = app.state.pipeline
-    return {
-        "folders": {
-            folder: sorted(checkpoints.keys())
-            for folder, checkpoints in sorted(registry.items())
-        },
-        "active_model": pipeline.active_model_name,
-    }
+    
+    # active_model is the filename without extension, e.g., "model_16"
+    active_path = getattr(app.state.pipeline, "action_model_path", None)
+    active_model = active_path.stem if active_path else ""
 
+    return {
+        "models": registry,
+        "active_model": active_model
+    }
 
 @app.post("/api/models/active")
 def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
@@ -1858,6 +1799,193 @@ def update_runtime_config(body: UpdateConfigRequest) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+def run_history_reinference_job(
+    job_id: str,
+    entry_id: str,
+    source_path: Path,
+    preview_path: Path,
+    preview_name: str,
+    output_path: Path,
+    output_name: str,
+) -> None:
+    """
+    Like run_video_inference_job but writes the new annotated video back into
+    the history entry directory so the result persists alongside the original.
+    """
+    try:
+        update_inference_job(
+            job_id,
+            status="processing",
+            progress_percent=0.0,
+            progress_message="Starting re-inference pipeline...",
+        )
+
+        # The source stored in history is already a browser-safe MP4 preview;
+        # skip transcoding and copy it directly to the previews staging area.
+        update_inference_job(job_id, progress_message="Preparing source video...")
+        if not preview_path.exists():
+            shutil.copy2(source_path, preview_path)
+        source_transcode_backend = "passthrough"
+
+        def on_progress(frame_index: int, total_frames: int, phase: str) -> None:
+            percent = 0.0
+            if total_frames > 0:
+                percent = min(99.0, max(0.0, (frame_index / total_frames) * 100.0))
+            update_inference_job(
+                job_id,
+                status="processing",
+                progress_percent=round(percent, 2),
+                progress_message=phase,
+                frame_index=frame_index,
+                total_frames=total_frames if total_frames > 0 else None,
+            )
+
+        result = app.state.pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
+        raw_output_path = output_path
+
+        if raw_output_path.suffix.lower() == ".mp4":
+            transcoded_path = raw_output_path.with_name(f"{raw_output_path.stem}_browser.mp4")
+            output_transcode_backend = transcode_video_to_browser_mp4(raw_output_path, transcoded_path)
+            raw_output_path.unlink(missing_ok=True)
+            transcoded_path.replace(raw_output_path)
+            served_output_path = raw_output_path
+            served_output_name = output_name
+        else:
+            served_output_path = raw_output_path.with_suffix(".mp4")
+            served_output_name = served_output_path.name
+            output_transcode_backend = transcode_video_to_browser_mp4(raw_output_path, served_output_path)
+            raw_output_path.unlink(missing_ok=True)
+
+        # Persist the new annotated video back into the history entry directory,
+        # replacing the old one and updating meta.json accordingly.
+        entry_dir = history_entry_dir(entry_id)
+        video_ext = served_output_path.suffix.lower() or ".mp4"
+        history_video_name = f"video{video_ext}"
+        history_video_path = entry_dir / history_video_name
+        shutil.copy2(served_output_path, history_video_path)
+
+        # Keep old source name intact in meta; only update videoName if it changed.
+        meta = load_history_meta(entry_dir) or {}
+        meta["videoName"] = history_video_name
+        (entry_dir / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+        # Derive the analysis and write it back too so /api/history/<id> stays fresh.
+        analysis_obj = result.get("analysis_summary")
+        if analysis_obj:
+            (entry_dir / "analysis.json").write_text(
+                json.dumps(analysis_obj, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+
+        cleanup_annotated_outputs()
+        cleanup_preview_outputs()
+
+        update_inference_job(
+            job_id,
+            status="completed",
+            progress_percent=100.0,
+            progress_message="Inference complete.",
+            frame_index=result.get("frames_processed", 0),
+            total_frames=result.get("frames_processed", 0),
+            result={
+                "type": "video-inference",
+                # Serve the freshly-written history copy so it never expires
+                "output_video_url": f"/history/{entry_id}/{history_video_name}",
+                "output_download_url": f"/api/download-annotated/{served_output_name}",
+                "source_video_url": f"/outputs/previews/{preview_name}",
+                "source_transcode_backend": source_transcode_backend,
+                "output_transcode_backend": output_transcode_backend,
+                # No expiry — stored in history
+                "retention_seconds": 0,
+                **result,
+            },
+            error=None,
+        )
+    except Exception as exc:
+        if output_path.exists():
+            output_path.unlink(missing_ok=True)
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
+        update_inference_job(
+            job_id,
+            status="failed",
+            progress_message="Re-inference failed.",
+            error=str(exc),
+        )
+    finally:
+        cleanup_inference_jobs()
+
+
+@app.post("/api/infer-video/from-history/{entry_id}")
+async def reinfer_from_history(entry_id: str) -> dict[str, Any]:
+    """
+    Re-run inference on a history entry's stored source video.
+    The new annotated result is saved back into the same history folder
+    so it persists without a retention timer.
+    """
+    safe_id = Path(entry_id).name
+    if safe_id != entry_id:
+        raise HTTPException(status_code=400, detail="Invalid history entry id.")
+
+    entry_dir = history_entry_dir(safe_id)
+    if not entry_dir.exists() or not entry_dir.is_dir():
+        raise HTTPException(status_code=404, detail="History entry not found.")
+
+    meta = load_history_meta(entry_dir)
+    if not meta:
+        raise HTTPException(status_code=404, detail="History entry metadata missing.")
+
+    source_name = meta.get("sourceName")
+    if not source_name:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This history entry has no stored source video. "
+                "Please upload the original video file to re-analyze it."
+            ),
+        )
+
+    source_path = entry_dir / source_name
+    if not source_path.exists() or not source_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Source video file is missing from history storage.",
+        )
+
+    preview_name = f"source_{uuid4().hex}.mp4"
+    preview_path = OUTPUT_PREVIEW_DIR / preview_name
+    output_ext = ".avi" if OUTPUT_VIDEO_FORMAT == "avi" else ".mp4"
+    output_name = f"annotated_{uuid4().hex}{output_ext}"
+    output_path = OUTPUT_ANNOTATED_DIR / output_name
+    job_id = uuid4().hex
+
+    try:
+        cleanup_inference_jobs()
+        create_inference_job(job_id)
+
+        worker = threading.Thread(
+            target=run_history_reinference_job,
+            args=(job_id, safe_id, source_path, preview_path, preview_name, output_path, output_name),
+            daemon=True,
+        )
+        worker.start()
+
+        return {
+            "type": "video-inference-job",
+            "job_id": job_id,
+            "status_url": f"/api/infer-video/{job_id}",
+        }
+    except Exception as exc:
+        if output_path.exists():
+            output_path.unlink(missing_ok=True)
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Re-inference failed: {exc}") from exc
+
 
 @app.post("/api/infer-video")
 async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:

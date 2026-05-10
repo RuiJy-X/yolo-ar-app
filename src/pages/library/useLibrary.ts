@@ -180,6 +180,9 @@ export const useLibraryState = (historyId?: string | null) => {
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(0);
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  // Tracks whether the current session was loaded from a history entry.
+  // Used to route re-analysis through the history-aware backend endpoint.
+  const [loadedHistoryId, setLoadedHistoryId] = useState<string | null>(null);
 
   const replaceSourceVideoUrl = (nextUrl: string | null) => {
     setSourceVideoUrl((previous) => {
@@ -208,8 +211,11 @@ export const useLibraryState = (historyId?: string | null) => {
   );
 
   const handleFileChange: ChangeEventHandler<HTMLInputElement> = (event) => {
-    const selected = event.target.files?.[0] ?? null;
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+
     setFile(selected);
+    setLoadedHistoryId(null); // fresh upload — no longer tied to a history entry
     setResultVideoUrl(null);
     setResultDownloadUrl(null);
     setSummary(null);
@@ -223,7 +229,7 @@ export const useLibraryState = (historyId?: string | null) => {
   };
 
   const handleRunInference = async () => {
-    if (!file) {
+    if (!file && !sourceVideoUrl) {
       setError("Please select a video file first.");
       return;
     }
@@ -241,13 +247,42 @@ export const useLibraryState = (historyId?: string | null) => {
     setProgressTotalFrames(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      let inferUrl: string;
+      let fetchInit: RequestInit;
 
-      const response = await fetch(`${apiBaseUrl}/api/infer-video`, {
-        method: "POST",
-        body: formData,
-      });
+      if (file) {
+        // Scenario A: Fresh local file upload
+        const formData = new FormData();
+        formData.append("file", file);
+        inferUrl = `${apiBaseUrl}/api/infer-video`;
+        fetchInit = { method: "POST", body: formData };
+      } else if (loadedHistoryId) {
+        // Scenario B: Re-analyzing a history entry — use the dedicated endpoint
+        // so the backend reads the stored source video and writes the result
+        // back into the same history folder (no expiry, no missing-file errors).
+        inferUrl = `${apiBaseUrl}/api/infer-video/from-history/${loadedHistoryId}`;
+        fetchInit = { method: "POST" };
+      } else {
+        // Scenario C: sourceVideoUrl is a remote URL but we have no local File.
+        // Fetch it as a Blob and re-upload so the normal pipeline handles it.
+        setProgressMessage("Fetching source video for re-upload...");
+        const blobResponse = await fetch(sourceVideoUrl!);
+        if (!blobResponse.ok)
+          throw new Error(
+            `Could not fetch source video (${blobResponse.status}).`,
+          );
+        const blob = await blobResponse.blob();
+        const filename = getFilenameFromUrl(sourceVideoUrl!) || "source.mp4";
+        const reuploadFile = new File([blob], filename, {
+          type: blob.type || "video/mp4",
+        });
+        const formData = new FormData();
+        formData.append("file", reuploadFile);
+        inferUrl = `${apiBaseUrl}/api/infer-video`;
+        fetchInit = { method: "POST", body: formData };
+      }
+
+      const response = await fetch(inferUrl, fetchInit);
 
       const payload = (await response.json()) as
         | VideoInferenceJobStartResponse
@@ -390,6 +425,13 @@ export const useLibraryState = (historyId?: string | null) => {
       setResultDownloadUrl(downloadUrl);
       setSummary(summaryText);
       setSourcePlaybackError(null);
+      // If we ran via the history endpoint, stay bound to that history entry
+      // so subsequent re-runs continue to use the same efficient path.
+      if (!file && loadedHistoryId) {
+        // loadedHistoryId is unchanged — keep it set
+      } else {
+        setLoadedHistoryId(null);
+      }
       setRecentVideos((previous) => {
         const deduped = previous.filter(
           (item) => item.videoUrl !== playbackUrl,
@@ -591,6 +633,7 @@ export const useLibraryState = (historyId?: string | null) => {
         setCurrentTimeSeconds(0);
         setVideoDurationSeconds(0);
         setResultPlaybackError(null);
+        setLoadedHistoryId(entry.id); // remember which history entry this is
         setResultVideoUrl(
           withCacheBust(toAbsoluteUrl(entry.videoUrl, apiBaseUrl)),
         );
@@ -685,4 +728,4 @@ export const useLibraryState = (historyId?: string | null) => {
     togglePlayPause,
     handlePlaybackStateChange,
   };
-};
+};;

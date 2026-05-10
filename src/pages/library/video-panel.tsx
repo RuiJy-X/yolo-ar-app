@@ -77,14 +77,17 @@ const VideoPanel = ({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="text-xs "
+              variant={"dashed"}
             >
               <Upload />
               Upload Video
             </Button>
           )}
 
-          {file && !isSubmitting && !resultVideoUrl && (
-            <Button onClick={onRunInference}>Analyze</Button>
+          {(file || sourceVideoUrl) && !isSubmitting && (
+            <Button onClick={onRunInference}>
+              {resultVideoUrl ? "Re-analyze" : "Analyze"}
+            </Button>
           )}
 
           {resultDownloadUrl && !isSubmitting && (
@@ -159,6 +162,7 @@ const VideoPanel = ({
                 No video uploaded yet.
               </div>
               <Button
+                variant={"dashed"}
                 onClick={() => fileInputRef.current?.click()}
                 className="mt-3"
               >

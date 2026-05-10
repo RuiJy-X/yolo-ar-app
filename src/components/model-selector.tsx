@@ -6,10 +6,11 @@ const apiBaseUrl =
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+//
 type ModelRegistry = {
-  /** e.g. { "model_16": ["best_model_1", ..., "best_model_10"], "model_64": [...] } */
-  folders: Record<string, string[]>;
-  /** e.g. "model_16/best_model_3" */
+  /** Now just a list of model names: ["model_16", "model_64"] */
+  models: string[]; 
+  /** e.g. "model_16" */
   active_model: string;
 };
 
@@ -69,85 +70,41 @@ function useModelSelector() {
 
 // ── Two-level model selector UI ────────────────────────────────────────────
 
+//
 const ModelSelector = () => {
-  const { registry, loading, switching, error, switchModel } =
-    useModelSelector();
+  const { registry, loading, switching, error, switchModel } = useModelSelector();
 
-  // Derive the currently selected folder and checkpoint from active_model
-  // active_model format: "model_16/best_model_3"
-  const activeParts = registry?.active_model?.split("/") ?? [];
-  const activeFolder = activeParts[0] ?? "";
-  const activeCheckpoint = activeParts.slice(1).join("/") ?? "";
+  const activeModel = registry?.active_model ?? "";
+  const models = (registry?.models ?? []).sort();
 
-  const folders = Object.keys(registry?.folders ?? {}).sort();
-
-  // When the folder changes, default to the first checkpoint in that folder
-  const handleFolderChange = (newFolder: string) => {
-    const checkpoints = registry?.folders[newFolder] ?? [];
-    const firstCheckpoint = checkpoints[0] ?? "";
-    if (firstCheckpoint) switchModel(`${newFolder}/${firstCheckpoint}`);
+  const handleModelChange = (newModel: string) => {
+    switchModel(newModel);
   };
 
-  const handleCheckpointChange = (newCheckpoint: string) => {
-    if (activeFolder) switchModel(`${activeFolder}/${newCheckpoint}`);
-  };
-
-  const checkpoints = (registry?.folders[activeFolder] ?? [])
-    .slice()
-    .sort((a, b) => {
-      // Sort numerically by trailing number: best_model_2 < best_model_10
-      const numA = parseInt(a.match(/\d+$/)?.[0] ?? "0", 10);
-      const numB = parseInt(b.match(/\d+$/)?.[0] ?? "0", 10);
-      return numA - numB;
-    });
-
-  if (loading) {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[#344054]/60 px-2">
-        <Loader2 className="size-3.5 animate-spin" />
-        <span>Loading models…</span>
-      </div>
-    );
+  if (loading && !registry) {
+    return <div className="p-4 text-xs text-gray-500">Loading models...</div>;
   }
 
-  if (!registry || folders.length === 0) {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[#344054]/50 px-2">
-        <BrainCircuit className="size-3.5" />
-        <span>No models found</span>
-      </div>
-    );
-  }
-
-  const selectCls = [
-    "appearance-none pl-2.5 pr-6 py-1 rounded-md border text-xs font-medium",
-    "bg-white text-[#1d2939] border-[#D6E4FF]",
-    "focus:outline-none focus:ring-2 focus:ring-blue-400/40",
-    "transition cursor-pointer disabled:opacity-60 disabled:cursor-wait",
-    "hover:border-blue-400 w-full",
-  ].join(" ");
+  const selectCls = "w-full appearance-none rounded-md border border-[#D0D5DD] bg-white px-2 py-1.5 text-xs font-medium text-[#344054] shadow-sm outline-none transition-all focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50";
 
   return (
-    <div className="grid grid-cols-1 items-center gap-3 flex-wrap">
-      {/* Label */}
-      <span className="flex items-center gap-1.5 text-xs font-semibold text-primary  tracking-wide select-none">
-        InfoGCN Model
-      </span>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-primary">InfoGCN Config</span>
+        
+      </div>
 
-      {/* Folder selector */}
       <div className="grid grid-cols-[auto_1fr] items-center gap-2">
-        <span className="text-xs text-[#344054]/80 select-none">Config</span>
+        <span className="text-xs text-[#344054]/80 select-none">Model</span>
         <div className="relative">
           <select
-            value={activeFolder}
+            value={activeModel}
             disabled={switching}
-            onChange={(e) => handleFolderChange(e.target.value)}
+            onChange={(e) => handleModelChange(e.target.value)}
             className={selectCls}
           >
-            {folders.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
+            {models.map((m) => (
+              <option key={m} value={m}>{m}</option>
             ))}
           </select>
           <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
@@ -159,44 +116,9 @@ const ModelSelector = () => {
           </span>
         </div>
       </div>
-
-      {/* Checkpoint selector */}
-      <div className="grid grid-cols-[auto_1fr] items-center gap-2">
-        <span className="text-xs text-[#344054]/80 select-none">
-          Checkpoint
-        </span>
-        <div className="relative ">
-          <select
-            value={activeCheckpoint}
-            disabled={switching || checkpoints.length === 0}
-            onChange={(e) => handleCheckpointChange(e.target.value)}
-            className={selectCls}
-          >
-            {checkpoints.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2">
-            {switching ? (
-              <Loader2 className="size-3 animate-spin text-blue-500" />
-            ) : (
-              <ChevronDown className="size-3 text-[#344054]/40" />
-            )}
-          </span>
-        </div>
-      </div>
-
-      {/* Inline error */}
-      {error && (
-        <span
-          className="text-xs text-red-500 font-medium cursor-help"
-          title={error}
-        >
-          ⚠ Switch failed
-        </span>
-      )}
+      
+      {/* Error handling remains the same */}
+      {error && <span className="text-[10px] text-red-500">{error}</span>}
     </div>
   );
 };
