@@ -4,18 +4,27 @@ import { Camera } from "lucide-react";
 
 // Body12 bone connections (matching backend BODY12_BONES)
 const BODY12_BONES: [number, number][] = [
-  [0, 1], [0, 2], [2, 4], [1, 3], [3, 5],
-  [0, 6], [1, 7], [6, 7], [6, 8], [8, 10],
-  [7, 9], [9, 11],
+  [0, 1],
+  [0, 2],
+  [2, 4],
+  [1, 3],
+  [3, 5],
+  [0, 6],
+  [1, 7],
+  [6, 7],
+  [6, 8],
+  [8, 10],
+  [7, 9],
+  [9, 11],
 ];
 
-const VISIBILITY_THRESH = 0.20;
+const VISIBILITY_THRESH = 0.2;
 
 // Deterministic per-track colour — matches backend track_color()
 function trackColor(trackId: number): string {
-  const r = (37 * trackId) % 200 + 30;
-  const g = (17 * trackId) % 200 + 30;
-  const b = (29 * trackId) % 200 + 30;
+  const r = ((37 * trackId) % 200) + 30;
+  const g = ((17 * trackId) % 200) + 30;
+  const b = ((29 * trackId) % 200) + 30;
   return `rgb(${r},${g},${b})`;
 }
 
@@ -51,6 +60,10 @@ type RealTimeVideoProps = {
   isCameraActive: boolean;
   setIsCameraActive: (active: boolean) => void;
   onInference?: (payload: InferencePayload) => void;
+  onConnectionStateChange?: (
+    state: "disconnected" | "connecting" | "connected",
+  ) => void;
+  onCameraLabelChange?: (label: string) => void;
 };
 
 // ─── Drawing helpers ──────────────────────────────────────────────────────────
@@ -135,7 +148,8 @@ function drawPerson(
     const a = kpts[src];
     const b = kpts[dst];
     if (!a || !b) continue;
-    if (a.confidence < VISIBILITY_THRESH || b.confidence < VISIBILITY_THRESH) continue;
+    if (a.confidence < VISIBILITY_THRESH || b.confidence < VISIBILITY_THRESH)
+      continue;
     const [ax, ay] = toDisplay(a.x, a.y);
     const [bx, by] = toDisplay(b.x, b.y);
     ctx.beginPath();
@@ -210,6 +224,8 @@ const RealTimeVideo = ({
   isCameraActive,
   setIsCameraActive,
   onInference,
+  onConnectionStateChange,
+  onCameraLabelChange,
 }: RealTimeVideoProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -230,6 +246,24 @@ const RealTimeVideo = ({
   const wsUrl =
     import.meta.env.VITE_ACTION_WS_URL ??
     "ws://localhost:8000/ws/action-recognition";
+
+  // Helper to update connection state and notify parent
+  const updateConnectionState = useCallback(
+    (state: "disconnected" | "connecting" | "connected") => {
+      setConnectionState(state);
+      onConnectionStateChange?.(state);
+    },
+    [onConnectionStateChange],
+  );
+
+  // Helper to update camera label and notify parent
+  const updateCameraLabel = useCallback(
+    (label: string) => {
+      setCameraLabel(label);
+      onCameraLabelChange?.(label);
+    },
+    [onCameraLabelChange],
+  );
 
   const startOverlayLoop = useCallback(() => {
     const loop = () => {
@@ -262,7 +296,9 @@ const RealTimeVideo = ({
     video.srcObject = stream;
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       await new Promise<void>((resolve) => {
-        video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+        video.addEventListener("loadedmetadata", () => resolve(), {
+          once: true,
+        });
       });
     }
     await video.play();
@@ -281,8 +317,8 @@ const RealTimeVideo = ({
       wsRef.current.close();
       wsRef.current = null;
     }
-    setConnectionState("disconnected");
-  }, []);
+    updateConnectionState("disconnected");
+  }, [updateConnectionState]);
 
   const openCameraStream = useCallback(
     async (deviceId?: string): Promise<MediaStream> =>
@@ -293,7 +329,9 @@ const RealTimeVideo = ({
     [],
   );
 
-  const pickPreferredCameraId = useCallback(async (): Promise<string | null> => {
+  const pickPreferredCameraId = useCallback(async (): Promise<
+    string | null
+  > => {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoInputs = devices.filter((d) => d.kind === "videoinput");
     const preferred = videoInputs.find((d) =>
@@ -320,7 +358,7 @@ const RealTimeVideo = ({
       }
 
       const selectedTrack = stream.getVideoTracks()[0];
-      setCameraLabel(selectedTrack?.label || "Unknown camera");
+      updateCameraLabel(selectedTrack?.label || "Unknown camera");
       streamRef.current = stream;
       await attachStreamToVideo(stream);
 
@@ -351,7 +389,7 @@ const RealTimeVideo = ({
       videoRef.current.pause();
       videoRef.current.srcObject = null;
     }
-    setCameraLabel("No camera selected");
+    updateCameraLabel("No camera selected");
     setIsCameraActive(false);
   };
 
@@ -386,11 +424,11 @@ const RealTimeVideo = ({
       return;
     }
 
-    setConnectionState("connecting");
+    updateConnectionState("connecting");
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
 
-    ws.onopen = () => setConnectionState("connected");
+    ws.onopen = () => updateConnectionState("connected");
 
     ws.onmessage = (event) => {
       try {
@@ -403,7 +441,7 @@ const RealTimeVideo = ({
     };
 
     ws.onerror = () => setError("WebSocket connection error.");
-    ws.onclose = () => setConnectionState("disconnected");
+    ws.onclose = () => updateConnectionState("disconnected");
 
     wsRef.current = ws;
     return () => closeSocket();
@@ -424,7 +462,8 @@ const RealTimeVideo = ({
         !video ||
         video.videoWidth === 0 ||
         video.videoHeight === 0
-      ) return;
+      )
+        return;
 
       if (sendingRef.current || ws.bufferedAmount > 1_000_000) return;
 
@@ -446,8 +485,12 @@ const RealTimeVideo = ({
 
       canvas.toBlob(
         (blob) => {
-          if (!blob) { sendingRef.current = false; return; }
-          blob.arrayBuffer()
+          if (!blob) {
+            sendingRef.current = false;
+            return;
+          }
+          blob
+            .arrayBuffer()
             .then((buffer) => {
               const socket = wsRef.current;
               if (socket && socket.readyState === WebSocket.OPEN) {
@@ -455,7 +498,9 @@ const RealTimeVideo = ({
               }
             })
             .catch(() => setError("Failed to encode frame before sending."))
-            .finally(() => { sendingRef.current = false; });
+            .finally(() => {
+              sendingRef.current = false;
+            });
         },
         "image/jpeg",
         0.72,
@@ -489,25 +534,11 @@ const RealTimeVideo = ({
     };
   }, [closeSocket, stopFrameLoop, stopOverlayLoop]);
 
-  const connectionColor =
-    connectionState === "connected"
-      ? "bg-emerald-500"
-      : connectionState === "connecting"
-        ? "bg-amber-500"
-        : "bg-zinc-500";
+  
 
   return (
     <div className="content-stretch flex flex-col h-full w-full items-stretch justify-center rounded-lg relative">
       <div className="relative w-full h-full rounded-lg bg-black overflow-hidden">
-        {/* Status badges */}
-        <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white">
-          <span className={`h-2.5 w-2.5 rounded-full ${connectionColor}`} />
-          Socket: {connectionState}
-        </div>
-        <div className="absolute left-4 top-14 z-10 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white max-w-[70%] truncate">
-          Camera: {cameraLabel}
-        </div>
-
         {/* Start camera overlay */}
         {!isCameraActive && (
           <div className="absolute inset-0 z-20 flex items-center justify-center">
