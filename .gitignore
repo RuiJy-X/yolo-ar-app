@@ -46,6 +46,22 @@ venv/
 env/
 ENV/
 venv.bak/
+venv.bak*/
+**/venv/
+**/.venv/
+**/env/
+**/ENV/
+
+# Embedded runtimes and third-party binaries
+python-embed/
+backend/ffmpeg/
+**/ffmpeg/
+release/
+out/
+
+# Generated backend build artifacts
+backend/**/build/
+backend/**/build/*
 
 # Environment and secret files
 .env

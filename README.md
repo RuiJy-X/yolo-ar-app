@@ -29,12 +29,12 @@ If no best fold is resolved from report files, fallback is:
 
 ## Backend Setup (FastAPI + WebSocket)
 
-1. Create/activate your Python environment.
-2. Install dependencies:
+1. Download the official Python 3.12 embeddable package for Windows and extract it into `python-embed/` at the repo root. This is the Python runtime Electron should bundle.
+2. Install pip into the embedded runtime, then install the backend dependencies with the embedded interpreter:
 
 ```bash
-cd backend/act_reg_final_version
-pip install -r requirements.txt
+.\python-embed\python.exe .\get-pip.py
+.\python-embed\python.exe -m pip install -r backend\act_reg_final_version\requirements.txt
 ```
 
 3. Run server:
@@ -148,3 +148,20 @@ npm run dev
 - Frontend sends compressed JPEG frames (~640px width, 150ms interval).
 - Backend keeps per-client temporal buffers for action inference smoothing.
 - Inference uses confidence EMA and TTA averaging for stable labels.
+
+
+bash# 1. Build frontend
+npm run build
+
+# 2. Create clean backend bundle (no .venv, no duplicates)
+prepare-bundle.bat
+
+# 3. Delete old output
+rmdir /s /q out\Aerview-win32-x64
+
+# 4. Package and test
+npx electron-forge package
+out\Aerview-win32-x64\Aerview.exe
+
+# 5. Only when ready to distribute
+npm run make

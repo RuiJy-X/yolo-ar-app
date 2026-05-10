@@ -27,6 +27,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from ultralytics import YOLO
 
+
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -34,6 +40,18 @@ if str(CURRENT_DIR) not in sys.path:
 from feeders import tools  # noqa: E402
 from model.sode import SODE  # noqa: E402
 from utils import import_class  # noqa: E402
+
+def get_output_dir() -> str:
+    if getattr(sys, 'frozen', False):
+        # Packaged — write to user AppData so the install dir stays read-only
+        base = os.environ.get('APPDATA', os.path.expanduser('~'))
+        out = os.path.join(base, 'Aerview', 'outputs')
+    else:
+        # Development — use the local outputs/ folder as before
+        out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
+    os.makedirs(out, exist_ok=True)
+    return out
+
 
 YOLO_FILENAME = "yolo-best.pt"
 VIDEO_POSE_MODEL_CANDIDATES = [
@@ -67,7 +85,7 @@ MAX_MISSED_FRAMES = 15
 VIDEO_MAX_MISSED_FRAMES = 24
 VIDEO_IOU_MATCH_THRESH = 0.25
 
-OUTPUT_ROOT_DIR = CURRENT_DIR / "outputs"
+OUTPUT_ROOT_DIR = Path(get_output_dir())
 OUTPUT_UPLOAD_DIR = OUTPUT_ROOT_DIR / "uploads"
 OUTPUT_ANNOTATED_DIR = OUTPUT_ROOT_DIR / "annotated"
 OUTPUT_PREVIEW_DIR = OUTPUT_ROOT_DIR / "previews"
@@ -88,7 +106,15 @@ INFERENCE_JOBS_LOCK = threading.Lock()
 # Actual layout on disk:
 #   results/model_16/best_model_1.pt … best_model_10.pt
 #   results/model_64/best_model_1.pt … best_model_10.pt
-RESULTS_DIR = CURRENT_DIR / "results"
+RESULTS_DIR = Path(CURRENT_DIR / "results")
+
+# Replace any hardcoded ffmpeg path with:
+def get_ffmpeg_path() -> str:
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.dirname(sys.executable), 'ffmpeg', 'ffmpeg.exe')
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'ffmpeg.exe')
+
+FFMPEG_PATH = get_ffmpeg_path()
 
 
 def discover_action_models() -> list[str]:
@@ -2348,3 +2374,34 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
     except Exception as exc:
         await websocket.send_json({"type": "error", "message": str(exc)})
         await websocket.close(code=1011)
+
+
+# ── Resolve paths when running as PyInstaller bundle ──────────────────────────
+def _base_dir() -> str:
+    """Returns the directory containing this file, frozen or not."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = _base_dir()
+
+# ── Serve Vite static build ───────────────────────────────────────────────────
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+
+if os.path.isdir(FRONTEND_DIR):
+    assets_dir = os.path.join(FRONTEND_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_index():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+    # Catch-all: serve index.html for all non-API routes (SPA client-side routing)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        # Only catch non-API, non-WS paths
+        if full_path.startswith(("api/", "ws/", "health", "outputs/", "analyze")):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
