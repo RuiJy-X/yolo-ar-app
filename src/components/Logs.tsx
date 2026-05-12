@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
   AlertTriangle,
@@ -6,6 +6,7 @@ import {
   Clock,
   User,
 } from "lucide-react";
+import { useState } from "react";
 import type { AnalyzeVideoResponse, AlertEvent } from "@/lib/types";
 import {
   getActionColor,
@@ -25,6 +26,7 @@ type Detection = {
   confidence: number;
   person_id: number;
   timestamp: string;
+  all_scores?: Record<string, number>; // all action confidences from model
 };
 
 type ActionInstance = {
@@ -35,6 +37,7 @@ type ActionInstance = {
   endTimestamp: string;
   frameCount: number;
   avgConfidence: number;
+  avgAllScores: Record<string, number>; // averaged across detections in run
 };
 
 const MAX_GAP = 4;
@@ -44,6 +47,7 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
   const sorted = [...entries].sort(
     (a, b) => a.person_id - b.person_id || a.frame_number - b.frame_number,
   );
+
   const instances: ActionInstance[] = [];
   let runPersonId = sorted[0].person_id;
   let runStart = sorted[0].frame_number;
@@ -51,8 +55,22 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
   let runStartTs = sorted[0].timestamp;
   let runEndTs = sorted[0].timestamp;
   let runConfs: number[] = [sorted[0].confidence];
+  let runAllScores: Record<string, number[]> = {};
 
-  const flush = () =>
+  const accumScores = (det: Detection) => {
+    if (!det.all_scores) return;
+    for (const [k, v] of Object.entries(det.all_scores)) {
+      if (!runAllScores[k]) runAllScores[k] = [];
+      runAllScores[k].push(v);
+    }
+  };
+  accumScores(sorted[0]);
+
+  const flush = () => {
+    const avgAllScores: Record<string, number> = {};
+    for (const [k, vs] of Object.entries(runAllScores)) {
+      avgAllScores[k] = vs.reduce((a, b) => a + b, 0) / vs.length;
+    }
     instances.push({
       personId: runPersonId,
       startFrame: runStart,
@@ -61,7 +79,9 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
       endTimestamp: runEndTs,
       frameCount: runEnd - runStart + 1,
       avgConfidence: runConfs.reduce((a, b) => a + b, 0) / runConfs.length,
+      avgAllScores,
     });
+  };
 
   for (let i = 1; i < sorted.length; i++) {
     const cur = sorted[i];
@@ -69,6 +89,7 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
       runEnd = cur.frame_number;
       runEndTs = cur.timestamp;
       runConfs.push(cur.confidence);
+      accumScores(cur);
     } else {
       flush();
       runPersonId = cur.person_id;
@@ -77,6 +98,8 @@ function collapseToInstances(entries: Detection[]): ActionInstance[] {
       runStartTs = cur.timestamp;
       runEndTs = cur.timestamp;
       runConfs = [cur.confidence];
+      runAllScores = {};
+      accumScores(cur);
     }
   }
   flush();
@@ -170,6 +193,47 @@ function AlertCard({
   );
 }
 
+// ── ScoreBar — single action row inside the breakdown ──
+
+function ScoreBar({
+  action,
+  score,
+  isTop,
+}: {
+  action: string;
+  score: number;
+  isTop: boolean;
+}) {
+  const color = getActionColor(action);
+  const pct = Math.round(score * 100);
+
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="w-[62px] shrink-0 text-[10px] font-medium truncate"
+        style={{ color: isTop ? color : "#9a9a9a" }}
+      >
+        {action}
+      </span>
+      <div className="flex-1 h-[5px] rounded-full bg-[#f0f0f0] overflow-hidden">
+        <motion.div
+          className="h-full rounded-full"
+          style={{ background: isTop ? color : "#d4d4d4" }}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+        />
+      </div>
+      <span
+        className="w-[28px] text-right text-[10px] font-mono shrink-0"
+        style={{ color: isTop ? color : "#b0b0b0" }}
+      >
+        {pct}%
+      </span>
+    </div>
+  );
+}
+
 // ── InstanceCard ──
 
 function InstanceCard({
@@ -181,6 +245,9 @@ function InstanceCard({
   action: string;
   onSeekToFrame: (frame: number) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasScores = Object.keys(instance.avgAllScores).length > 0;
+
   const color = getActionColor(action);
   const bg = getActionBg(action);
   const text = getActionText(action);
@@ -189,31 +256,104 @@ function InstanceCard({
   const startTime = cleanTs(shortTs(instance.startTimestamp));
   const endTime = cleanTs(shortTs(instance.endTimestamp));
 
+  // Sort scores highest → lowest for display
+  const sortedScores = Object.entries(instance.avgAllScores).sort(
+    ([, a], [, b]) => b - a,
+  );
+
+  const handleRowClick = () => {
+    onSeekToFrame(instance.startFrame);
+  };
+
+  const handleChevronClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded((v) => !v);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => onSeekToFrame(instance.startFrame)}
-      className="w-full text-left rounded-[8px] border bg-[#ffffff] px-3 py-2 transition-shadow hover:shadow-sm"
+    <div
+      className="w-full rounded-[8px] border bg-[#ffffff] overflow-hidden transition-shadow hover:shadow-sm"
       style={{ borderColor: color + "44" }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span className="flex items-center gap-1 text-[12px] text-[#707070]">
-            <User className="size-3" />P{instance.personId}
-          </span>
-          <span
-            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-            style={{ color: text, background: bg }}
+      {/* Main row — clickable to seek */}
+      <button
+        type="button"
+        onClick={handleRowClick}
+        className="w-full text-left px-3 py-2"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1 text-[12px] text-[#707070]">
+              <User className="size-3" />P{instance.personId}
+            </span>
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+              style={{ color: text, background: bg }}
+            >
+              {confPct}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 font-mono text-[12px] text-[#707070]">
+              <Clock className="size-3" />
+              {isSingleFrame ? startTime : `${startTime}–${endTime}`}
+            </div>
+            {/* Expand toggle — only show if scores are available */}
+            {hasScores && (
+              <button
+                type="button"
+                onClick={handleChevronClick}
+                className="flex items-center justify-center w-5 h-5 rounded hover:bg-[#f5f5f5] transition-colors"
+                aria-label={expanded ? "Collapse scores" : "Expand scores"}
+              >
+                <ChevronDown
+                  className="size-3 text-[#b0b0b0] transition-transform duration-200"
+                  style={{
+                    transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                  }}
+                />
+              </button>
+            )}
+          </div>
+        </div>
+      </button>
+
+      {/* Score breakdown — animated expand */}
+      <AnimatePresence initial={false}>
+        {expanded && hasScores && (
+          <motion.div
+            key="scores"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeInOut" }}
+            className="overflow-hidden"
           >
-            {confPct}%
-          </span>
-        </div>
-        <div className="flex items-center gap-1 font-mono text-[12px] text-[#707070]">
-          <Clock className="size-3" />
-          {isSingleFrame ? startTime : `${startTime}–${endTime}`}
-        </div>
-      </div>
-    </button>
+            <div
+              className="px-3 pb-3 pt-1 flex flex-col gap-1.5 border-t"
+              style={{ borderColor: color + "22" }}
+            >
+              <span className="text-[9px] uppercase tracking-widest text-[#c0c0c0] font-semibold mb-0.5">
+                Avg score per action
+              </span>
+              {sortedScores.map(([a, score]) => (
+                <ScoreBar
+                  key={a}
+                  action={a}
+                  score={score}
+                  isTop={a.toLowerCase() === action.toLowerCase()}
+                />
+              ))}
+              <p className="text-[9px] text-[#c8c8c8] mt-1 font-mono">
+                {instance.frameCount} frame
+                {instance.frameCount !== 1 ? "s" : ""} · f{instance.startFrame}–
+                {instance.endFrame}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 

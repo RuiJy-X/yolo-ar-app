@@ -23,7 +23,7 @@ const NavBar = () => {
             className="inline-block w-2 h-2 rounded-full shrink-0"
             style={{ background: "#0052ff" }}
           />
-          Aerview
+          Skysight
         </Link>
 
         {/* Divider */}

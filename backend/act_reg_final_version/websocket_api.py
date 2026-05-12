@@ -43,11 +43,9 @@ from utils import import_class  # noqa: E402
 
 def get_output_dir() -> str:
     if getattr(sys, 'frozen', False):
-        # Packaged — write to user AppData so the install dir stays read-only
         base = os.environ.get('APPDATA', os.path.expanduser('~'))
         out = os.path.join(base, 'Aerview', 'outputs')
     else:
-        # Development — use the local outputs/ folder as before
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
     os.makedirs(out, exist_ok=True)
     return out
@@ -68,12 +66,42 @@ MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
 VISIBILITY_THRESH = 0.20
 MIN_FRAMES_FOR_INFERENCE = 16
-DISPLAY_CONF_THRESH = 0.25  
+DISPLAY_CONF_THRESH = 0.25
 SCORE_EMA_ALPHA = 0.75
 YOLO_CONF = 0.60
 YOLO_IOU = 0.60
 VIDEO_YOLO_CONF = 0.30
 VIDEO_YOLO_IOU = 0.55
+
+PRESETS: dict[str, dict[str, float | int | str]] = {
+    "Frame_16": {
+        "window_size": 16,
+        "min_frames": 8,
+        "stride": 6,
+        "ema_alpha": 0.65,
+        "yolo_conf": 0.55,
+        "video_yolo_conf": 0.25,
+        "model_name": "Frame_16",
+    },
+    "Frame_32": {
+        "window_size": 32,
+        "min_frames": 16,
+        "stride": 4,
+        "ema_alpha": 0.75,
+        "yolo_conf": 0.60,
+        "video_yolo_conf": 0.30,
+        "model_name": "Frame_32",
+    },
+    "Frame_64": {
+        "window_size": 64,
+        "min_frames": 32,
+        "stride": 2,
+        "ema_alpha": 0.82,
+        "yolo_conf": 0.65,
+        "video_yolo_conf": 0.35,
+        "model_name": "Frame_64",
+    },
+}
 
 INFERENCE_TTA_ENABLED = os.getenv("INFERENCE_TTA", "0") == "1"
 TEST_TTA_SHIFTS = [0, -3, -1, 1, 3]
@@ -101,14 +129,8 @@ if OUTPUT_VIDEO_FORMAT not in {"mp4", "avi"}:
 INFERENCE_JOBS: dict[str, dict[str, Any]] = {}
 INFERENCE_JOBS_LOCK = threading.Lock()
 
-# ── Model registry ────────────────────────────────────────────────────────────
-# Scans backend/results/ for subdirectories that contain best_model_N.pt files.
-# Actual layout on disk:
-#   results/model_16/best_model_1.pt … best_model_10.pt
-#   results/model_64/best_model_1.pt … best_model_10.pt
 RESULTS_DIR = Path(CURRENT_DIR / "results")
 
-# Replace any hardcoded ffmpeg path with:
 def get_ffmpeg_path() -> str:
     if getattr(sys, 'frozen', False):
         return os.path.join(os.path.dirname(sys.executable), 'ffmpeg', 'ffmpeg.exe')
@@ -118,31 +140,52 @@ FFMPEG_PATH = get_ffmpeg_path()
 
 
 def discover_action_models() -> list[str]:
-    """
-    Scans RESULTS_DIR for .pt files directly (e.g., results/model_name.pt).
-    Returns a list of model names (stems).
-    """
     if not RESULTS_DIR.exists():
         return []
-    
-    # Matches any .pt file directly in the results folder
     return [pt_file.stem for pt_file in sorted(RESULTS_DIR.glob("*.pt"))]
 
+
+# FIX: pipeline parameter replaces direct app.state.pipeline access to avoid
+# circular dependency and ensure WINDOW_SIZE is set before init_action_model runs.
+def apply_model_preset(
+    model_name: str,
+    pipeline: "ActionRecognitionPipeline",
+) -> dict[str, float | int | str] | None:
+    preset = PRESETS.get(model_name)
+    if not preset:
+        return None
+
+    global WINDOW_SIZE
+    global MIN_FRAMES_FOR_INFERENCE
+    global ACTION_INFERENCE_STRIDE
+    global SCORE_EMA_ALPHA
+    global YOLO_CONF
+    global VIDEO_YOLO_CONF
+
+    WINDOW_SIZE = int(preset["window_size"])
+    MIN_FRAMES_FOR_INFERENCE = int(preset["min_frames"])
+    ACTION_INFERENCE_STRIDE = int(preset["stride"])
+    SCORE_EMA_ALPHA = float(preset["ema_alpha"])
+    YOLO_CONF = float(preset["yolo_conf"])
+    VIDEO_YOLO_CONF = float(preset["video_yolo_conf"])
+
+    # Update the live pipeline instance so ongoing inference picks up new values
+    pipeline.yolo_conf = YOLO_CONF
+    pipeline.video_yolo_conf = VIDEO_YOLO_CONF
+
+    return preset
+
+
 def flat_model_registry() -> dict[str, Path]:
-    """
-    Returns a dict keyed by the model name (stem) mapping to its full Path.
-    Example: {"model_16": Path(".../results/model_16.pt")}
-    """
     flat: dict[str, Path] = {}
     if not RESULTS_DIR.exists():
         return flat
-
     for pt_file in sorted(RESULTS_DIR.glob("*.pt")):
         flat[pt_file.stem] = pt_file
     return flat
 
+
 def resolve_yolo_model_choice(value: str) -> tuple[str, Path]:
-    """Resolve a YOLO model choice to a (key, path) tuple."""
     cleaned = value.strip().lower()
     if cleaned in YOLO_MODEL_CHOICES:
         filename = YOLO_MODEL_CHOICES[cleaned]
@@ -155,6 +198,24 @@ def resolve_yolo_model_choice(value: str) -> tuple[str, Path]:
     raise ValueError(
         f"Unknown YOLO model '{value}'. Available: {sorted(YOLO_MODEL_CHOICES.keys())}"
     )
+
+
+def _make_person_payload(
+    track_id: int,
+    label: str,
+    confidence: float,
+    detection: dict,
+    track: "TrackState",
+) -> dict:
+    return {
+        "person_id": track_id,
+        "action": {"label": label, "confidence": confidence},
+        "bbox": [float(v) for v in detection["bbox"].tolist()],
+        "keypoints": [
+            {"id": i, "x": float(kpt[0]), "y": float(kpt[1]), "confidence": float(kpt[2])}
+            for i, kpt in enumerate(track.last_keypoints)
+        ],
+    }
 
 
 LR_PAIRS = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
@@ -197,11 +258,19 @@ def compute_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
 
 
 def track_color(track_id: int) -> tuple[int, int, int]:
-    return (
-        int((37 * track_id) % 200 + 30),
-        int((17 * track_id) % 200 + 30),
-        int((29 * track_id) % 200 + 30),
-    )
+    _PALETTE = [
+        (0,   220, 255),
+        (50,  50,  255),
+        (0,   255, 50),
+        (255, 50,  50),
+        (255, 0,   200),
+        (0,   165, 255),
+        (255, 255, 0),
+        (180, 0,   255),
+        (0,   255, 180),
+        (255, 100, 0),
+    ]
+    return _PALETTE[track_id % len(_PALETTE)]
 
 
 def draw_pose(frame: np.ndarray, keypoints: np.ndarray, color: tuple[int, int, int]) -> None:
@@ -489,7 +558,7 @@ def _duration_seconds_from_video(video_path: Path) -> float | None:
         capture.release()
 
 
-def build_history_entry(meta: dict[str, Any]) -> HistoryEntryResponse:
+def build_history_entry(meta: dict[str, Any]) -> "HistoryEntryResponse":
     entry_id = str(meta.get("id") or "")
     created_at = int(meta.get("createdAt") or 0)
     summary = str(meta.get("summary") or "Saved video analysis")
@@ -567,17 +636,16 @@ def get_inference_job(job_id: str) -> dict[str, Any] | None:
 
 
 def pick_deployment_checkpoint(base_dir: Path) -> Path:
-    # Change this to your new preferred default file in results/
     fallback = base_dir / "results" / "best_model.pt"
     if fallback.exists():
         return fallback
-    
-    # Or pick the first available .pt file
+
     models = discover_action_models()
     if models:
         return base_dir / "results" / f"{models[0]}.pt"
 
     raise FileNotFoundError("No model files found in results/")
+
 
 def coco17_to_body12(coco_kpts: np.ndarray | None) -> np.ndarray:
     out = np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32)
@@ -675,6 +743,8 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
     graph = graph_cls(labeling_mode="spatial")
     adjacency = torch.tensor(graph.A, dtype=torch.float32)
 
+    # FIX: WINDOW_SIZE is read here — preset must be applied before this is called
+    # so that T matches the checkpoint's training configuration.
     model = SODE(
         num_class=4,
         num_point=MODEL_NUM_POINTS,
@@ -697,10 +767,6 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
 
     model.load_state_dict(state, strict=False)
     model.to(device).eval()
-
-    if device == "cuda":
-        pass
-
 
     torch_compile_enabled = os.getenv("TORCH_COMPILE", "0") == "1"
     if torch_compile_enabled:
@@ -762,6 +828,7 @@ class Detection(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     person_id: int = Field(..., ge=0)
     timestamp: str
+    all_scores: dict[str, float] | None = None
 
 
 class SummaryMetrics(BaseModel):
@@ -994,11 +1061,14 @@ def create_analysis_response(
 class ClientState:
     frame_index: int = 0
     missed_frames: int = 0
-    buffer: deque[np.ndarray] = field(default_factory=lambda: deque(maxlen=WINDOW_SIZE))
+    next_track_id: int = 1
+    tracks: dict = field(default_factory=dict)
+    buffer: deque = field(default_factory=lambda: deque(maxlen=WINDOW_SIZE))
     last_valid_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
     score_ema: np.ndarray = field(default_factory=lambda: np.ones(4, dtype=np.float32) / 4.0)
 
     def reset_temporal_state(self) -> None:
+        self.tracks.clear()
         self.buffer.clear()
         self.last_valid_keypoints.fill(0.0)
         self.score_ema = np.ones(4, dtype=np.float32) / 4.0
@@ -1017,6 +1087,7 @@ class TrackState:
     last_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
     last_action_label: str = "Unknown"
     last_action_conf: float = 0.0
+    last_all_scores: dict[str, float] = field(default_factory=dict)
     frames_since_inference: int = 0
 
     def reset_temporal_state(self) -> None:
@@ -1033,8 +1104,6 @@ class ActionRecognitionPipeline:
         self.base_dir = base_dir
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._model_lock = threading.Lock()
-        # ── Separate lock guards hot-swapping the action model so in-flight
-        # inference jobs can finish cleanly before the weights are replaced.
         self._swap_lock = threading.Lock()
 
         yolo_path = base_dir / YOLO_FILENAME
@@ -1057,20 +1126,21 @@ class ActionRecognitionPipeline:
             label: DISPLAY_CONF_THRESH for label in ACTION_MAP.values()
         }
         self._yolo_model_name = self._resolve_yolo_model_key(yolo_path)
-
-        # Track which named model is currently loaded so the UI can reflect it.
-        # Initialise by matching the loaded path against the registry.
         self._active_model_name: str = self._resolve_initial_model_name(checkpoint_path)
 
-    # ── Model registry helpers ────────────────────────────────────────────────
+    def _sync_state_buffers(self, state: ClientState) -> None:
+        """Resize deque buffers on existing tracks after a WINDOW_SIZE change."""
+        if state.buffer.maxlen != WINDOW_SIZE:
+            state.buffer = deque(state.buffer, maxlen=WINDOW_SIZE)
+        for track in state.tracks.values():
+            if track.buffer.maxlen != WINDOW_SIZE:
+                track.buffer = deque(track.buffer, maxlen=WINDOW_SIZE)
 
     def _resolve_initial_model_name(self, checkpoint_path: Path) -> str:
-        """Return the flat registry key for `checkpoint_path`, or a best-effort label."""
         flat = flat_model_registry()
         for name, path in flat.items():
             if path.resolve() == checkpoint_path.resolve():
                 return name
-        # Fallback: "folder/stem" relative to RESULTS_DIR
         try:
             rel = checkpoint_path.relative_to(RESULTS_DIR)
             return f"{rel.parent.name}/{rel.stem}"
@@ -1093,12 +1163,8 @@ class ActionRecognitionPipeline:
 
     def swap_action_model(self, model_name: str) -> None:
         """
-        Hot-swap the action model to `model_name` (a "folder/checkpoint_stem" key
-        from flat_model_registry, e.g. "model_16/best_model_3").
-
-        Blocks until any in-progress inference using the old model completes,
-        then replaces self.action_model atomically.  The old model is deleted so
-        GPU memory is freed before the new one is loaded.
+        Hot-swap the action model weights. Call apply_model_preset BEFORE this
+        so that WINDOW_SIZE is correct when init_action_model reads it.
         """
         flat = flat_model_registry()
         if model_name not in flat:
@@ -1109,16 +1175,7 @@ class ActionRecognitionPipeline:
         checkpoint_path = flat[model_name]
 
         with self._swap_lock:
-            # Load new weights while holding the swap lock so concurrent swap
-            # requests are serialised.  We do NOT hold _model_lock here — that
-            # would block ongoing YOLO calls.  The action model object is only
-            # read inside _infer_action_from_window, which we protect via a
-            # local reference taken before the swap completes (Python's GIL
-            # makes the attribute assignment atomic at the bytecode level).
             new_model = init_action_model(checkpoint_path, self.device)
-
-            # Give the old model a chance to finish any running forward pass
-            # before we drop the reference.
             old_model = self.action_model
             self.action_model = new_model
             self._active_model_name = model_name
@@ -1174,8 +1231,6 @@ class ActionRecognitionPipeline:
                     raise ValueError("Action thresholds must be between 0 and 1.")
                 self.action_thresholds[label] = float(value)
 
-    # ─────────────────────────────────────────────────────────────────────────
-
     def _load_video_pose_model(self) -> YOLO:
         for candidate_name in VIDEO_POSE_MODEL_CANDIDATES:
             candidate_path = self.base_dir / candidate_name
@@ -1192,7 +1247,6 @@ class ActionRecognitionPipeline:
 
     def _build_input_tensor(self, window: deque[np.ndarray]) -> torch.Tensor:
         tensor = build_model_input(np.asarray(window, dtype=np.float32)).to(self.device)
-        # Removed .half() — keep everything float32 for cross-machine compatibility
         return tensor
 
     def _infer_action_from_window(
@@ -1200,12 +1254,11 @@ class ActionRecognitionPipeline:
         window: deque[np.ndarray],
         prev_ema: np.ndarray,
         use_tta: bool = False,
-    ) -> tuple[str, float, np.ndarray]:
+    ) -> tuple[str, float, np.ndarray, dict[str, float]]:
         if len(window) < MIN_FRAMES_FOR_INFERENCE:
-            return "Unknown", 0.0, prev_ema
+            return "Unknown", 0.0, prev_ema, {}
 
         model_input = self._build_input_tensor(window)
-        # Take a local reference so a concurrent swap doesn't affect us mid-call.
         current_model = self.action_model
         probs = infer_probs_with_tta(current_model, model_input, use_tta=use_tta)[0]
 
@@ -1215,7 +1268,10 @@ class ActionRecognitionPipeline:
         label = ACTION_MAP[pred_idx]
         if confidence < self._get_action_threshold(label):
             label = "Unknown"
-        return label, confidence, next_ema
+
+        all_scores = {ACTION_MAP[i]: round(float(next_ema[i]), 4) for i in range(len(ACTION_MAP))}
+
+        return label, confidence, next_ema, all_scores
 
     def _update_track_from_detection(
         self,
@@ -1223,7 +1279,7 @@ class ActionRecognitionPipeline:
         keypoints_body12: np.ndarray,
         bbox: np.ndarray,
         frame_index: int,
-    ) -> tuple[str, float]:
+    ) -> tuple[str, float, dict[str, float]]:
         stabilized = stabilize_keypoints(keypoints_body12, track.last_valid_keypoints)
         track.buffer.append(stabilized)
         track.last_keypoints = stabilized
@@ -1238,7 +1294,7 @@ class ActionRecognitionPipeline:
             or track.last_action_label == "Unknown"
         )
         if should_infer:
-            label, confidence, next_ema = self._infer_action_from_window(
+            label, confidence, next_ema, all_scores = self._infer_action_from_window(
                 track.buffer,
                 track.score_ema,
                 use_tta=False,
@@ -1246,9 +1302,10 @@ class ActionRecognitionPipeline:
             track.score_ema = next_ema
             track.last_action_label = label
             track.last_action_conf = confidence
+            track.last_all_scores = all_scores
             track.frames_since_inference = 0
 
-        return track.last_action_label, track.last_action_conf
+        return track.last_action_label, track.last_action_conf, track.last_all_scores
 
     def _extract_pose_detections(
         self,
@@ -1316,43 +1373,77 @@ class ActionRecognitionPipeline:
     def _infer_frame_sync(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
         start = time.perf_counter()
 
+        # FIX: resize existing deque buffers if WINDOW_SIZE changed after a preset swap
+        self._sync_state_buffers(state)
+
         detections = self._extract_pose_detections(
             frame, self.yolo_model, self.yolo_conf, self.yolo_iou
         )
         if not detections:
             return self._no_detection_result(state, start)
 
-        best_detection = detections[0]
-        body_keypoints = best_detection["keypoints_body12"]
-        stabilized = stabilize_keypoints(body_keypoints, state.last_valid_keypoints)
+        matched_track_ids: set[int] = set()
+        used_detection_ids: set[int] = set()
+        persons_out = []
 
-        state.buffer.append(stabilized)
+        active_track_ids = [
+            tid for tid, t in state.tracks.items()
+            if t.missed_frames <= MAX_MISSED_FRAMES and t.last_bbox is not None
+        ]
+
+        for det_idx, detection in enumerate(detections):
+            best_track_id: int | None = None
+            best_iou = 0.0
+            for tid in active_track_ids:
+                if tid in matched_track_ids:
+                    continue
+                t = state.tracks[tid]
+                if t.last_bbox is None:
+                    continue
+                iou = compute_iou(detection["bbox"], t.last_bbox)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_track_id = tid
+
+            if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
+                track = state.tracks[best_track_id]
+                label, confidence, all_scores = self._update_track_from_detection(
+                    track, detection["keypoints_body12"], detection["bbox"], state.frame_index
+                )
+                matched_track_ids.add(best_track_id)
+                used_detection_ids.add(det_idx)
+                persons_out.append(_make_person_payload(best_track_id, label, confidence, detection, track))
+
+        for det_idx, detection in enumerate(detections):
+            if det_idx in used_detection_ids:
+                continue
+            track_id = state.next_track_id
+            state.next_track_id += 1
+            track = TrackState(track_id=track_id)
+            state.tracks[track_id] = track
+            label, confidence, all_scores = self._update_track_from_detection(
+                track, detection["keypoints_body12"], detection["bbox"], state.frame_index
+            )
+            matched_track_ids.add(track_id)
+            persons_out.append(_make_person_payload(track_id, label, confidence, detection, track))
+
+        for tid in list(state.tracks.keys()):
+            if tid not in matched_track_ids:
+                state.tracks[tid].missed_frames += 1
+                if state.tracks[tid].missed_frames > MAX_MISSED_FRAMES:
+                    del state.tracks[tid]
+
         state.missed_frames = 0
-
-        action_label, action_conf, next_ema = self._infer_action_from_window(
-            state.buffer,
-            state.score_ema,
-            use_tta=INFERENCE_TTA_ENABLED,
-        )
-        state.score_ema = next_ema
-
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         return {
             "type": "inference",
             "frame_index": state.frame_index,
             "detection": True,
-            "action": {"label": action_label, "confidence": action_conf},
-            "bbox": [float(v) for v in best_detection["bbox"].tolist()],
-            "keypoints": [
-                {
-                    "id": idx,
-                    "x": float(kpt[0]),
-                    "y": float(kpt[1]),
-                    "confidence": float(kpt[2]),
-                }
-                for idx, kpt in enumerate(stabilized)
-            ],
+            "persons": persons_out,
+            "action": persons_out[0]["action"] if persons_out else {"label": "Unknown", "confidence": 0.0},
+            "bbox": persons_out[0]["bbox"] if persons_out else None,
+            "keypoints": persons_out[0]["keypoints"] if persons_out else [],
             "timing_ms": round(elapsed_ms, 3),
         }
 
@@ -1501,11 +1592,8 @@ class ActionRecognitionPipeline:
 
                         if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
                             track = tracks[best_track_id]
-                            label, confidence = self._update_track_from_detection(
-                                track,
-                                detection["keypoints_body12"],
-                                detection["bbox"],
-                                frame_index,
+                            label, confidence, all_scores = self._update_track_from_detection(
+                                track, detection["keypoints_body12"], detection["bbox"], frame_index,
                             )
                             counters["detections_log"].append(
                                 Detection(
@@ -1514,6 +1602,7 @@ class ActionRecognitionPipeline:
                                     confidence=round(max(0.0, min(1.0, float(confidence))), 4),
                                     person_id=best_track_id,
                                     timestamp=frame_to_timestamp(frame_index, fps),
+                                    all_scores=all_scores or None,
                                 )
                             )
                             matched_track_ids.add(best_track_id)
@@ -1540,11 +1629,8 @@ class ActionRecognitionPipeline:
                         track = TrackState(track_id=track_id)
                         tracks[track_id] = track
 
-                        label, confidence = self._update_track_from_detection(
-                            track,
-                            detection["keypoints_body12"],
-                            detection["bbox"],
-                            frame_index,
+                        label, confidence, all_scores = self._update_track_from_detection(
+                            track, detection["keypoints_body12"], detection["bbox"], frame_index,
                         )
                         counters["detections_log"].append(
                             Detection(
@@ -1553,6 +1639,7 @@ class ActionRecognitionPipeline:
                                 confidence=round(max(0.0, min(1.0, float(confidence))), 4),
                                 person_id=track_id,
                                 timestamp=frame_to_timestamp(frame_index, fps),
+                                all_scores=all_scores or None,
                             )
                         )
                         matched_track_ids.add(track_id)
@@ -1813,6 +1900,10 @@ def healthcheck() -> dict[str, Any]:
 
 def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
     return {
+        "window_size": WINDOW_SIZE,
+        "min_frames": MIN_FRAMES_FOR_INFERENCE,
+        "action_inference_stride": ACTION_INFERENCE_STRIDE,
+        "ema_alpha": SCORE_EMA_ALPHA,
         "yolo_model": pipeline.yolo_model_name,
         "yolo_models": [
             {
@@ -1840,34 +1931,22 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
 # ── Model registry endpoints ──────────────────────────────────────────────────
 
 @app.get("/api/models")
-def list_models():
-    """
-    Returns the list of available models and the currently active one.
-    """
-    # registry is now a list of model names (stems), e.g., ["model_16", "model_64"]
+def list_models() -> dict[str, Any]:
+    # FIX: use active_model_name property instead of non-existent action_model_path
     registry = discover_action_models()
-    
-    # active_model is the filename without extension, e.g., "model_16"
-    active_path = getattr(app.state.pipeline, "action_model_path", None)
-    active_model = active_path.stem if active_path else ""
-
     return {
         "models": registry,
-        "active_model": active_model
+        "active_model": app.state.pipeline.active_model_name,
     }
+
 
 @app.post("/api/models/active")
 def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
-    """
-    Hot-swap the InfoGCN action model at runtime.
-
-    Request body: { "model_name": "model64" }
-
-    The swap blocks until the new weights are loaded; ongoing inference jobs
-    finish with the old model before the switch takes effect.
-    """
     pipeline: ActionRecognitionPipeline = app.state.pipeline
     try:
+        # FIX: apply preset BEFORE swapping the model so that WINDOW_SIZE is
+        # correct when init_action_model reads it inside swap_action_model.
+        applied_preset = apply_model_preset(body.model_name, pipeline)
         pipeline.swap_action_model(body.model_name)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1877,6 +1956,7 @@ def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
     return {
         "active_model": pipeline.active_model_name,
         "status": "swapped",
+        "preset": applied_preset,
     }
 
 
@@ -1912,10 +1992,6 @@ def run_history_reinference_job(
     output_path: Path,
     output_name: str,
 ) -> None:
-    """
-    Like run_video_inference_job but writes the new annotated video back into
-    the history entry directory so the result persists alongside the original.
-    """
     try:
         update_inference_job(
             job_id,
@@ -1924,8 +2000,6 @@ def run_history_reinference_job(
             progress_message="Starting re-inference pipeline...",
         )
 
-        # The source stored in history is already a browser-safe MP4 preview;
-        # skip transcoding and copy it directly to the previews staging area.
         update_inference_job(job_id, progress_message="Preparing source video...")
         if not preview_path.exists():
             shutil.copy2(source_path, preview_path)
@@ -1960,15 +2034,12 @@ def run_history_reinference_job(
             output_transcode_backend = transcode_video_to_browser_mp4(raw_output_path, served_output_path)
             raw_output_path.unlink(missing_ok=True)
 
-        # Persist the new annotated video back into the history entry directory,
-        # replacing the old one and updating meta.json accordingly.
         entry_dir = history_entry_dir(entry_id)
         video_ext = served_output_path.suffix.lower() or ".mp4"
         history_video_name = f"video{video_ext}"
         history_video_path = entry_dir / history_video_name
         shutil.copy2(served_output_path, history_video_path)
 
-        # Keep old source name intact in meta; only update videoName if it changed.
         meta = load_history_meta(entry_dir) or {}
         meta["videoName"] = history_video_name
         (entry_dir / "meta.json").write_text(
@@ -1976,14 +2047,6 @@ def run_history_reinference_job(
             encoding="utf-8",
         )
 
-        # Write the full result object (including fps, frames_processed, etc.)
-        # back to analysis.json so that when the history entry is re-loaded the
-        # frontend can recover the correct FPS for timeline seek calculations.
-        # The frontend's normalizeAnalysis() already knows how to unwrap
-        # analysis_summary from this envelope, so the shape is compatible.
-        # Previously this only wrote analysis_summary (the bare AnalyzeVideoResponse),
-        # which stripped fps — causing every seek to use the wrong frame rate on
-        # the next page load.
         full_result = {
             **result,
             "output_video_url": f"/history/{entry_id}/{history_video_name}",
@@ -2006,13 +2069,11 @@ def run_history_reinference_job(
             total_frames=result.get("frames_processed", 0),
             result={
                 "type": "video-inference",
-                # Serve the freshly-written history copy so it never expires
                 "output_video_url": f"/history/{entry_id}/{history_video_name}",
                 "output_download_url": f"/api/download-annotated/{served_output_name}",
                 "source_video_url": f"/outputs/previews/{preview_name}",
                 "source_transcode_backend": source_transcode_backend,
                 "output_transcode_backend": output_transcode_backend,
-                # No expiry — stored in history
                 "retention_seconds": 0,
                 **result,
             },
@@ -2035,11 +2096,6 @@ def run_history_reinference_job(
 
 @app.post("/api/infer-video/from-history/{entry_id}")
 async def reinfer_from_history(entry_id: str) -> dict[str, Any]:
-    """
-    Re-run inference on a history entry's stored source video.
-    The new annotated result is saved back into the same history folder
-    so it persists without a retention timer.
-    """
     safe_id = Path(entry_id).name
     if safe_id != entry_id:
         raise HTTPException(status_code=400, detail="Invalid history entry id.")
@@ -2378,7 +2434,6 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
 
 # ── Resolve paths when running as PyInstaller bundle ──────────────────────────
 def _base_dir() -> str:
-    """Returns the directory containing this file, frozen or not."""
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -2397,10 +2452,8 @@ if os.path.isdir(FRONTEND_DIR):
     async def serve_index():
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
-    # Catch-all: serve index.html for all non-API routes (SPA client-side routing)
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        # Only catch non-API, non-WS paths
         if full_path.startswith(("api/", "ws/", "health", "outputs/", "analyze")):
             from fastapi import HTTPException
             raise HTTPException(status_code=404)

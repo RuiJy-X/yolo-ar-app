@@ -504,10 +504,10 @@ const RealTimeVideo = ({
             });
         },
         "image/jpeg",
-        0.72,
+        0.6,
       );
     };
-    sendIntervalRef.current = window.setInterval(sendFrame, 150);
+    sendIntervalRef.current = window.setInterval(sendFrame, 100);
     return () => stopFrameLoop();
   }, [isCameraActive, stopFrameLoop]);
 
