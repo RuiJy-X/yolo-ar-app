@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CameraOff } from "lucide-react";
+import { Camera, CameraOff, RefreshCw } from "lucide-react";
 
 // ─── Types (kept identical so RealTime.tsx needs zero changes) ────────────────
 
@@ -125,6 +125,10 @@ const RealTimeVideo = ({
     "disconnected" | "connecting" | "connected"
   >("disconnected");
   const [isRecording, setIsRecording] = useState(false);
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [isDeviceListLoading, setIsDeviceListLoading] = useState(false);
+  const manualSelectionRef = useRef(false);
 
   const wsUrl =
     (import.meta.env.VITE_ACTION_WS_URL ??
@@ -332,33 +336,78 @@ const RealTimeVideo = ({
     [],
   );
 
-  const pickPreferredCameraId = useCallback(async (): Promise<
-    string | null
-  > => {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const preferred = devices
-      .filter((d) => d.kind === "videoinput")
-      .find((d) => d.label.toLowerCase().includes("droidcam"));
-    return preferred?.deviceId ?? null;
-  }, []);
+  const getPreferredCameraId = useCallback(
+    (devices: MediaDeviceInfo[]): string | null => {
+      const preferred = devices
+        .filter((d) => d.kind === "videoinput")
+        .find((d) => d.label.toLowerCase().includes("droidcam"));
+      return preferred?.deviceId ?? null;
+    },
+    [],
+  );
+
+  const refreshCameraDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    setIsDeviceListLoading(true);
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === "videoinput");
+      setCameraDevices(videoDevices);
+      setSelectedDeviceId((current) => {
+        if (current && videoDevices.some((d) => d.deviceId === current)) {
+          return current;
+        }
+        if (manualSelectionRef.current) {
+          return videoDevices[0]?.deviceId ?? "";
+        }
+        const preferred = getPreferredCameraId(videoDevices);
+        return preferred ?? videoDevices[0]?.deviceId ?? "";
+      });
+    } finally {
+      setIsDeviceListLoading(false);
+    }
+  }, [getPreferredCameraId]);
 
   // ── Start / stop camera ───────────────────────────────────────────────────
 
-  const startCamera = async () => {
+  const startCamera = async (deviceIdOverride?: string) => {
     try {
       setError(null);
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error("Browser does not support camera APIs.");
-      let stream = await openCameraStream();
-      const fallbackTrack = stream.getVideoTracks()[0];
-      const preferredDeviceId = await pickPreferredCameraId();
-      const currentDeviceId = fallbackTrack?.getSettings().deviceId;
-      if (preferredDeviceId && preferredDeviceId !== currentDeviceId) {
-        stream.getTracks().forEach((t) => t.stop());
-        stream = await openCameraStream(preferredDeviceId);
+      const explicitDeviceId =
+        (deviceIdOverride ?? selectedDeviceId) || undefined;
+      let stream: MediaStream;
+      try {
+        stream = await openCameraStream(explicitDeviceId);
+      } catch (err) {
+        const name = err instanceof Error ? err.name : "";
+        if (
+          explicitDeviceId &&
+          (name === "OverconstrainedError" || name === "NotFoundError")
+        ) {
+          setSelectedDeviceId("");
+          manualSelectionRef.current = false;
+          stream = await openCameraStream();
+        } else {
+          throw err;
+        }
+      }
+      if (!explicitDeviceId && !manualSelectionRef.current) {
+        const fallbackTrack = stream.getVideoTracks()[0];
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const preferredDeviceId = getPreferredCameraId(devices);
+        const currentDeviceId = fallbackTrack?.getSettings().deviceId;
+        if (preferredDeviceId && preferredDeviceId !== currentDeviceId) {
+          stream.getTracks().forEach((t) => t.stop());
+          stream = await openCameraStream(preferredDeviceId);
+        }
       }
       const selectedTrack = stream.getVideoTracks()[0];
       updateCameraLabel(selectedTrack?.label || "Unknown camera");
+      if (!selectedDeviceId) {
+        setSelectedDeviceId(selectedTrack?.getSettings().deviceId ?? "");
+      }
       streamRef.current = stream;
       await attachStreamToVideo(stream);
       if (videoRef.current && videoRef.current.videoWidth === 0) {
@@ -366,10 +415,17 @@ const RealTimeVideo = ({
       }
       startSourceRecording(stream);
       setIsCameraActive(true);
+      refreshCameraDevices().catch(() => undefined);
     } catch (err) {
-      setError(
-        "Camera error: " + (err instanceof Error ? err.message : String(err)),
-      );
+      const message =
+        err instanceof Error
+          ? err.name === "NotAllowedError"
+            ? "Camera access was denied. Allow camera permission and try again."
+            : err.name === "NotFoundError"
+              ? "No camera device found."
+              : err.message
+          : String(err);
+      setError("Camera error: " + message);
     }
   };
 
@@ -401,6 +457,20 @@ const RealTimeVideo = ({
       ),
     );
   }, [attachStreamToVideo, isCameraActive]);
+
+  useEffect(() => {
+    refreshCameraDevices().catch(() => undefined);
+    const handleDeviceChange = () => refreshCameraDevices();
+    navigator.mediaDevices?.addEventListener(
+      "devicechange",
+      handleDeviceChange,
+    );
+    return () =>
+      navigator.mediaDevices?.removeEventListener(
+        "devicechange",
+        handleDeviceChange,
+      );
+  }, [refreshCameraDevices]);
 
   // Handle camera track ending unexpectedly
   useEffect(() => {
@@ -547,12 +617,46 @@ const RealTimeVideo = ({
           </div>
           <button
             type="button"
-            onClick={startCamera}
+            onClick={() => startCamera(selectedDeviceId || undefined)}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
           >
             <Camera size={14} />
             Open Camera
           </button>
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-[11px] text-[#9a9a9a]">Select camera</div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedDeviceId}
+                onChange={(event) => {
+                  manualSelectionRef.current = true;
+                  setSelectedDeviceId(event.target.value);
+                }}
+                className="bg-[#202020] text-[#ffffff] text-[12px] border border-white/10 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#0052ff] min-w-[220px]"
+              >
+                {cameraDevices.length === 0 && (
+                  <option value="">No cameras found</option>
+                )}
+                {cameraDevices.map((device, index) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={refreshCameraDevices}
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[12px] text-white/80 hover:text-white hover:border-white/20"
+                title="Refresh camera list"
+              >
+                <RefreshCw
+                  size={12}
+                  className={isDeviceListLoading ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -591,25 +695,63 @@ const RealTimeVideo = ({
 
       {/* ── Status bar ────────────────────────────────────────────────────── */}
       {isCameraActive && (
-        <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
-            <span className={`h-1.5 w-1.5 rounded-full ${connDot}`} />
-            <span className="text-[11px] font-medium text-[#ffffff]">
-              {connectionState === "connected"
-                ? "Live"
-                : connectionState === "connecting"
-                  ? "Connecting…"
-                  : "Offline"}
-            </span>
-          </div>
-          {isRecording && (
+        <div className="absolute top-3 left-3 z-20 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
-              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className={`h-1.5 w-1.5 rounded-full ${connDot}`} />
               <span className="text-[11px] font-medium text-[#ffffff]">
-                REC
+                {connectionState === "connected"
+                  ? "Live"
+                  : connectionState === "connecting"
+                    ? "Connecting…"
+                    : "Offline"}
               </span>
             </div>
-          )}
+            {isRecording && (
+              <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-[11px] font-medium text-[#ffffff]">
+                  REC
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 rounded-[8px] bg-[#1c1c1c]/80 px-2 py-1 backdrop-blur-sm border border-white/10">
+            <select
+              value={selectedDeviceId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                manualSelectionRef.current = true;
+                setSelectedDeviceId(nextId);
+                if (isCameraActive) {
+                  stopCamera();
+                  startCamera(nextId);
+                }
+              }}
+              className="bg-transparent text-[#ffffff] text-[11px] outline-none min-w-[180px]"
+            >
+              {cameraDevices.length === 0 && (
+                <option value="">No cameras found</option>
+              )}
+              {cameraDevices.map((device, index) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Camera ${index + 1}`}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={refreshCameraDevices}
+              className="inline-flex items-center gap-1 text-[11px] text-white/80 hover:text-white"
+              title="Refresh camera list"
+            >
+              <RefreshCw
+                size={11}
+                className={isDeviceListLoading ? "animate-spin" : ""}
+              />
+              Refresh
+            </button>
+          </div>
         </div>
       )}
 

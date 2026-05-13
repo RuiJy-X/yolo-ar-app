@@ -6,8 +6,9 @@ import {
   Clock,
   User,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalyzeVideoResponse, AlertEvent } from "@/lib/types";
+import type { ActionTimelineTag } from "@/pages/library/useLibrary";
 import {
   getActionColor,
   getActionBg,
@@ -18,6 +19,7 @@ import TitleMono from "./titile-mono";
 type LogsProps = {
   analysis: AnalyzeVideoResponse | null;
   onSeekToFrame: (frame: number) => void;
+  selectedTag?: ActionTimelineTag | null;
 };
 
 type Detection = {
@@ -240,12 +242,17 @@ function InstanceCard({
   instance,
   action,
   onSeekToFrame,
+  isSelected,
+  expanded,
+  onToggleExpand,
 }: {
   instance: ActionInstance;
   action: string;
   onSeekToFrame: (frame: number) => void;
+  isSelected: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const hasScores = Object.keys(instance.avgAllScores).length > 0;
 
   const color = getActionColor(action);
@@ -267,13 +274,17 @@ function InstanceCard({
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setExpanded((v) => !v);
+    onToggleExpand();
   };
 
   return (
     <div
       className="w-full rounded-[8px] border bg-[#ffffff] overflow-hidden transition-shadow hover:shadow-sm"
-      style={{ borderColor: color + "44" }}
+      style={{
+        borderColor: color + "44",
+        boxShadow: isSelected ? `0 0 0 2px ${color}22` : undefined,
+        background: isSelected ? `${color}0d` : "#ffffff",
+      }}
     >
       {/* Main row — clickable to seek */}
       <button
@@ -364,11 +375,13 @@ function ActionSummaryRow({
   instances,
   avgConfidence,
   open,
+  active,
 }: {
   action: string;
   instances: ActionInstance[];
   avgConfidence: number;
   open: boolean;
+  active: boolean;
 }) {
   const color = getActionColor(action);
   const bg = getActionBg(action);
@@ -376,7 +389,13 @@ function ActionSummaryRow({
   const confPct = Math.round(avgConfidence * 100);
 
   return (
-    <div className="flex items-center gap-2.5 px-4 py-3">
+    <div
+      className="flex items-center gap-2.5 px-4 py-3"
+      style={{
+        background: active ? `${color}12` : "transparent",
+        boxShadow: active ? `inset 2px 0 0 ${color}` : undefined,
+      }}
+    >
       <span
         className="w-2 h-2 rounded-full shrink-0"
         style={{ background: color }}
@@ -401,7 +420,73 @@ function ActionSummaryRow({
 
 // ── Main ──
 
-const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
+const Logs = ({ analysis, onSeekToFrame, selectedTag }: LogsProps) => {
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [hiddenActions, setHiddenActions] = useState<Set<string>>(new Set());
+  const [openActions, setOpenActions] = useState<Set<string>>(new Set());
+  const [openInstanceKey, setOpenInstanceKey] = useState<string | null>(null);
+  const instanceRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+
+  const groupedActions = analysis
+    ? Object.entries(analysis.grouped_detections ?? {})
+        .map(([action, entries]) => {
+          const instances = collapseToInstances(entries as Detection[]);
+          const avgConfidence =
+            analysis.action_confidence_scores?.[action] ?? 0;
+          return { action, instances, avgConfidence };
+        })
+        .sort((a, b) => b.avgConfidence - a.avgConfidence)
+    : [];
+
+  const allActions = groupedActions.map((entry) => entry.action);
+
+  const selectedAction = selectedTag?.action ?? null;
+  const selectedInstanceKey = useMemo(() => {
+    if (!selectedTag) return null;
+    return `${selectedTag.action}-p${selectedTag.personId}-f${selectedTag.startFrame}-${selectedTag.endFrame}`;
+  }, [selectedTag]);
+
+  const toggleHiddenAction = (action: string) => {
+    setHiddenActions((prev) => {
+      const next = new Set(prev);
+      next.has(action) ? next.delete(action) : next.add(action);
+      return next;
+    });
+  };
+
+  const filteredActions = groupedActions.filter(
+    (entry) => !hiddenActions.has(entry.action),
+  );
+
+  useEffect(() => {
+    if (!selectedAction) return;
+    setOpenActions((prev) => {
+      const next = new Set(prev);
+      next.add(selectedAction);
+      return next;
+    });
+    setHiddenActions((prev) => {
+      if (!prev.has(selectedAction)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedAction);
+      return next;
+    });
+  }, [selectedAction]);
+
+  useEffect(() => {
+    if (!selectedInstanceKey) return;
+    setOpenInstanceKey(selectedInstanceKey);
+  }, [selectedInstanceKey]);
+
+  useEffect(() => {
+    if (!selectedInstanceKey) return;
+    const frame = requestAnimationFrame(() => {
+      const node = instanceRefs.current.get(selectedInstanceKey);
+      if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedInstanceKey, openActions, filteredActions.length]);
+
   if (!analysis) {
     return (
       <div
@@ -421,16 +506,8 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
     );
   }
 
-  const groupedActions = Object.entries(analysis.grouped_detections)
-    .map(([action, entries]) => {
-      const instances = collapseToInstances(entries as Detection[]);
-      const avgConfidence = analysis.action_confidence_scores?.[action] ?? 0;
-      return { action, instances, avgConfidence };
-    })
-    .sort((a, b) => b.avgConfidence - a.avgConfidence);
-
   const frameTimestampMap = new Map<number, string>();
-  Object.values(analysis.grouped_detections).forEach((entries) => {
+  Object.values(analysis.grouped_detections ?? {}).forEach((entries) => {
     (entries as Detection[]).forEach((entry) => {
       if (entry.timestamp && !frameTimestampMap.has(entry.frame_number)) {
         frameTimestampMap.set(entry.frame_number, entry.timestamp);
@@ -454,6 +531,75 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
         >
           Detections
         </span>
+        <div
+          className="relative ml-auto"
+          tabIndex={0}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setFilterOpen(false);
+            }
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setFilterOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-full border border-[#ededed] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9a9a9a] hover:text-[#171717] hover:border-[#d6d6d6] transition-colors"
+          >
+            Filter
+            <ChevronDown
+              className="size-3 text-[#b0b0b0] transition-transform"
+              style={{
+                transform: filterOpen ? "rotate(180deg)" : "rotate(0deg)",
+              }}
+            />
+          </button>
+          {filterOpen && (
+            <div className="absolute right-0 mt-2 w-56 rounded-[8px] border border-[#ededed] bg-[#ffffff] shadow-lg z-20 p-2">
+              <div className="flex items-center justify-between px-1 pb-1">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#9a9a9a]">
+                  Actions
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHiddenActions(new Set())}
+                  className="text-[10px] font-semibold text-[#707070] hover:text-[#171717]"
+                >
+                  Show all
+                </button>
+              </div>
+              <div className="max-h-48 overflow-auto pr-1">
+                {allActions.length === 0 ? (
+                  <p className="px-1 py-2 text-[11px] text-[#9a9a9a]">
+                    No actions yet.
+                  </p>
+                ) : (
+                  allActions.map((action) => {
+                    const color = getActionColor(action);
+                    const visible = !hiddenActions.has(action);
+                    return (
+                      <label
+                        key={action}
+                        className="flex items-center gap-2 px-1 py-1.5 text-[11px] text-[#171717]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visible}
+                          onChange={() => toggleHiddenAction(action)}
+                          className="accent-[#1f2937]"
+                        />
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ background: color }}
+                        />
+                        <span className="truncate">{action}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto divide-y divide-[#ededed]">
@@ -486,28 +632,69 @@ const Logs = ({ analysis, onSeekToFrame }: LogsProps) => {
         )}
 
         {/* Actions */}
-        {groupedActions.map(({ action, instances, avgConfidence }) => (
-          <details key={action} className="group">
-            <summary className="list-none cursor-pointer hover:bg-[#fafafa] transition-colors">
-              <ActionSummaryRow
-                action={action}
-                instances={instances}
-                avgConfidence={avgConfidence}
-                open={false}
-              />
-            </summary>
-            <div className="flex flex-col gap-1.5 px-3 pb-3">
-              {instances.map((instance) => (
-                <InstanceCard
-                  key={`${action}-p${instance.personId}-f${instance.startFrame}`}
-                  instance={instance}
+        {filteredActions.length === 0 ? (
+          <div className="px-4 py-3 text-[12px] text-[#9a9a9a]">
+            {groupedActions.length > 0
+              ? "All actions are filtered out."
+              : "No detections available."}
+          </div>
+        ) : (
+          filteredActions.map(({ action, instances, avgConfidence }) => (
+            <details
+              key={action}
+              className="group"
+              open={openActions.has(action)}
+              onToggle={(e) => {
+                const isOpen = (e.currentTarget as HTMLDetailsElement).open;
+                setOpenActions((prev) => {
+                  const next = new Set(prev);
+                  if (isOpen) next.add(action);
+                  else next.delete(action);
+                  return next;
+                });
+              }}
+            >
+              <summary className="list-none cursor-pointer hover:bg-[#fafafa] transition-colors">
+                <ActionSummaryRow
                   action={action}
-                  onSeekToFrame={onSeekToFrame}
+                  instances={instances}
+                  avgConfidence={avgConfidence}
+                  open={openActions.has(action)}
+                  active={selectedAction === action}
                 />
-              ))}
-            </div>
-          </details>
-        ))}
+              </summary>
+              <div className="flex flex-col gap-1.5 px-3 pb-3">
+                {instances.map((instance) => {
+                  const key = `${action}-p${instance.personId}-f${instance.startFrame}-${instance.endFrame}`;
+                  const isSelected = key === selectedInstanceKey;
+                  const isExpanded = key === openInstanceKey;
+                  return (
+                    <div
+                      key={key}
+                      ref={(node) => {
+                        if (node) instanceRefs.current.set(key, node);
+                        else instanceRefs.current.delete(key);
+                      }}
+                    >
+                      <InstanceCard
+                        instance={instance}
+                        action={action}
+                        onSeekToFrame={onSeekToFrame}
+                        isSelected={isSelected}
+                        expanded={isExpanded}
+                        onToggleExpand={() =>
+                          setOpenInstanceKey((prev) =>
+                            prev === key ? null : key,
+                          )
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          ))
+        )}
       </div>
     </div>
   );

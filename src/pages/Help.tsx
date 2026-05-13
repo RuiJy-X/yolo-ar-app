@@ -13,10 +13,14 @@ import {
   Layers,
   History,
   Info,
+  Wifi,
+  ArrowRightLeft,
+  PackageOpen,
+  Film,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type TabId = "home" | "realtime" | "library" | "config";
+type TabId = "home" | "realtime" | "library" | "config" | "websocket";
 
 const HelpPage = () => {
   const [activeTab, setActiveTab] = useState<TabId>("home");
@@ -26,6 +30,7 @@ const HelpPage = () => {
     { id: "realtime", label: "Real-Time Inference", icon: Camera },
     { id: "library", label: "Video Library", icon: PlayCircle },
     { id: "config", label: "System Configuration", icon: Settings2 },
+    { id: "websocket", label: "Backend & API", icon: Wifi },
   ];
 
   return (
@@ -44,12 +49,19 @@ const HelpPage = () => {
                 "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ",
                 activeTab === item.id
                   ? "bg-blue-50 text-blue-700 shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100"
+                  : "text-slate-600 hover:bg-slate-100",
               )}
             >
-              <item.icon className={cn("size-5", activeTab === item.id ? "text-blue-600" : "text-slate-400")} />
+              <item.icon
+                className={cn(
+                  "size-5",
+                  activeTab === item.id ? "text-blue-600" : "text-slate-400",
+                )}
+              />
               {item.label}
-              {activeTab === item.id && <ChevronRight className="ml-auto size-4" />}
+              {activeTab === item.id && (
+                <ChevronRight className="ml-auto size-4" />
+              )}
             </button>
           ))}
         </div>
@@ -61,6 +73,7 @@ const HelpPage = () => {
             {activeTab === "realtime" && <RealTimeDoc />}
             {activeTab === "library" && <LibraryDoc />}
             {activeTab === "config" && <ConfigDoc />}
+            {activeTab === "websocket" && <WebSocketDoc />}
           </div>
         </div>
       </div>
@@ -75,28 +88,46 @@ const HomeDoc = () => (
       <h1 className="text-4xl font-semibold text-slate-900">Home Dashboard</h1>
     </div>
     <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The Home Page serves as the primary gateway and administrative hub of the application, designed to organize and manage your historical video data. This page maintains a comprehensive record of all past sessions, where analyzed videos are stored alongside their respective inference logs and summaries. To facilitate efficient data retrieval, the interface includes a robust Date Filter, allowing you to isolate recordings from specific mission dates or events. From this dashboard, you can interact with your data in several ways: you can open any entry directly in the Library View to perform a deep-dive analysis of detected actions, or perform workspace maintenance by deleting individual records or clearing the entire history. Positioned prominently at the top of the page are two primary navigation buttons, providing immediate access to the Library for new video uploads or the Real-Time module for live camera monitoring.
+      The Home Page serves as the primary gateway and administrative hub of the
+      application, designed to organize and manage your historical video data.
+      This page maintains a comprehensive record of all past sessions, where
+      analyzed videos are stored alongside their respective inference logs and
+      summaries. To facilitate efficient data retrieval, the interface includes
+      a robust Date Filter, allowing you to isolate recordings from specific
+      mission dates or events. From this dashboard, you can interact with your
+      data in several ways: you can open any entry directly in the Library View
+      to perform a deep-dive analysis of detected actions, or perform workspace
+      maintenance by deleting individual records or clearing the entire history.
+      Positioned prominently at the top of the page are two primary navigation
+      buttons, providing immediate access to the Library for new video uploads
+      or the Real-Time module for live camera monitoring.
     </p>
-        <br />
+    <br />
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="p-6 border border-black/40 rounded-xl bg-slate-50">
         <div className="flex gap-2">
-            <Database className="text-blue-500 mb-3" />
-            <h3 className="font-semibold mb-2">Data Management</h3>
+          <Database className="text-blue-500 mb-3" />
+          <h3 className="font-semibold mb-2">Data Management</h3>
         </div>
-        <p className="text-sm text-slate-900">Review all stored video sessions alongside their generated summaries. You can open specific entries for deep-dive analysis or perform maintenance by deleting individual or bulk items.</p>
+        <p className="text-sm text-slate-900">
+          Review all stored video sessions alongside their generated summaries.
+          You can open specific entries for deep-dive analysis or perform
+          maintenance by deleting individual or bulk items.
+        </p>
       </div>
       <div className="p-6 border border-black/40 rounded-xl bg-slate-50">
         <div className="flex gap-2">
-            <History className="text-blue-500 mb-3" />
-            <h3 className="font-semibold mb-2">Historical Filters</h3>
+          <History className="text-blue-500 mb-3" />
+          <h3 className="font-semibold mb-2">Historical Filters</h3>
         </div>
-        <p className="text-sm text-slate-900">Locate specific recording sessions using the date filter. This is essential for auditing actions recorded across different mission dates.</p>
+        <p className="text-sm text-slate-900">
+          Locate specific recording sessions using the date filter. This is
+          essential for auditing actions recorded across different mission
+          dates.
+        </p>
       </div>
     </div>
-    <div>
-
-    </div>
+    <div></div>
   </div>
 );
 
@@ -348,6 +379,315 @@ const ConfigDoc = () => (
             Remember to click Save to apply changes to both Real-Time and
             Library modules.
           </em>
+        </p>
+      </div>
+    </div>
+  </div>
+);
+
+/* --- Component: WebSocket & Backend API Documentation --- */
+const WebSocketDoc = () => (
+  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex items-center gap-3">
+      <h1 className="text-4xl font-semibold text-slate-900">
+        Backend &amp; API Architecture
+      </h1>
+    </div>
+    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
+      The backend is a FastAPI server (<code>websocket_api.py</code>) that runs
+      locally alongside the frontend. It owns the AI models, manages all
+      inference work, and exposes its capabilities through two complementary
+      communication channels: a persistent WebSocket connection for real-time
+      frame-by-frame analysis, and a conventional HTTP REST API for everything
+      else — uploading videos, polling job progress, managing history, and
+      adjusting configuration. On startup, the server initializes the full{" "}
+      <strong>ActionRecognitionPipeline</strong>, which loads both the YOLO
+      pose-detection model and the InfoGCN action-classification model into
+      memory (on GPU if available, otherwise CPU) so they are ready to serve
+      requests immediately.
+    </p>
+
+    <br />
+
+    {/* Section 1: WebSocket */}
+    <div className="space-y-4 mb-10">
+      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
+        <Wifi className="size-6 text-blue-500" /> Real-Time WebSocket Channel
+      </h2>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        The Real-Time Inference page communicates with the backend exclusively
+        over a WebSocket connection established at{" "}
+        <code className="bg-black px-1 rounded">
+          ws://…/ws/action-recognition
+        </code>
+        . Unlike a regular HTTP request that opens, sends data, and closes, a
+        WebSocket keeps a single persistent two-way tunnel open for the entire
+        duration of the camera session. This means the frontend can push camera
+        frames to the server continuously and receive annotated responses back
+        without the overhead of repeatedly opening new connections.
+      </p>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        Each frame captured from the browser's camera is sent to the server
+        either as raw binary JPEG bytes or as a JSON text message containing a
+        Base64-encoded image (
+        <code>{`{"type":"frame","image":"<base64>"}`}</code>). The server also
+        accepts a lightweight <code>{`{"type":"ping"}`}</code> message to keep
+        the connection alive during idle moments, responding with a
+        corresponding <code>{`{"type":"pong"}`}</code>. An optional{" "}
+        <code>?quality=72</code> query parameter on the connection URL lets the
+        frontend control the JPEG compression level of annotated frames sent
+        back, balancing image fidelity against bandwidth.
+      </p>
+
+      <div className="p-5 border-l-4 border-blue-500 bg-blue-50/50 space-y-2">
+        <h4 className="font-bold text-blue-900 flex items-center gap-2">
+          <ArrowRightLeft className="size-4" /> Per-Frame Inference Flow
+        </h4>
+        <p className="text-sm text-slate-700 leading-relaxed">
+          Once a frame arrives, the backend runs it through the two-stage
+          pipeline synchronously in a background thread so the async server loop
+          is never blocked. First, the YOLO pose model detects every visible
+          person and extracts 17 body keypoints in COCO format. Those 17
+          keypoints are then remapped to the 12-joint skeleton format (
+          <strong>BODY12</strong>) that the InfoGCN model was trained on. Each
+          detected person is assigned a persistent <strong>track ID</strong>{" "}
+          using Intersection-over-Union (IoU) bounding-box matching across
+          frames, so the same individual keeps the same ID even as they move
+          around the scene.
+        </p>
+        <p className="text-sm text-slate-700 leading-relaxed">
+          For each tracked person, their keypoints are appended to a rolling
+          sliding window (16, 32, or 64 frames depending on the active model
+          preset). The InfoGCN model reads this entire window on every inference
+          stride and outputs a probability distribution across the four action
+          classes: <strong>sitting</strong>, <strong>standing</strong>,{" "}
+          <strong>waving</strong>, and <strong>walking</strong>. To reduce
+          jitter between frames, the raw probabilities are smoothed using an
+          exponential moving average (EMA) before the highest-scoring class is
+          selected as the final prediction. If the winning confidence is below
+          the configured threshold, the label is reported as "Unknown" rather
+          than making a low-quality guess.
+        </p>
+        <p className="text-sm text-slate-700 leading-relaxed">
+          After inference, the server draws color-coded bounding boxes, skeletal
+          overlays, and label captions directly onto the frame using OpenCV. The
+          annotated image is then JPEG-encoded and packed into a binary
+          response: a 4-byte big-endian header carries the byte-length of a JSON
+          metadata block, followed by the JSON itself (containing person IDs,
+          action labels, confidence scores, bounding boxes, and per-joint
+          keypoint coordinates), and finally the raw JPEG bytes of the annotated
+          frame. The frontend unpacks this binary envelope, displays the
+          annotated image in the video canvas, and routes the JSON metadata to
+          the inference log panel.
+        </p>
+      </div>
+    </div>
+
+    {/* Section 2: Video Inference REST */}
+    <div className="space-y-4 mb-10">
+      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
+        <Film className="size-6 text-purple-500" /> Video Inference via HTTP
+        (Library Mode)
+      </h2>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        When processing a pre-recorded video in the Library, the frontend uses
+        standard HTTP rather than a WebSocket. The workflow is deliberately
+        asynchronous: the video file is first uploaded to{" "}
+        <code className="bg-black px-1 rounded">POST /api/infer-video</code>,
+        which immediately returns a unique <strong>job ID</strong> and queues
+        the work in a background thread. The frontend then polls{" "}
+        <code className="bg-black px-1 rounded">
+          GET /api/infer-video/{"{job_id}"}/status
+        </code>{" "}
+        at regular intervals to track progress, receiving incremental updates
+        such as the current frame index, total frame count, and a human-readable
+        phase message like "Running pose + action inference…". This
+        polling-based design keeps the UI responsive and the progress bar
+        accurate without tying up a WebSocket for what may be a minutes-long
+        operation.
+      </p>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        Internally the video pipeline runs two parallel background threads: one
+        thread reads and decodes frames from the uploaded file, and a second
+        thread immediately consumes those decoded frames to run YOLO detection
+        and InfoGCN inference. The same track-ID assignment and EMA smoothing
+        logic used in real-time mode is applied here, but with slightly more
+        permissive confidence thresholds to accommodate the wider variety of
+        camera angles found in recorded footage. Annotated frames are written to
+        an output video file as they are produced. Once the job completes, the
+        output video is transcoded to a browser-compatible H.264 MP4 (using
+        FFmpeg if available, falling back to an OpenCV writer), and the status
+        payload is updated with download and streaming URLs that the frontend
+        can present directly in the video player.
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="p-4 border rounded-lg shadow-sm">
+          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+            <PackageOpen className="size-4 text-purple-500" /> Job Status Fields
+          </h4>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Each status response includes <strong>status</strong> (queued /
+            processing / completed / failed), <strong>progress_percent</strong>{" "}
+            (0–100), <strong>progress_message</strong> (a plain-English phase
+            description), <strong>frame_index</strong>, and{" "}
+            <strong>total_frames</strong>. On completion it also contains a{" "}
+            <strong>result</strong> object with the annotated video URL,
+            download URL, source preview URL, and full analysis summary.
+          </p>
+        </div>
+        <div className="p-4 border rounded-lg shadow-sm">
+          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+            <Database className="size-4 text-purple-500" /> Analysis Summary
+          </h4>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            After all frames are processed, the backend automatically computes a{" "}
+            <strong>grouped_detections</strong> map (detections organized by
+            action label), an <strong>action_confidence_scores</strong> dict,
+            summary metrics (YOLO precision/recall, InfoGCN accuracy, mAP), and
+            an <strong>alert_events</strong> list marking any sustained waving
+            sequences that crossed the distress threshold.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Section 3: REST API Reference */}
+    <div className="space-y-4 mb-10">
+      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
+        <ArrowRightLeft className="size-6 text-emerald-500" /> REST API
+        Reference
+      </h2>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        Beyond the WebSocket and video-inference endpoints, the backend exposes
+        a set of REST endpoints that the frontend calls for configuration and
+        data management. These calls are ordinary fetch/JSON requests and
+        require no persistent connection.
+      </p>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th className="px-4 py-3 font-semibold text-slate-700">
+                Method &amp; Path
+              </th>
+              <th className="px-4 py-3 font-semibold text-slate-700">
+                Purpose
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {[
+              [
+                "GET /health",
+                "Confirms the server is running and returns the active device (CPU/GPU) and loaded model name.",
+              ],
+              [
+                "GET /api/config",
+                "Returns all current pipeline settings: window size, EMA alpha, YOLO model choice, confidence thresholds, and the full list of available actions.",
+              ],
+              [
+                "POST /api/config",
+                "Applies updated settings to the live pipeline. Changes take effect immediately for both real-time and library inference without restarting.",
+              ],
+              [
+                "GET /api/models",
+                "Lists all InfoGCN checkpoint files found in the results/ directory alongside the currently active model name.",
+              ],
+              [
+                "POST /api/models/active",
+                "Hot-swaps the active InfoGCN model. The server applies the matching frame-window preset (16/32/64) before loading the new weights so inference remains consistent.",
+              ],
+              [
+                "POST /api/infer-video",
+                "Accepts an uploaded video file and starts a background inference job. Returns a job_id immediately.",
+              ],
+              [
+                "GET /api/infer-video/{job_id}/status",
+                "Polls the progress of a running video job. Returns status, percent complete, current frame, and — when done — result URLs.",
+              ],
+              [
+                "POST /analyze-video",
+                "Accepts a pre-built detections log and summary metrics and returns a structured analysis response (grouped detections, alert events, confidence scores).",
+              ],
+              [
+                "GET /api/history",
+                "Returns a list of all saved history entries sorted by creation date (newest first).",
+              ],
+              [
+                "POST /api/history",
+                "Saves a completed analysis — copying the annotated video and source preview into a permanent history directory with associated metadata and analysis JSON.",
+              ],
+              [
+                "GET /api/history/{entry_id}",
+                "Returns full detail for a single history entry including the complete analysis JSON.",
+              ],
+              [
+                "DELETE /api/history/{entry_id}",
+                "Permanently deletes a single history entry and its associated files.",
+              ],
+              ["DELETE /api/history", "Clears all history entries at once."],
+            ].map(([method, desc]) => (
+              <tr key={method} className="hover:bg-slate-50/50">
+                <td className="px-4 py-3 font-mono text-xs text-blue-700 whitespace-nowrap align-top">
+                  {method}
+                </td>
+                <td className="px-4 py-3 text-slate-600 align-top">{desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Section 4: Model presets */}
+    <div className="space-y-4 mb-4">
+      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
+        <Layers className="size-6 text-orange-500" /> Frame-Window Presets &amp;
+        EMA Smoothing
+      </h2>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        The backend ships with three named presets — Frame_16, Frame_32, and
+        Frame_64 — that control the temporal depth of every inference pass.
+        Selecting a preset via the model selector does more than just swap
+        weights: it simultaneously updates the sliding-window size, the minimum
+        number of frames required before a prediction is attempted, the
+        inference stride (how often the model runs relative to the frame rate),
+        the EMA smoothing alpha, and both the real-time and video YOLO
+        confidence thresholds. All these values are applied atomically to the
+        live pipeline before the new model weights are loaded, ensuring the
+        checkpoint's training configuration and the runtime configuration always
+        stay in sync.
+      </p>
+      <p className="text-slate-700 leading-relaxed text-justify">
+        The EMA alpha value deserves special mention because it directly shapes
+        how "sticky" the displayed action label feels to the end user. A higher
+        alpha (like Frame_64's 0.82) gives more weight to the historical
+        average, producing very stable labels that resist single-frame noise at
+        the cost of slightly slower reaction to a genuine action change. A lower
+        alpha (Frame_16's 0.65) reacts more quickly to new detections but may
+        flicker more noticeably between classes. Tuning this alongside the
+        action confidence threshold gives operators precise control over the
+        trade-off between responsiveness and stability for their specific
+        operational environment.
+      </p>
+
+      <div className="p-5 bg-orange-50 border border-orange-100 rounded-xl">
+        <h4 className="font-bold text-orange-900 mb-2 flex items-center gap-2">
+          <Info className="size-4" /> Track Identity &amp; Missed-Frame
+          Tolerance
+        </h4>
+        <p className="text-sm text-orange-800 leading-relaxed">
+          Each detected person is tracked across frames using IoU bounding-box
+          matching. If a person temporarily disappears from the frame — due to
+          occlusion, motion blur, or a low-confidence detection — the track is
+          kept alive for up to <strong>15 frames</strong> in real-time mode and{" "}
+          <strong>24 frames</strong> in video mode before being discarded. This
+          tolerance prevents spurious track splits when someone briefly passes
+          behind an obstacle, ensuring that action labels accumulated before the
+          disappearance are not thrown away and the track ID remains consistent
+          when the person reappears.
         </p>
       </div>
     </div>

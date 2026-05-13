@@ -79,11 +79,10 @@ const ModelSelector = () => {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-[#707070]">
-        InfoGCN Config
+        InfoGCN Frame Config
       </span>
 
       <div className="flex items-center gap-3">
-        <span className="text-[13px] text-[#707070] shrink-0 w-12">Model</span>
         <div className="relative flex-1">
           <select
             value={activeModel}

@@ -1,14 +1,19 @@
 import AppLayout from "@/applayout";
 import Logs from "@/components/Logs";
 import { useLibraryState } from "./library/useLibrary";
+import type { ActionTimelineTag } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
 import Config from "./library/config";
 import { useSearchParams } from "react-router";
+import { useState } from "react";
 
 const Library = () => {
   const [searchParams] = useSearchParams();
   const historyId = searchParams.get("history");
+  const [selectedTag, setSelectedTag] = useState<ActionTimelineTag | null>(
+    null,
+  );
   const {
     fileInputRef,
     videoPlayerRef,
@@ -48,9 +53,9 @@ const Library = () => {
 
   return (
     <AppLayout>
-      <div className="flex flex-col w-full h-full overflow-hidden">
+      <div className="flex flex-col w-full h-full overflow-hidden gap-1">
         {/* Top Section: Config | Video | Logs */}
-        <div className="flex flex-1 min-h-0 w-full">
+        <div className="flex flex-1 min-h-0 w-full gap-1">
           {/* 1. Config Panel (25%) */}
           <div className="w-1/4 h-full border-r border-gray-200 overflow-auto">
             <Config className="h-full" />
@@ -91,7 +96,11 @@ const Library = () => {
 
           {/* 3. Logs Panel (25%) */}
           <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden">
-            <Logs analysis={analysis} onSeekToFrame={seekToFrame} />
+            <Logs
+              analysis={analysis}
+              onSeekToFrame={seekToFrame}
+              selectedTag={selectedTag}
+            />
           </div>
         </div>
 
@@ -105,6 +114,7 @@ const Library = () => {
             onSeekToFrame={seekToFrame}
             isPlaying={isPlaying}
             onPlayPause={togglePlayPause}
+            onSelectTag={setSelectedTag}
             onDividerMouseDown={function (): void {
               throw new Error("Function not implemented.");
             }}

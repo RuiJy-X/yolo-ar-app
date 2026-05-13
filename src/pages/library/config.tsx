@@ -368,7 +368,7 @@ const Config = ({ className }: ConfigProps) => {
 
         {/* Action Confidence Thresholds */}
         <div className="flex flex-col gap-3">
-          <label className={labelCls}>Action Thresholds</label>
+          <label className={labelCls}>Action Confidence Threshold</label>
 
           {/* Uniform toggle */}
           <label className="flex items-center gap-2.5 cursor-pointer select-none">

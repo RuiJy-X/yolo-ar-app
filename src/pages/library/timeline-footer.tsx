@@ -30,6 +30,7 @@ type TimelineFooterProps = {
   onDividerMouseDown: (e: React.MouseEvent) => void;
   onScrub: ChangeEventHandler<HTMLInputElement>;
   onSeekToFrame: (frame: number) => void;
+  onSelectTag?: (tag: ActionTimelineTag) => void;
 };
 
 const MIN_ZOOM = 1;
@@ -80,6 +81,7 @@ const TimelineFooter = ({
   onPlayPause,
   onScrub,
   onSeekToFrame,
+  onSelectTag,
 }: TimelineFooterProps) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -195,7 +197,10 @@ const TimelineFooter = ({
           key={tag.id}
           type="button"
           title={`${tag.action} · P${tag.personId} · ${formatSeconds(tag.startSeconds)}–${formatSeconds(tag.endSeconds)}`}
-          onClick={() => onSeekToFrame(tag.startFrame)}
+          onClick={() => {
+            onSeekToFrame(tag.startFrame);
+            onSelectTag?.(tag);
+          }}
           className="absolute top-0.5 bottom-0.5 opacity-70 hover:opacity-100 transition-opacity"
           style={{
             left: `${Math.max(-1, leftPct)}%`,

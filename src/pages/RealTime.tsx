@@ -593,7 +593,7 @@ const RealTime = () => {
         {renderSaveBanner()}
 
         {/* Main Section: Config | Video | Logs */}
-        <div className="flex flex-1 min-h-0 w-full">
+        <div className="flex flex-1 min-h-0 w-full gap-1">
           {/* 1. Config Panel (25%) */}
           <div className="w-1/4 h-full border-r border-gray-200 overflow-auto">
             <Config className="h-full" />
@@ -635,14 +635,14 @@ const RealTime = () => {
           </div>
 
           {/* 3. Logs Panel (25%) */}
-          <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden flex flex-col">
+          <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden flex flex-col bg-white">
             {/* Panel header */}
             <div className="p-3 border-b border-gray-200 bg-white shrink-0">
               <TitleMono text="Inference Logs" />
             </div>
 
             {/* Live stats */}
-            <div className="border-b border-gray-200 bg-[#F7FAFF] p-3 shrink-0 grid grid-cols-2 gap-2">
+            <div className="border-b border-gray-200 bg-white p-3 shrink-0 grid grid-cols-2 gap-2">
               <div>
                 <div className="text-[10px] font-semibold uppercase text-[#667085]">
                   Latest Action
