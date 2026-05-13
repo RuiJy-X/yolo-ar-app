@@ -8,6 +8,7 @@ import os
 import queue
 import shutil
 import subprocess
+import struct
 import sys
 import threading
 import time
@@ -207,9 +208,13 @@ def _make_person_payload(
     detection: dict,
     track: "TrackState",
 ) -> dict:
+    all_scores = {
+        str(key): float(value) for key, value in (track.last_all_scores or {}).items()
+    }
     return {
         "person_id": track_id,
         "action": {"label": label, "confidence": confidence},
+        "all_scores": all_scores or None,
         "bbox": [float(v) for v in detection["bbox"].tolist()],
         "keypoints": [
             {"id": i, "x": float(kpt[0]), "y": float(kpt[1]), "confidence": float(kpt[2])}
@@ -284,6 +289,80 @@ def draw_pose(frame: np.ndarray, keypoints: np.ndarray, color: tuple[int, int, i
         if keypoint[2] >= VISIBILITY_THRESH:
             center = (int(keypoint[0]), int(keypoint[1]))
             cv2.circle(frame, center, 3, color, -1, cv2.LINE_AA)
+
+
+def _keypoints_list_to_array(keypoints: list[dict[str, Any]] | None) -> np.ndarray | None:
+    if not keypoints:
+        return None
+
+    arr = np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32)
+    for kp in keypoints:
+        try:
+            idx = int(kp.get("id", -1))
+            if idx < 0 or idx >= MODEL_NUM_POINTS:
+                continue
+            arr[idx, 0] = float(kp.get("x", 0.0))
+            arr[idx, 1] = float(kp.get("y", 0.0))
+            arr[idx, 2] = float(kp.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            continue
+
+    return arr
+
+
+def _annotate_frame(frame: np.ndarray, payload: dict[str, Any]) -> np.ndarray:
+    persons = payload.get("persons") or []
+    if not isinstance(persons, list):
+        return frame
+
+    for person in persons:
+        if not isinstance(person, dict):
+            continue
+        person_id = int(person.get("person_id", 0))
+        color = track_color(person_id)
+
+        bbox = person.get("bbox")
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
+            label = person.get("action", {}).get("label", "Unknown")
+            conf = person.get("action", {}).get("confidence")
+            caption = f"ID {person_id}: {label}"
+            if isinstance(conf, (int, float)) and label != "Unknown":
+                caption += f" {float(conf) * 100:.1f}%"
+            cv2.putText(
+                frame,
+                caption,
+                (x1, max(24, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+
+        keypoints = _keypoints_list_to_array(person.get("keypoints"))
+        if keypoints is not None:
+            draw_pose(frame, keypoints, color)
+
+    return frame
+
+
+def _encode_jpeg(frame: np.ndarray, quality: int) -> bytes | None:
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)]
+    ok, buffer = cv2.imencode(".jpg", frame, encode_params)
+    if not ok:
+        return None
+    return buffer.tobytes()
+
+
+def _pack_annotated_frame(payload: dict[str, Any], frame: np.ndarray, quality: int) -> bytes | None:
+    jpeg_bytes = _encode_jpeg(frame, quality)
+    if jpeg_bytes is None:
+        return None
+    json_bytes = json.dumps(payload).encode("utf-8")
+    header = struct.pack(">I", len(json_bytes))
+    return header + json_bytes + jpeg_bytes
 
 
 def create_video_writer(
@@ -2217,6 +2296,150 @@ async def infer_uploaded_video(file: UploadFile = File(...)) -> dict[str, Any]:
         await file.close()
 
 
+@app.post("/api/upload-annotated")
+async def upload_annotated_video(file: UploadFile = File(...)) -> dict[str, Any]:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
+    ext = Path(file.filename).suffix.lower()
+    if not ext:
+        ext = ".mp4"
+
+    temp_path = OUTPUT_UPLOAD_DIR / f"upload_{uuid4().hex}{ext}"
+    output_name = f"annotated_{uuid4().hex}.mp4"
+    output_path = OUTPUT_ANNOTATED_DIR / output_name
+
+    try:
+        cleanup_annotated_outputs()
+        cleanup_preview_outputs()
+
+        with temp_path.open("wb") as stream:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                stream.write(chunk)
+
+        if not temp_path.exists() or temp_path.stat().st_size == 0:
+            raise HTTPException(status_code=400, detail="Uploaded video file is empty.")
+
+        transcode_backend = "passthrough"
+        if is_browser_compatible_mp4(temp_path):
+            shutil.move(temp_path, output_path)
+        else:
+            transcode_backend = transcode_video_to_browser_mp4(temp_path, output_path)
+            temp_path.unlink(missing_ok=True)
+
+        return {
+            "type": "annotated-upload",
+            "annotated_filename": output_name,
+            "output_video_url": f"/outputs/annotated/{output_name}",
+            "output_transcode_backend": transcode_backend,
+            "retention_seconds": ANNOTATED_RETENTION_SECONDS,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if output_path.exists():
+            output_path.unlink(missing_ok=True)
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Annotated upload failed: {exc}") from exc
+    finally:
+        await file.close()
+
+
+@app.post("/api/upload-realtime-session")
+async def upload_realtime_session(
+    annotated: UploadFile = File(...),
+    source: UploadFile | None = File(default=None),
+) -> dict[str, Any]:
+    if not annotated.filename:
+        raise HTTPException(status_code=400, detail="Annotated upload must have a filename.")
+
+    annotated_ext = Path(annotated.filename).suffix.lower() or ".mp4"
+    annotated_tmp = OUTPUT_UPLOAD_DIR / f"upload_{uuid4().hex}{annotated_ext}"
+    annotated_name = f"annotated_{uuid4().hex}.mp4"
+    annotated_path = OUTPUT_ANNOTATED_DIR / annotated_name
+
+    source_tmp: Path | None = None
+    source_name: str | None = None
+    source_path: Path | None = None
+
+    if source and source.filename:
+        source_ext = Path(source.filename).suffix.lower() or ".mp4"
+        source_tmp = OUTPUT_UPLOAD_DIR / f"upload_{uuid4().hex}{source_ext}"
+        source_name = f"source_{uuid4().hex}.mp4"
+        source_path = OUTPUT_PREVIEW_DIR / source_name
+
+    try:
+        cleanup_annotated_outputs()
+        cleanup_preview_outputs()
+
+        with annotated_tmp.open("wb") as stream:
+            while True:
+                chunk = await annotated.read(1024 * 1024)
+                if not chunk:
+                    break
+                stream.write(chunk)
+
+        if not annotated_tmp.exists() or annotated_tmp.stat().st_size == 0:
+            raise HTTPException(status_code=400, detail="Annotated upload is empty.")
+
+        annotated_backend = "passthrough"
+        if is_browser_compatible_mp4(annotated_tmp):
+            shutil.move(annotated_tmp, annotated_path)
+        else:
+            annotated_backend = transcode_video_to_browser_mp4(annotated_tmp, annotated_path)
+            annotated_tmp.unlink(missing_ok=True)
+
+        source_backend = None
+        if source and source.filename and source_tmp and source_path:
+            with source_tmp.open("wb") as stream:
+                while True:
+                    chunk = await source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    stream.write(chunk)
+
+            if not source_tmp.exists() or source_tmp.stat().st_size == 0:
+                raise HTTPException(status_code=400, detail="Source upload is empty.")
+
+            if is_browser_compatible_mp4(source_tmp):
+                shutil.move(source_tmp, source_path)
+                source_backend = "passthrough"
+            else:
+                source_backend = transcode_video_to_browser_mp4(source_tmp, source_path)
+                source_tmp.unlink(missing_ok=True)
+
+        return {
+            "type": "realtime-session-upload",
+            "annotated_filename": annotated_name,
+            "source_filename": source_name,
+            "output_video_url": f"/outputs/annotated/{annotated_name}",
+            "source_video_url": f"/outputs/previews/{source_name}" if source_name else None,
+            "annotated_transcode_backend": annotated_backend,
+            "source_transcode_backend": source_backend,
+            "retention_seconds": ANNOTATED_RETENTION_SECONDS,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if annotated_path.exists():
+            annotated_path.unlink(missing_ok=True)
+        if annotated_tmp.exists():
+            annotated_tmp.unlink(missing_ok=True)
+        if source_path and source_path.exists():
+            source_path.unlink(missing_ok=True)
+        if source_tmp and source_tmp.exists():
+            source_tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Realtime upload failed: {exc}") from exc
+    finally:
+        await annotated.close()
+        if source:
+            await source.close()
+
+
 @app.get("/api/infer-video/{job_id}")
 def get_video_inference_job(job_id: str) -> dict[str, Any]:
     cleanup_inference_jobs()
@@ -2390,6 +2613,13 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
     state = ClientState()
 
     try:
+        raw_quality = websocket.query_params.get("quality", "72")
+        jpeg_quality = int(raw_quality)
+    except (TypeError, ValueError):
+        jpeg_quality = 72
+    jpeg_quality = max(20, min(95, jpeg_quality))
+
+    try:
         while True:
             message = await websocket.receive()
             if message.get("type") == "websocket.disconnect":
@@ -2423,7 +2653,15 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
 
             state.frame_index += 1
             result = await app.state.pipeline.infer_frame(frame, state)
-            await websocket.send_json(result)
+            if result.get("type") == "inference":
+                annotated = _annotate_frame(frame, result)
+                packed = _pack_annotated_frame(result, annotated, jpeg_quality)
+                if packed is None:
+                    await websocket.send_json(result)
+                else:
+                    await websocket.send_bytes(packed)
+            else:
+                await websocket.send_json(result)
 
     except WebSocketDisconnect:
         return

@@ -92,9 +92,7 @@ Inference result:
     "confidence": 0.87
   },
   "bbox": [120.4, 88.3, 340.9, 510.2],
-  "keypoints": [
-    { "id": 0, "x": 212.4, "y": 140.2, "confidence": 0.94 }
-  ],
+  "keypoints": [{ "id": 0, "x": 212.4, "y": 140.2, "confidence": 0.94 }],
   "timing_ms": 28.7
 }
 ```
@@ -149,19 +147,22 @@ npm run dev
 - Backend keeps per-client temporal buffers for action inference smoothing.
 - Inference uses confidence EMA and TTA averaging for stable labels.
 
-
 bash# 1. Build frontend
 npm run build
 
 # 2. Create clean backend bundle (no .venv, no duplicates)
+
 prepare-bundle.bat
 
 # 3. Delete old output
+
 rmdir /s /q out\Aerview-win32-x64
 
 # 4. Package and test
+
 npx electron-forge package
 out\Aerview-win32-x64\Aerview.exe
 
 # 5. Only when ready to distribute
+
 npm run make

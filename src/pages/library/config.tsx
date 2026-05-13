@@ -46,6 +46,11 @@ const Config = ({ className }: ConfigProps) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [matchLibrarySettings, setMatchLibrarySettings] = useState(false);
+  const [cachedRealtime, setCachedRealtime] = useState<{
+    yolo_conf: number;
+    yolo_iou: number;
+  } | null>(null);
 
   const loadConfig = async () => {
     setLoading(true);
@@ -66,6 +71,11 @@ const Config = ({ className }: ConfigProps) => {
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
       });
+      setMatchLibrarySettings(
+        data.yolo_conf === data.video_yolo_conf &&
+          data.yolo_iou === data.video_yolo_iou,
+      );
+      setCachedRealtime({ yolo_conf: data.yolo_conf, yolo_iou: data.yolo_iou });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -82,7 +92,29 @@ const Config = ({ className }: ConfigProps) => {
   const updateDraftNumber = (key: keyof DraftConfig, value: string) => {
     if (!draft) return;
     const numeric = clamp01(Number.parseFloat(value));
-    setDraft({ ...draft, [key]: Number.isFinite(numeric) ? numeric : 0 });
+    const nextValue = Number.isFinite(numeric) ? numeric : 0;
+    setDraft({ ...draft, [key]: nextValue });
+    if (!matchLibrarySettings && (key === "yolo_conf" || key === "yolo_iou")) {
+      setCachedRealtime((prev) => ({
+        yolo_conf: key === "yolo_conf" ? nextValue : (prev?.yolo_conf ?? 0),
+        yolo_iou: key === "yolo_iou" ? nextValue : (prev?.yolo_iou ?? 0),
+      }));
+    }
+  };
+
+  const updateLibraryNumber = (
+    key: "video_yolo_conf" | "video_yolo_iou",
+    value: string,
+  ) => {
+    if (!draft) return;
+    const numeric = clamp01(Number.parseFloat(value));
+    const nextValue = Number.isFinite(numeric) ? numeric : 0;
+    const nextDraft = { ...draft, [key]: nextValue };
+    if (matchLibrarySettings) {
+      if (key === "video_yolo_conf") nextDraft.yolo_conf = nextValue;
+      if (key === "video_yolo_iou") nextDraft.yolo_iou = nextValue;
+    }
+    setDraft(nextDraft);
   };
 
   const updateActionThreshold = (label: string, value: string) => {
@@ -213,6 +245,115 @@ const Config = ({ className }: ConfigProps) => {
             <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9a9a9a]">
               ▾
             </span>
+          </div>
+        </div>
+
+        {/* Realtime vs Library YOLO */}
+        <div className="flex flex-col gap-3">
+          <label className={labelCls}>YOLO Confidence / IOU</label>
+
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <span
+              onClick={() => {
+                const next = !matchLibrarySettings;
+                if (next) {
+                  setCachedRealtime({
+                    yolo_conf: draft.yolo_conf,
+                    yolo_iou: draft.yolo_iou,
+                  });
+                }
+                setMatchLibrarySettings(next);
+                if (next) {
+                  setDraft({
+                    ...draft,
+                    yolo_conf: draft.video_yolo_conf,
+                    yolo_iou: draft.video_yolo_iou,
+                  });
+                } else if (cachedRealtime) {
+                  setDraft({
+                    ...draft,
+                    yolo_conf: cachedRealtime.yolo_conf,
+                    yolo_iou: cachedRealtime.yolo_iou,
+                  });
+                }
+              }}
+              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
+                matchLibrarySettings ? "bg-[#0052ff]" : "bg-[#dfdfdf]"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  matchLibrarySettings ? "translate-x-3.5" : "translate-x-0"
+                }`}
+              />
+            </span>
+            <span className="text-[13px] text-[#707070]">
+              Use library YOLO settings for realtime
+            </span>
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-[#9a9a9a]">
+                Realtime confidence
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={draft.yolo_conf}
+                onChange={(e) => updateDraftNumber("yolo_conf", e.target.value)}
+                disabled={matchLibrarySettings}
+                className={inputCls}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-[#9a9a9a]">Realtime IOU</span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={draft.yolo_iou}
+                onChange={(e) => updateDraftNumber("yolo_iou", e.target.value)}
+                disabled={matchLibrarySettings}
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-[#9a9a9a]">
+                Library confidence
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={draft.video_yolo_conf}
+                onChange={(e) =>
+                  updateLibraryNumber("video_yolo_conf", e.target.value)
+                }
+                className={inputCls}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-[#9a9a9a]">Library IOU</span>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={draft.video_yolo_iou}
+                onChange={(e) =>
+                  updateLibraryNumber("video_yolo_iou", e.target.value)
+                }
+                className={inputCls}
+              />
+            </div>
           </div>
         </div>
 

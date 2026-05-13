@@ -4,6 +4,7 @@ export type Detection = {
   confidence: number;
   person_id: number;
   timestamp: string;
+  all_scores?: Record<string, number>;
 };
 
 export type SummaryMetrics = {

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TitleMono from "@/components/titile-mono";
+import type { Detection } from "@/lib/types";
 
 const apiBaseUrl =
   import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -34,8 +35,7 @@ const WAVE_THRESHOLD = 32; // consecutive frames required
 
 type SaveState =
   | { status: "idle" }
-  | { status: "uploading"; progress: number; message: string }
-  | { status: "processing"; progress: number; message: string }
+  | { status: "uploading"; message: string }
   | { status: "saving" }
   | { status: "done"; historyId: string }
   | { status: "error"; message: string };
@@ -72,43 +72,28 @@ function buildSessionSummary(
   return `Live session — ${parts.join("; ")}`;
 }
 
-// Poll the job status endpoint until done or failed
-async function pollJobUntilDone(
-  jobId: string,
-  onProgress: (percent: number, message: string) => void,
-  signal: AbortSignal,
-): Promise<{ result: Record<string, unknown> }> {
-  while (!signal.aborted) {
-    await new Promise((r) => setTimeout(r, 1200));
-    if (signal.aborted) break;
-
-    const res = await fetch(`${apiBaseUrl}/api/infer-video/${jobId}`, {
-      signal,
-    });
-    if (!res.ok) throw new Error("Failed to poll inference job.");
-
-    const job = (await res.json()) as {
-      status: string;
-      progress_percent?: number;
-      progress_message?: string;
-      result?: Record<string, unknown>;
-      error?: string;
-    };
-
-    onProgress(
-      job.progress_percent ?? 0,
-      job.progress_message ?? "Processing…",
-    );
-
-    if (job.status === "completed" && job.result) {
-      return { result: job.result };
-    }
-    if (job.status === "failed") {
-      throw new Error(job.error ?? "Inference job failed.");
-    }
-  }
-  throw new DOMException("Aborted", "AbortError");
+function formatTimestamp(seconds: number): string {
+  const totalMs = Math.max(0, Math.round(seconds * 1000));
+  const ms = totalMs % 1000;
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const s = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const m = totalMinutes % 60;
+  const h = Math.floor(totalMinutes / 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
 }
+
+const emptyAnalysisSummary = () => ({
+  summary_metrics: {
+    yolo_precision: 0,
+    yolo_recall: 0,
+    infogcn_accuracy: 0,
+    mean_average_precision: 0,
+  },
+  alert_events: [],
+  action_confidence_scores: {},
+  grouped_detections: {},
+});
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -138,6 +123,14 @@ const RealTime = () => {
 
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const saveAbortRef = useRef<AbortController | null>(null);
+
+  const detectionsRef = useRef<Detection[]>([]);
+  const sessionStartMsRef = useRef<number | null>(null);
+  const lastInferenceMsRef = useRef<number | null>(null);
+  const lastFrameIndexRef = useRef<number>(0);
+  const annotatedCaptureRef = useRef<{ blob: Blob; mime: string } | null>(null);
+  const sourceCaptureRef = useRef<{ blob: Blob; mime: string } | null>(null);
+  const saveInFlightRef = useRef(false);
 
   // Keep a live snapshot of logs/alerts/frames for use in the save callback
   const logsRef = useRef<string[]>([]);
@@ -220,6 +213,31 @@ const RealTime = () => {
         `[${ts}] frame=${payload.frame_index ?? "-"} detection=${detection} action=${label} conf=${confidence} latency=${payload.timing_ms ?? "-"}ms`,
       );
 
+      const frameNumber =
+        typeof payload.frame_index === "number"
+          ? payload.frame_index
+          : frameCountRef.current + 1;
+      if (sessionStartMsRef.current === null) {
+        sessionStartMsRef.current = performance.now();
+      }
+      lastInferenceMsRef.current = performance.now();
+      lastFrameIndexRef.current = frameNumber;
+      if (payload.persons && payload.persons.length > 0) {
+        const elapsedSeconds =
+          (performance.now() - (sessionStartMsRef.current ?? 0)) / 1000;
+        const timestamp = formatTimestamp(elapsedSeconds);
+        payload.persons.forEach((person) => {
+          detectionsRef.current.push({
+            frame_number: frameNumber,
+            action_label: person.action?.label ?? "Unknown",
+            confidence: person.action?.confidence ?? 0,
+            person_id: person.person_id ?? 0,
+            timestamp,
+            all_scores: person.all_scores ?? undefined,
+          });
+        });
+      }
+
       // ── Consecutive waving detection ─────────────────────────────────────
       const isWaving = label.toLowerCase().includes("wav");
 
@@ -244,62 +262,99 @@ const RealTime = () => {
     [appendLog],
   );
 
-  // ─── Recording complete → upload → poll → save to history ─────────────────
+  // ─── Recording complete → upload → analyze → save to history ─────────────
 
-  const handleRecordingComplete = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      // Reset any previous save state
+  const saveRealtimeSession = useCallback(
+    async (
+      annotated: { blob: Blob; mime: string },
+      source: { blob: Blob; mime: string } | null,
+    ) => {
+      if (saveInFlightRef.current) return;
+      saveInFlightRef.current = true;
+
       setSaveState({
         status: "uploading",
-        progress: 0,
-        message: "Uploading recording…",
+        message: "Uploading session…",
       });
 
       const abortCtrl = new AbortController();
       saveAbortRef.current = abortCtrl;
 
       try {
-        const ext = mimeToExtension(mimeType);
-        const filename = `session_${Date.now()}${ext}`;
+        const annotatedExt = mimeToExtension(annotated.mime);
+        const annotatedName = `session_${Date.now()}${annotatedExt}`;
         const formData = new FormData();
-        formData.append("file", new File([blob], filename, { type: mimeType }));
+        formData.append(
+          "annotated",
+          new File([annotated.blob], annotatedName, { type: annotated.mime }),
+        );
 
-        // 1. Upload to infer-video (async job)
-        const uploadRes = await fetch(`${apiBaseUrl}/api/infer-video`, {
-          method: "POST",
-          body: formData,
-          signal: abortCtrl.signal,
-        });
+        if (source) {
+          const sourceExt = mimeToExtension(source.mime);
+          const sourceName = `source_${Date.now()}${sourceExt}`;
+          formData.append(
+            "source",
+            new File([source.blob], sourceName, { type: source.mime }),
+          );
+        }
+
+        const uploadRes = await fetch(
+          `${apiBaseUrl}/api/upload-realtime-session`,
+          {
+            method: "POST",
+            body: formData,
+            signal: abortCtrl.signal,
+          },
+        );
         if (!uploadRes.ok) {
           const detail = await uploadRes.json().catch(() => ({}));
           throw new Error(
             (detail as { detail?: string }).detail ?? "Upload failed.",
           );
         }
-        const { job_id } = (await uploadRes.json()) as { job_id: string };
+        const uploadResult = (await uploadRes.json()) as {
+          annotated_filename: string;
+          source_filename?: string | null;
+        };
 
-        setSaveState({
-          status: "processing",
-          progress: 0,
-          message: "Starting inference pipeline…",
-        });
-
-        // 2. Poll until complete
-        const { result } = await pollJobUntilDone(
-          job_id,
-          (percent, message) => {
-            setSaveState({ status: "processing", progress: percent, message });
-          },
-          abortCtrl.signal,
+        const totalFrames = Math.max(
+          frameCountRef.current,
+          lastFrameIndexRef.current,
         );
+        const startMs = sessionStartMsRef.current;
+        const endMs = lastInferenceMsRef.current;
+        const lastFrame = lastFrameIndexRef.current;
+        const elapsedSeconds =
+          startMs != null && endMs != null && endMs > startMs
+            ? (endMs - startMs) / 1000
+            : 0;
+        const derivedFps =
+          elapsedSeconds > 0 && lastFrame > 0 ? lastFrame / elapsedSeconds : 0;
+        const sessionFps =
+          Number.isFinite(derivedFps) && derivedFps > 1
+            ? Math.round(derivedFps * 100) / 100
+            : 15;
+
+        const detections = detectionsRef.current.map((entry) => ({
+          ...entry,
+          timestamp: formatTimestamp(
+            Math.max(0, entry.frame_number - 1) / sessionFps,
+          ),
+        }));
+        const analysisRes = await fetch(`${apiBaseUrl}/analyze-video`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            detections_log: detections,
+            total_frames: totalFrames,
+          }),
+          signal: abortCtrl.signal,
+        });
+        const analysisSummary = analysisRes.ok
+          ? await analysisRes.json()
+          : emptyAnalysisSummary();
 
         setSaveState({ status: "saving" });
-
-        // 3. Save to history
-        const annotatedFilename =
-          (result.output_video_url as string).split("/").pop() ?? "";
-        const sourceFilename =
-          (result.source_video_url as string)?.split("/").pop() ?? undefined;
 
         const currentLogs = logsRef.current;
         const currentAlerts = waveAlertLogsRef.current;
@@ -315,14 +370,17 @@ const RealTime = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            annotatedFilename,
-            sourceFilename,
+            annotatedFilename: uploadResult.annotated_filename,
+            sourceFilename: uploadResult.source_filename ?? undefined,
             summary,
             filename: `Live Session ${new Date().toLocaleString()}`,
             analysis: {
-              ...(result as object),
+              fps: sessionFps,
+              analysis_summary: analysisSummary,
               realtimeLogs: currentLogs,
               waveAlertLogs: currentAlerts,
+              framesProcessed: currentFrames,
+              source: "realtime",
             },
           }),
           signal: abortCtrl.signal,
@@ -340,9 +398,36 @@ const RealTime = () => {
           status: "error",
           message: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        saveInFlightRef.current = false;
       }
     },
     [],
+  );
+
+  const tryFinalizeSave = useCallback(() => {
+    const annotated = annotatedCaptureRef.current;
+    const source = sourceCaptureRef.current;
+    if (!annotated || !source) return;
+    annotatedCaptureRef.current = null;
+    sourceCaptureRef.current = null;
+    saveRealtimeSession(annotated, source);
+  }, [saveRealtimeSession]);
+
+  const handleRecordingComplete = useCallback(
+    (blob: Blob, mimeType: string) => {
+      annotatedCaptureRef.current = { blob, mime: mimeType };
+      tryFinalizeSave();
+    },
+    [tryFinalizeSave],
+  );
+
+  const handleSourceRecordingComplete = useCallback(
+    (blob: Blob, mimeType: string) => {
+      sourceCaptureRef.current = { blob, mime: mimeType };
+      tryFinalizeSave();
+    },
+    [tryFinalizeSave],
   );
 
   // When camera becomes active, reset save state and logs
@@ -355,6 +440,13 @@ const RealTime = () => {
       setDetectionCount(0);
       setLatestAction(null);
       consecutiveWaveRef.current = 0;
+      detectionsRef.current = [];
+      sessionStartMsRef.current = null;
+      lastInferenceMsRef.current = null;
+      lastFrameIndexRef.current = 0;
+      annotatedCaptureRef.current = null;
+      sourceCaptureRef.current = null;
+      saveInFlightRef.current = false;
     }
     setIsCameraActive(active);
   }, []);
@@ -422,16 +514,9 @@ const RealTime = () => {
       );
     }
 
-    // uploading / processing / saving
     const isSaving = saveState.status === "saving";
-    const progress =
-      saveState.status === "uploading" || saveState.status === "processing"
-        ? saveState.progress
-        : isSaving
-          ? 99
-          : 0;
     const message =
-      saveState.status === "uploading" || saveState.status === "processing"
+      saveState.status === "uploading"
         ? saveState.message
         : "Saving to history…";
 
@@ -449,9 +534,7 @@ const RealTime = () => {
             <p className="text-sm font-semibold text-slate-800">
               {saveState.status === "uploading"
                 ? "Uploading session…"
-                : saveState.status === "processing"
-                  ? "Processing with AI…"
-                  : "Saving to history…"}
+                : "Saving to history…"}
             </p>
             <p className="text-xs text-slate-500 truncate">{message}</p>
           </div>
@@ -467,14 +550,9 @@ const RealTime = () => {
         <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
           <div
             className="h-full rounded-full bg-blue-500 transition-all duration-500"
-            style={{ width: `${Math.max(2, progress)}%` }}
+            style={{ width: isSaving ? "100%" : "45%" }}
           />
         </div>
-        {saveState.status === "processing" && (
-          <p className="text-[10px] text-slate-400 text-right">
-            {Math.round(progress)}%
-          </p>
-        )}
       </div>
     );
   };
@@ -551,6 +629,7 @@ const RealTime = () => {
                 onConnectionStateChange={setConnectionState}
                 onCameraLabelChange={setCameraLabel}
                 onRecordingComplete={handleRecordingComplete}
+                onSourceRecordingComplete={handleSourceRecordingComplete}
               />
             </div>
           </div>
@@ -623,9 +702,7 @@ const RealTime = () => {
                   <span className="text-[10px] text-blue-700 truncate">
                     {saveState.status === "uploading"
                       ? "Uploading…"
-                      : saveState.status === "processing"
-                        ? `Processing ${Math.round(saveState.progress)}%`
-                        : "Saving…"}
+                      : "Saving…"}
                   </span>
                 </div>
               )}
