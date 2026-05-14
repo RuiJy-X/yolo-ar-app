@@ -25,6 +25,10 @@ export type InferencePayload = {
   keypoints?: Keypoint[];
 };
 
+type RuntimeConfig = {
+  realtime_disable_downscale?: boolean;
+};
+
 type RealTimeVideoProps = {
   isCameraActive: boolean;
   setIsCameraActive: (active: boolean) => void;
@@ -129,10 +133,14 @@ const RealTimeVideo = ({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isDeviceListLoading, setIsDeviceListLoading] = useState(false);
   const manualSelectionRef = useRef(false);
+  const [disableDownscale, setDisableDownscale] = useState(false);
 
   const wsUrl =
     (import.meta.env.VITE_ACTION_WS_URL ??
       "ws://localhost:8000/ws/action-recognition") + "?quality=72";
+
+  const apiBaseUrl =
+    import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -172,6 +180,36 @@ const RealTimeVideo = ({
       prevUrlRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadConfig = async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/config`);
+        if (!res.ok) return;
+        const data = (await res.json()) as RuntimeConfig;
+        if (isMounted && typeof data.realtime_disable_downscale === "boolean") {
+          setDisableDownscale(data.realtime_disable_downscale);
+        }
+      } catch {
+        // Config fetch is optional; keep defaults on failure.
+      }
+    };
+    loadConfig();
+
+    const onConfigUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<RuntimeConfig>).detail;
+      if (typeof detail?.realtime_disable_downscale === "boolean") {
+        setDisableDownscale(detail.realtime_disable_downscale);
+      }
+    };
+
+    window.addEventListener("runtime-config-updated", onConfigUpdated);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("runtime-config-updated", onConfigUpdated);
+    };
+  }, [apiBaseUrl]);
 
   // ── Recording ─────────────────────────────────────────────────────────────
 
@@ -605,7 +643,9 @@ const RealTimeVideo = ({
         return;
       if (sendingRef.current || ws.bufferedAmount > 1_000_000) return;
       const maxWidth = 640;
-      const scale = Math.min(1, maxWidth / video.videoWidth);
+      const scale = disableDownscale
+        ? 1
+        : Math.min(1, maxWidth / video.videoWidth);
       const width = Math.max(2, Math.floor(video.videoWidth * scale));
       const height = Math.max(2, Math.floor(video.videoHeight * scale));
       const canvas = sendCanvasRef.current ?? document.createElement("canvas");
@@ -639,7 +679,7 @@ const RealTimeVideo = ({
     };
     sendIntervalRef.current = window.setInterval(sendFrame, 100);
     return () => stopFrameLoop();
-  }, [isCameraActive, stopFrameLoop]);
+  }, [disableDownscale, isCameraActive, stopFrameLoop]);
 
   // Cleanup on unmount
   useEffect(() => {

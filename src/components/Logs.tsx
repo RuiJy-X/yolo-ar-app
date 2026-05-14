@@ -443,8 +443,44 @@ const Logs = ({ analysis, onSeekToFrame, selectedTag }: LogsProps) => {
   const selectedAction = selectedTag?.action ?? null;
   const selectedInstanceKey = useMemo(() => {
     if (!selectedTag) return null;
-    return `${selectedTag.action}-p${selectedTag.personId}-f${selectedTag.startFrame}-${selectedTag.endFrame}`;
-  }, [selectedTag]);
+
+    const entry = groupedActions.find(
+      (group) => group.action === selectedTag.action,
+    );
+    if (!entry) return null;
+
+    const candidates = entry.instances.filter(
+      (instance) => instance.personId === selectedTag.personId,
+    );
+    if (candidates.length === 0) return null;
+
+    const overlap = candidates.find(
+      (instance) =>
+        instance.startFrame <= selectedTag.endFrame &&
+        instance.endFrame >= selectedTag.startFrame,
+    );
+
+    const bestMatch =
+      overlap ??
+      candidates.reduce(
+        (best, instance) => {
+          const distance =
+            selectedTag.startFrame < instance.startFrame
+              ? instance.startFrame - selectedTag.startFrame
+              : selectedTag.startFrame > instance.endFrame
+                ? selectedTag.startFrame - instance.endFrame
+                : 0;
+
+          if (!best) return { instance, distance };
+          return distance < best.distance ? { instance, distance } : best;
+        },
+        null as { instance: ActionInstance; distance: number } | null,
+      )?.instance;
+
+    if (!bestMatch) return null;
+
+    return `${selectedTag.action}-p${bestMatch.personId}-f${bestMatch.startFrame}-${bestMatch.endFrame}`;
+  }, [groupedActions, selectedTag]);
 
   const toggleHiddenAction = (action: string) => {
     setHiddenActions((prev) => {

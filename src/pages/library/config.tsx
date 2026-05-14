@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const apiBaseUrl =
   import.meta.env?.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
+const REALTIME_DOWNSCALE_KEY = "realtime:disable-downscale";
 
 type RuntimeConfig = {
   yolo_model: string;
@@ -12,6 +13,7 @@ type RuntimeConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  realtime_disable_downscale?: boolean;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -24,6 +26,7 @@ type DraftConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  realtime_disable_downscale: boolean;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -60,6 +63,14 @@ const Config = ({ className }: ConfigProps) => {
       const res = await fetch(`${apiBaseUrl}/api/config`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: RuntimeConfig = await res.json();
+      const storedDownscale = (() => {
+        try {
+          const raw = window.localStorage.getItem(REALTIME_DOWNSCALE_KEY);
+          return raw === "true" ? true : raw === "false" ? false : null;
+        } catch {
+          return null;
+        }
+      })();
       setConfig(data);
       setDraft({
         yolo_model: data.yolo_model,
@@ -67,6 +78,8 @@ const Config = ({ className }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        realtime_disable_downscale:
+          data.realtime_disable_downscale ?? storedDownscale ?? false,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -147,6 +160,8 @@ const Config = ({ className }: ConfigProps) => {
         );
       }
       const data: RuntimeConfig = await res.json();
+      const nextDisableDownscale =
+        data.realtime_disable_downscale ?? draft.realtime_disable_downscale;
       setConfig(data);
       setDraft({
         yolo_model: data.yolo_model,
@@ -154,10 +169,27 @@ const Config = ({ className }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        realtime_disable_downscale: nextDisableDownscale,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
       });
+      try {
+        window.localStorage.setItem(
+          REALTIME_DOWNSCALE_KEY,
+          String(nextDisableDownscale),
+        );
+      } catch {
+        // Ignore storage failures (private mode, quota, etc.)
+      }
+      window.dispatchEvent(
+        new CustomEvent("runtime-config-updated", {
+          detail: {
+            ...data,
+            realtime_disable_downscale: nextDisableDownscale,
+          },
+        }),
+      );
       setSavedMessage("Configuration saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -359,6 +391,40 @@ const Config = ({ className }: ConfigProps) => {
 
         {/* Divider */}
         <div className="h-px bg-[#ededed]" />
+
+        {/* Realtime frame scaling */}
+        <div className="flex flex-col gap-2">
+          <label className={labelCls}>Realtime Frame Scaling</label>
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <span
+              onClick={() =>
+                setDraft({
+                  ...draft,
+                  realtime_disable_downscale: !draft.realtime_disable_downscale,
+                })
+              }
+              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
+                draft.realtime_disable_downscale
+                  ? "bg-[#0052ff]"
+                  : "bg-[#dfdfdf]"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  draft.realtime_disable_downscale
+                    ? "translate-x-3.5"
+                    : "translate-x-0"
+                }`}
+              />
+            </span>
+            <span className="text-[13px] text-[#707070]">
+              Disable realtime downscaling
+            </span>
+          </label>
+          <p className="text-[11px] text-[#9a9a9a]">
+            When enabled, frames are sent at full camera resolution.
+          </p>
+        </div>
 
         {/* InfoGCN model selector */}
         <ModelSelector />
