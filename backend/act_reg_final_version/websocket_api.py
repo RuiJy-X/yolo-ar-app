@@ -495,7 +495,7 @@ def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
         if writer is not None:
             writer.release()
 
-    if not output_path.exists() or output_path.stat().st_size <= 0:
+    if not output_path.exists() or output_path.stat( ).st_size <= 0:
         raise RuntimeError("Browser transcoding failed; could not create source MP4.")
 
     return f"opencv-{codec}"

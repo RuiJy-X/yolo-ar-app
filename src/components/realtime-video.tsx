@@ -175,6 +175,18 @@ const RealTimeVideo = ({
 
   // ── Recording ─────────────────────────────────────────────────────────────
 
+  const buildVideoConstraints = useCallback(
+    (deviceId?: string): MediaTrackConstraints | boolean => {
+      const constraints: MediaTrackConstraints = {
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        frameRate: { ideal: 15, max: 30 },
+      };
+      if (deviceId) constraints.deviceId = { exact: deviceId };
+      return constraints;
+    },
+    [],
+  );
   const startRecording = useCallback((stream: MediaStream) => {
     if (!window.MediaRecorder) return;
     if (mediaRecorderRef.current) return;
@@ -257,7 +269,7 @@ const RealTimeVideo = ({
   // ── Receive annotated frame ───────────────────────────────────────────────
 
   const handleWsMessage = useCallback(
-    (event: MessageEvent) => {
+    async (event: MessageEvent) => {
       // All responses from the new backend are binary (packed frame)
       if (event.data instanceof ArrayBuffer) {
         const parsed = parseAnnotatedFrame(event.data);
@@ -283,9 +295,13 @@ const RealTimeVideo = ({
               if (ctx) ctx.drawImage(imgEl, 0, 0, width, height);
 
               if (!mediaRecorderRef.current && isCameraActive) {
-                const stream = canvas.captureStream(15);
-                recordingStreamRef.current = stream;
-                startRecording(stream);
+                try {
+                  const stream = canvas.captureStream(15);
+                  recordingStreamRef.current = stream;
+                  startRecording(stream);
+                } catch {
+                  // Recording is optional; ignore captureStream failures.
+                }
               }
             }
           };
@@ -296,6 +312,54 @@ const RealTimeVideo = ({
 
         onInference?.(payload);
         return;
+      }
+
+      if (event.data instanceof Blob) {
+        try {
+          const buffer = await event.data.arrayBuffer();
+          const parsed = parseAnnotatedFrame(buffer);
+          if (!parsed) return;
+
+          const { payload, jpegUrl } = parsed;
+          const imgEl = annotatedImgRef.current;
+          if (imgEl) {
+            imgEl.onload = () => {
+              const canvas =
+                recordingCanvasRef.current ?? document.createElement("canvas");
+              recordingCanvasRef.current = canvas;
+
+              const width = imgEl.naturalWidth || imgEl.width;
+              const height = imgEl.naturalHeight || imgEl.height;
+              if (width && height) {
+                if (canvas.width !== width || canvas.height !== height) {
+                  canvas.width = width;
+                  canvas.height = height;
+                }
+                const ctx = canvas.getContext("2d", { alpha: false });
+                if (ctx) ctx.drawImage(imgEl, 0, 0, width, height);
+
+                if (!mediaRecorderRef.current && isCameraActive) {
+                  try {
+                    const stream = canvas.captureStream(15);
+                    recordingStreamRef.current = stream;
+                    startRecording(stream);
+                  } catch {
+                    // Recording is optional; ignore captureStream failures.
+                  }
+                }
+              }
+            };
+            imgEl.src = jpegUrl;
+          }
+          if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
+          prevUrlRef.current = jpegUrl;
+
+          onInference?.(payload);
+          return;
+        } catch {
+          setError("Failed to decode binary frame.");
+          return;
+        }
       }
 
       // Fallback: plain JSON (e.g. pong, error)
@@ -328,12 +392,24 @@ const RealTimeVideo = ({
   }, []);
 
   const openCameraStream = useCallback(
-    async (deviceId?: string): Promise<MediaStream> =>
-      navigator.mediaDevices.getUserMedia({
-        video: deviceId ? { deviceId: { exact: deviceId } } : true,
-        audio: false,
-      }),
-    [],
+    async (deviceId?: string): Promise<MediaStream> => {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: buildVideoConstraints(deviceId),
+          audio: false,
+        });
+      } catch (err) {
+        const name = err instanceof Error ? err.name : "";
+        if (name === "OverconstrainedError") {
+          return navigator.mediaDevices.getUserMedia({
+            video: deviceId ? { deviceId: { exact: deviceId } } : true,
+            audio: false,
+          });
+        }
+        throw err;
+      }
+    },
+    [buildVideoConstraints],
   );
 
   const getPreferredCameraId = useCallback(

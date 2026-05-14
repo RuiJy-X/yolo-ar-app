@@ -1,7 +1,7 @@
-const { app, BrowserWindow, dialog, session } = require('electron');
-const { spawn } = require('child_process');
-const path = require('path');
-const http = require('http');
+const { app, BrowserWindow, dialog, session } = require("electron");
+const { spawn } = require("child_process");
+const path = require("path");
+const http = require("http");
 
 let backendProcess = null;
 let mainWindow = null;
@@ -9,31 +9,33 @@ let mainWindow = null;
 function getPaths() {
   if (app.isPackaged) {
     return {
-      pythonExe: path.join(process.resourcesPath, 'python-embed', 'python.exe'),
-      backendDir: path.join(process.resourcesPath, 'backend-bundle'),
+      pythonExe: path.join(process.resourcesPath, "python-embed", "python.exe"),
+      backendDir: path.join(process.resourcesPath, "backend-bundle"),
     };
   }
   return {
-    pythonExe: path.join(__dirname, 'python-embed', 'python.exe'),
-    backendDir: path.join(__dirname, 'backend', 'act_reg_final_version'),
+    pythonExe: path.join(__dirname, "python-embed", "python.exe"),
+    backendDir: path.join(__dirname, "backend", "act_reg_final_version"),
   };
 }
 
 function waitForBackend(retries = 40, delay = 500) {
   return new Promise((resolve, reject) => {
     const attempt = (n) => {
-      http.get('http://localhost:8000/health', (res) => {
-        if (res.statusCode === 200) {
-          resolve();
-        } else if (n > 0) {
-          setTimeout(() => attempt(n - 1), delay);
-        } else {
-          reject(new Error('Backend health check failed'));
-        }
-      }).on('error', () => {
-        if (n > 0) setTimeout(() => attempt(n - 1), delay);
-        else reject(new Error('Backend not reachable after timeout'));
-      });
+      http
+        .get("http://localhost:8000/health", (res) => {
+          if (res.statusCode === 200) {
+            resolve();
+          } else if (n > 0) {
+            setTimeout(() => attempt(n - 1), delay);
+          } else {
+            reject(new Error("Backend health check failed"));
+          }
+        })
+        .on("error", () => {
+          if (n > 0) setTimeout(() => attempt(n - 1), delay);
+          else reject(new Error("Backend not reachable after timeout"));
+        });
     };
     attempt(retries);
   });
@@ -42,33 +44,44 @@ function waitForBackend(retries = 40, delay = 500) {
 function startBackend() {
   const { pythonExe, backendDir } = getPaths();
 
-  console.log('[main] isPackaged:', app.isPackaged);
-  console.log('[main] python:', pythonExe);
-  console.log('[main] backendDir:', backendDir);
+  console.log("[main] isPackaged:", app.isPackaged);
+  console.log("[main] python:", pythonExe);
+  console.log("[main] backendDir:", backendDir);
 
-  backendProcess = spawn(pythonExe, [
-    '-m', 'uvicorn',
-    'websocket_api:app',
-    '--host', '0.0.0.0',
-    '--port', '8000',
-  ], {
-    cwd: backendDir,
-    windowsHide: true,
-    env: {
-      ...process.env,
-      PYTHONPATH: backendDir,
+  backendProcess = spawn(
+    pythonExe,
+    [
+      "-m",
+      "uvicorn",
+      "websocket_api:app",
+      "--host",
+      "0.0.0.0",
+      "--port",
+      "8000",
+    ],
+    {
+      cwd: backendDir,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONPATH: backendDir,
+      },
     },
-  });
+  );
 
-  backendProcess.stdout?.on('data', d => console.log('[backend]', d.toString().trim()));
-  backendProcess.stderr?.on('data', d => console.error('[backend]', d.toString().trim()));
+  backendProcess.stdout?.on("data", (d) =>
+    console.log("[backend]", d.toString().trim()),
+  );
+  backendProcess.stderr?.on("data", (d) =>
+    console.error("[backend]", d.toString().trim()),
+  );
 
-  backendProcess.on('exit', (code) => {
-    console.log('[backend] exited with code', code);
+  backendProcess.on("exit", (code) => {
+    console.log("[backend] exited with code", code);
     if (code !== 0 && mainWindow) {
       dialog.showErrorBox(
-        'Aerview backend stopped',
-        `The backend process exited unexpectedly (code ${code}).\nPlease restart the app.`
+        "Aerview backend stopped",
+        `The backend process exited unexpectedly (code ${code}).\nPlease restart the app.`,
       );
     }
   });
@@ -105,7 +118,11 @@ app.whenReady().then(async () => {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8000 ws://localhost:8000",
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8000;" +
+            "connect-src 'self' http://localhost:8000 ws://localhost:8000;" +
+            "img-src 'self' blob: data: http://localhost:8000;" +
+            "font-src 'self' data: http://localhost:8000;" +
+            "media-src 'self' blob: data: http://localhost:8000;",
         ],
       },
     });
@@ -131,11 +148,17 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', () => {
-  if (backendProcess) { backendProcess.kill(); backendProcess = null; }
+app.on("window-all-closed", () => {
+  if (backendProcess) {
+    backendProcess.kill();
+    backendProcess = null;
+  }
   app.quit();
 });
 
-app.on('before-quit', () => {
-  if (backendProcess) { backendProcess.kill(); backendProcess = null; }
+app.on("before-quit", () => {
+  if (backendProcess) {
+    backendProcess.kill();
+    backendProcess = null;
+  }
 });
