@@ -287,9 +287,12 @@ function InstanceCard({
       }}
     >
       {/* Main row — clickable to seek */}
-      <button
-        type="button"
+      <div
+        role="button"
         onClick={handleRowClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") handleRowClick();
+        }}
         className="w-full text-left px-3 py-2"
       >
         <div className="flex items-center justify-between gap-2">
@@ -327,7 +330,7 @@ function InstanceCard({
             )}
           </div>
         </div>
-      </button>
+      </div>
 
       {/* Score breakdown — animated expand */}
       <AnimatePresence initial={false}>

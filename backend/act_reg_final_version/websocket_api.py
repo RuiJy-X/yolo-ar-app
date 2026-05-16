@@ -2670,6 +2670,26 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1011)
 
 
+class RenameHistoryRequest(BaseModel):
+    filename: str
+
+@app.patch("/api/history/{entry_id}", response_model=HistoryDetailResponse)
+def rename_history_entry(entry_id: str, body: RenameHistoryRequest) -> HistoryDetailResponse:
+    entry_dir = history_entry_dir(entry_id)
+    if not entry_dir.exists():
+        raise HTTPException(status_code=404, detail="History entry not found.")
+    meta = load_history_meta(entry_dir)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Metadata missing.")
+    meta["filename"] = body.filename or meta.get("filename", "")
+    (entry_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=True, indent=2), encoding="utf-8"
+    )
+    analysis_path = entry_dir / "analysis.json"
+    analysis = json.loads(analysis_path.read_text(encoding="utf-8")) if analysis_path.exists() else {}
+    entry = build_history_entry(meta)
+    return HistoryDetailResponse(**entry.dict(), analysis=analysis)
+
 # ── Resolve paths when running as PyInstaller bundle ──────────────────────────
 def _base_dir() -> str:
     if getattr(sys, 'frozen', False):

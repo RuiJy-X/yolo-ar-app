@@ -15,13 +15,14 @@ const NavBar = () => {
         {/* Wordmark */}
         <Link
           to="/"
-          className="font-semibold text-[17px] tracking-[-0.4px] text-[#171717] flex items-center gap-1.5 shrink-0 select-none"
+          className="font-semibold text-[17px] tracking-[-0.4px] gap-1.5 text-[#171717] flex items-center  shrink-0 select-none"
           style={{ fontFamily: "var(--heading)" }}
         >
           {/* Brand accent dot — the only chromatic event */}
-          <span
-            className="inline-block w-2 h-2 rounded-full shrink-0"
-            style={{ background: "#0052ff" }}
+          <img
+            src="/skysightlogo.png"
+            alt="Skysight Logo"
+            className="w-8 object-contain"
           />
           Skysight
         </Link>
@@ -31,7 +32,7 @@ const NavBar = () => {
 
         {/* Nav links */}
         <nav className="flex items-center h-full gap-6">
-          <NavLink to="/" className={getLinkStyle} end>
+          <NavLink to="/home" className={getLinkStyle} end>
             Home
           </NavLink>
           <NavLink to="/library" className={getLinkStyle}>

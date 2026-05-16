@@ -390,7 +390,6 @@ const Config = ({ className }: ConfigProps) => {
         </div>
 
         {/* Divider */}
-        <div className="h-px bg-[#ededed]" />
 
         {/* Realtime frame scaling */}
         <div className="flex flex-col gap-2">
@@ -426,11 +425,11 @@ const Config = ({ className }: ConfigProps) => {
           </p>
         </div>
 
+        <div className="h-px bg-[#ededed]" />
         {/* InfoGCN model selector */}
         <ModelSelector />
 
         {/* Divider */}
-        <div className="h-px bg-[#ededed]" />
 
         {/* Action Confidence Thresholds */}
         <div className="flex flex-col gap-3">

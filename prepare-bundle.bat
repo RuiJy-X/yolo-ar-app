@@ -20,7 +20,6 @@ xcopy /E /I /Y /Q backend\act_reg_final_version\ffmpeg backend-bundle\ffmpeg\
 echo Copying models...
 copy backend\act_reg_final_version\yolo-best.pt backend-bundle\
 copy backend\act_reg_final_version\yolo11n-pose.pt backend-bundle\
-copy backend\act_reg_final_version\yolo26n-pose.pt backend-bundle\
 xcopy /E /I /Y /Q backend\act_reg_final_version\results backend-bundle\results\
 
 echo Copying frontend build...

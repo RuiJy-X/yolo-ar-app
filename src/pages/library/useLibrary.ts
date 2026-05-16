@@ -183,6 +183,20 @@ export const useLibraryState = (historyId?: string | null) => {
   // Tracks whether the current session was loaded from a history entry.
   // Used to route re-analysis through the history-aware backend endpoint.
   const [loadedHistoryId, setLoadedHistoryId] = useState<string | null>(null);
+  const [currentProjectName, setCurrentProjectName] = useState<string | null>(
+    null,
+  );
+  const [saveToastMessage, setSaveToastMessage] = useState<string | null>(null);
+  const [showProjectNameDialog, setShowProjectNameDialog] = useState(false);
+  const [projectNameInput, setProjectNameInput] = useState("");
+  const [pendingHistoryData, setPendingHistoryData] = useState<{
+    annotatedFilename: string;
+    sourceFilename: string | null;
+  } | null>(null);
+
+  const [annotatedVideoFilename, setAnnotatedVideoFilename] = useState<
+    string | null
+  >(null);
 
   const replaceSourceVideoUrl = (nextUrl: string | null) => {
     setSourceVideoUrl((previous) => {
@@ -361,6 +375,11 @@ export const useLibraryState = (historyId?: string | null) => {
         output.output_download_url ?? output.output_video_url,
         apiBaseUrl,
       );
+      setAnnotatedVideoFilename(
+        getFilenameFromUrl(
+          toAbsoluteUrl(output.output_video_url, apiBaseUrl).split("?")[0],
+        ),
+      );
       const sourcePlaybackUrl = output.source_video_url
         ? toAbsoluteUrl(output.source_video_url, apiBaseUrl)
         : null;
@@ -475,7 +494,9 @@ export const useLibraryState = (historyId?: string | null) => {
       return;
     }
 
-    const annotatedFilename = getFilenameFromUrl(rawVideoUrl);
+    const cleanUrl = rawVideoUrl.split("?")[0];
+    const annotatedFilename =
+      annotatedVideoFilename ?? getFilenameFromUrl(cleanUrl);
     if (!annotatedFilename) {
       setError("Could not resolve the annotated filename.");
       return;
@@ -483,11 +504,63 @@ export const useLibraryState = (historyId?: string | null) => {
 
     const sourceFilename =
       sourceVideoUrl && !sourceVideoUrl.startsWith("blob:")
-        ? getFilenameFromUrl(sourceVideoUrl)
+        ? getFilenameFromUrl(sourceVideoUrl.split("?")[0])
         : null;
 
     setError(null);
+    setProjectNameInput("");
+    setPendingHistoryData({ annotatedFilename, sourceFilename });
+    setShowProjectNameDialog(true);
+  };
+
+  const confirmProjectNameAndSave = async (projectName: string) => {
+    if (!analysis) {
+      setError("Run the analysis before saving to history.");
+      return;
+    }
+
+    setShowProjectNameDialog(false);
+    setError(null);
+
     try {
+      // ── Branch A: entry already exists in history → just rename it in place ──
+      if (loadedHistoryId) {
+        const response = await fetch(
+          `${apiBaseUrl}/api/history/${loadedHistoryId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: projectName }),
+          },
+        );
+
+        const payload = (await response.json().catch(() => null)) as
+          | HistoryEntry
+          | { detail?: string };
+        if (!response.ok) {
+          throw new Error(
+            typeof payload === "object" &&
+              payload !== null &&
+              "detail" in payload
+              ? payload.detail || "Renaming project failed."
+              : "Renaming project failed.",
+          );
+        }
+
+        setCurrentProjectName(projectName);
+        setSaveToastMessage(`Project "${projectName}" renamed successfully!`);
+        setTimeout(() => setSaveToastMessage(null), 4000);
+        return;
+      }
+
+      // ── Branch B: fresh inference result → save as a new history entry ──
+      if (!pendingHistoryData) {
+        setError("Missing file information. Please try saving again.");
+        return;
+      }
+
+      const { annotatedFilename, sourceFilename } = pendingHistoryData;
+
       const response = await fetch(`${apiBaseUrl}/api/history`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -495,7 +568,7 @@ export const useLibraryState = (historyId?: string | null) => {
           annotatedFilename,
           sourceFilename,
           summary: summary ?? "Saved video analysis",
-          filename: annotatedFilename,
+          filename: projectName || annotatedFilename,
           // Wrap the bare AnalyzeVideoResponse in an envelope that includes fps
           // so that when this history entry is reloaded, storedFps is recoverable
           // and seekToFrame uses the correct frame rate. Without this, analysis.fps
@@ -519,6 +592,10 @@ export const useLibraryState = (historyId?: string | null) => {
       }
 
       setHistorySavedAt(Date.now());
+      setCurrentProjectName(projectName);
+      setSaveToastMessage(`Project "${projectName}" saved successfully!`);
+      setPendingHistoryData(null);
+      setTimeout(() => setSaveToastMessage(null), 4000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -660,6 +737,9 @@ export const useLibraryState = (historyId?: string | null) => {
         // render where timeline tag positions are wrong.
         setResultPlaybackError(null);
         setLoadedHistoryId(entry.id); // remember which history entry this is
+        // inside loadHistory effect, after setLoadedHistoryId:
+        setAnnotatedVideoFilename(null);
+        setCurrentProjectName(entry.filename ?? null);
         setResultVideoUrl(
           withCacheBust(toAbsoluteUrl(entry.videoUrl, apiBaseUrl)),
         );
@@ -735,12 +815,18 @@ export const useLibraryState = (historyId?: string | null) => {
     timelineDurationSeconds,
     isPlaying,
     historySavedAt,
+    currentProjectName,
+    saveToastMessage,
+    showProjectNameDialog,
+    projectNameInput,
     // setters needed by child components
     setSourcePlaybackError,
     setResultPlaybackError,
     setCurrentTimeSeconds,
     setVideoDurationSeconds,
     setResultVideoUrl,
+    setProjectNameInput,
+    setShowProjectNameDialog,
     // handlers
     handleFileChange,
     handleRunInference,
@@ -748,6 +834,7 @@ export const useLibraryState = (historyId?: string | null) => {
     handleTimelineScrub,
     handleDownload,
     saveToHistory,
+    confirmProjectNameAndSave,
     clearSessionVideos,
     restoreRecentVideo,
 

@@ -5,6 +5,8 @@ import type { ActionTimelineTag } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
 import Config from "./library/config";
+import ProjectNameDialog from "./library/project-name-dialog";
+import SaveToast from "./library/save-toast";
 import { useSearchParams } from "react-router";
 import { useState } from "react";
 
@@ -29,6 +31,10 @@ const Library = () => {
     progressFrameIndex,
     progressTotalFrames,
     historySavedAt,
+    currentProjectName,
+    saveToastMessage,
+    showProjectNameDialog,
+    projectNameInput,
     currentTimeSeconds,
     actionTimelineTags,
     timelineDurationSeconds,
@@ -38,10 +44,12 @@ const Library = () => {
     setResultVideoUrl,
     setSourcePlaybackError,
     setResultPlaybackError,
+    setShowProjectNameDialog,
     handleFileChange,
     handleRunInference,
     handleDownload,
     saveToHistory,
+    confirmProjectNameAndSave,
     handleTimelineScrub,
     seekToFrame,
     togglePlayPause,
@@ -54,6 +62,19 @@ const Library = () => {
   return (
     <AppLayout>
       <div className="flex flex-col w-full h-full overflow-hidden gap-1">
+        {/* Header with Project Name */}
+        {currentProjectName && (
+          <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-medium text-blue-600 uppercase tracking-wider">
+                Current Project
+              </span>
+              <span className="text-[14px] font-semibold text-blue-900">
+                {currentProjectName}
+              </span>
+            </div>
+          </div>
+        )}
         {/* Top Section: Config | Video | Logs */}
         <div className="flex flex-1 min-h-0 w-full gap-1">
           {/* 1. Config Panel (25%) */}
@@ -121,6 +142,22 @@ const Library = () => {
           />
         </div>
       </div>
+
+      {/* Project Name Dialog */}
+      <ProjectNameDialog
+        isOpen={showProjectNameDialog}
+        initialValue={projectNameInput}
+        onConfirm={confirmProjectNameAndSave}
+        onCancel={() => setShowProjectNameDialog(false)}
+      />
+
+      {/* Save Toast */}
+      <SaveToast
+        message={saveToastMessage}
+        onDismiss={() => {
+          /* auto-dismisses after 4 seconds */
+        }}
+      />
     </AppLayout>
   );
 };
