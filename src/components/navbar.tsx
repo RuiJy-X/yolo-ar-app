@@ -1,4 +1,5 @@
 import { NavLink, Link } from "react-router";
+import skysightLogo from "../assets/skysightlogo.png";
 
 const NavBar = () => {
   const getLinkStyle = ({ isActive }: { isActive: boolean }) =>
@@ -20,7 +21,7 @@ const NavBar = () => {
         >
           {/* Brand accent dot — the only chromatic event */}
           <img
-            src="/skysightlogo.png"
+            src={skysightLogo}
             alt="Skysight Logo"
             className="w-8 object-contain"
           />
