@@ -5,6 +5,12 @@ const http = require("http");
 
 let backendProcess = null;
 let mainWindow = null;
+let ownsBackend = false;
+
+const BACKEND_HOST = "localhost";
+const BACKEND_PORT = 8000;
+const BACKEND_BASE_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
+const BACKEND_HEALTH_URL = `${BACKEND_BASE_URL}/health`;
 
 function getPaths() {
   if (app.isPackaged) {
@@ -19,11 +25,22 @@ function getPaths() {
   };
 }
 
+function checkBackendHealth() {
+  return new Promise((resolve) => {
+    http
+      .get(BACKEND_HEALTH_URL, (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      })
+      .on("error", () => resolve(false));
+  });
+}
+
 function waitForBackend(retries = 40, delay = 500) {
   return new Promise((resolve, reject) => {
     const attempt = (n) => {
       http
-        .get("http://localhost:8000/health", (res) => {
+        .get(BACKEND_HEALTH_URL, (res) => {
           if (res.statusCode === 200) {
             resolve();
           } else if (n > 0) {
@@ -41,12 +58,19 @@ function waitForBackend(retries = 40, delay = 500) {
   });
 }
 
-function startBackend() {
+async function startBackend() {
   const { pythonExe, backendDir } = getPaths();
 
   console.log("[main] isPackaged:", app.isPackaged);
   console.log("[main] python:", pythonExe);
   console.log("[main] backendDir:", backendDir);
+
+  const isHealthy = await checkBackendHealth();
+  if (isHealthy) {
+    console.log("[main] backend already running; using existing instance");
+    ownsBackend = false;
+    return;
+  }
 
   backendProcess = spawn(
     pythonExe,
@@ -57,7 +81,7 @@ function startBackend() {
       "--host",
       "0.0.0.0",
       "--port",
-      "8000",
+      String(BACKEND_PORT),
     ],
     {
       cwd: backendDir,
@@ -68,6 +92,8 @@ function startBackend() {
       },
     },
   );
+
+  ownsBackend = true;
 
   backendProcess.stdout?.on("data", (d) =>
     console.log("[backend]", d.toString().trim()),
@@ -80,7 +106,7 @@ function startBackend() {
     console.log("[backend] exited with code", code);
     if (code !== 0 && mainWindow) {
       dialog.showErrorBox(
-        "Aerview backend stopped",
+        "Skysight backend stopped",
         `The backend process exited unexpectedly (code ${code}).\nPlease restart the app.`,
       );
     }
@@ -93,7 +119,7 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: "Aerview",
+    title: "Skysight",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -102,7 +128,7 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadURL("http://localhost:8000");
+  mainWindow.loadURL(BACKEND_BASE_URL);
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -118,11 +144,25 @@ app.whenReady().then(async () => {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:8000;" +
-            "connect-src 'self' http://localhost:8000 ws://localhost:8000;" +
-            "img-src 'self' blob: data: http://localhost:8000;" +
-            "font-src 'self' data: http://localhost:8000;" +
-            "media-src 'self' blob: data: http://localhost:8000;",
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' " +
+            BACKEND_BASE_URL +
+            ";" +
+            "connect-src 'self' " +
+            BACKEND_BASE_URL +
+            " ws://" +
+            BACKEND_HOST +
+            ":" +
+            BACKEND_PORT +
+            ";" +
+            "img-src 'self' blob: data: " +
+            BACKEND_BASE_URL +
+            ";" +
+            "font-src 'self' data: " +
+            BACKEND_BASE_URL +
+            ";" +
+            "media-src 'self' blob: data: " +
+            BACKEND_BASE_URL +
+            ";",
         ],
       },
     });
@@ -133,7 +173,7 @@ app.whenReady().then(async () => {
     },
   );
 
-  startBackend();
+  await startBackend();
 
   try {
     await waitForBackend();
@@ -141,7 +181,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     dialog.showErrorBox(
       "Aerview failed to start",
-      "The backend could not be reached.\n\nMake sure no other app is using port 8000.\n\n" +
+      `The backend could not be reached.\n\nMake sure no other app is using port ${BACKEND_PORT}.\n\n` +
         err.message,
     );
     app.quit();
@@ -149,7 +189,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (backendProcess) {
+  if (backendProcess && ownsBackend) {
     backendProcess.kill();
     backendProcess = null;
   }
@@ -157,7 +197,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  if (backendProcess) {
+  if (backendProcess && ownsBackend) {
     backendProcess.kill();
     backendProcess = null;
   }

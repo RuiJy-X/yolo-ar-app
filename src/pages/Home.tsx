@@ -1,6 +1,6 @@
 import AppLayout from "@/applayout";
 import type { HistoryListEntry } from "@/pages/library/types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Trash2,
@@ -11,15 +11,12 @@ import {
   Inbox,
   CalendarDays,
   X,
-  Camera,
   ChevronDown,
   Clock,
-  Plus,
   AlertTriangle,
-  Wifi,
-  WifiOff,
   Cpu,
-  Activity,
+  Plus,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -84,6 +81,92 @@ const SkeletonRow = () => (
   </div>
 );
 
+// ── VideoThumbnail ────────────────────────────────────────────────────────────
+
+const VideoThumbnail = ({
+  videoUrl,
+  size = 32,
+}: {
+  videoUrl?: string | null;
+  size?: number;
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [captured, setCaptured] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    queueMicrotask(() => {
+      if (!disposed) setCaptured(false);
+    });
+    if (!videoUrl) return;
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "metadata";
+    video.src = `${apiBaseUrl}${videoUrl}`;
+
+    const drawFrame = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      canvas.width = video.videoWidth || size;
+      canvas.height = video.videoHeight || size;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setCaptured(true);
+    };
+
+    const capture = () => {
+      // Seek a tiny amount to ensure the seeked event fires.
+      const targetTime = Math.min(0.001, video.duration || 0);
+      try {
+        video.currentTime = targetTime;
+      } catch {
+        drawFrame();
+      }
+    };
+
+    video.addEventListener("loadedmetadata", capture);
+    video.addEventListener("seeked", drawFrame);
+    video.addEventListener("loadeddata", drawFrame);
+    video.load();
+
+    return () => {
+      disposed = true;
+      video.removeEventListener("loadedmetadata", capture);
+      video.removeEventListener("seeked", drawFrame);
+      video.removeEventListener("loadeddata", drawFrame);
+      video.src = "";
+    };
+  }, [videoUrl, size]);
+
+  const borderRadius = 6;
+
+  return (
+    <div
+      className="relative shrink-0"
+      style={{ width: size, height: size, borderRadius }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 object-cover"
+        style={{ width: size, height: size, borderRadius }}
+      />
+      {(!videoUrl || !captured) && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{
+            borderRadius,
+            background: "rgba(0,82,255,0.08)",
+          }}
+        >
+          <FileVideo size={14} style={{ color: "#0052ff" }} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Entry Row ─────────────────────────────────────────────────────────────────
 
 const EntryRow = ({
@@ -98,13 +181,8 @@ const EntryRow = ({
   onDelete: () => void;
 }) => (
   <div className="group flex items-center gap-4 px-5 py-3.5 border-b border-[#ededed] last:border-0 hover:bg-[#fafafa] transition-colors">
-    {/* Icon */}
-    <div
-      className="w-8 h-8 rounded-[6px] shrink-0 flex items-center justify-center transition-colors"
-      style={{ background: "rgba(0,82,255,0.08)" }}
-    >
-      <FileVideo size={14} style={{ color: "#0052ff" }} />
-    </div>
+    {/* Thumbnail */}
+    <VideoThumbnail videoUrl={entry.videoUrl} size={32} />
 
     {/* Info */}
     <div className="flex-1 min-w-0">
@@ -177,97 +255,97 @@ const EntryRow = ({
 
 // ── StatsStrip ────────────────────────────────────────────────────────────────
 
-interface StatCardProps {
-  icon: React.ReactNode;
-  value: string | number;
-  label: string;
-  highlight?: boolean;
-}
+// interface StatCardProps {
+//   icon: React.ReactNode;
+//   value: string | number;
+//   label: string;
+//   highlight?: boolean;
+// }
 
-const StatCard = ({ icon, value, label, highlight }: StatCardProps) => (
-  <div
-    className="rounded-lg p-4 flex flex-col items-center justify-center text-center"
-    style={{
-      border: "0.5px solid #ededed",
-      background: "#fff",
-      boxShadow: "var(--shadow-1)",
-    }}
-  >
-    <div
-      className="w-7 h-7 rounded-[6px] flex items-center justify-center mb-2.5 shrink-0"
-      style={{
-        background: highlight ? "rgba(239,68,68,0.08)" : "rgba(0,82,255,0.08)",
-      }}
-    >
-      {icon}
-    </div>
-    <p
-      className="font-bold"
-      style={{
-        fontSize: 22,
-        color: "#171717",
-        margin: "0 0 4px 0",
-        lineHeight: 1,
-      }}
-    >
-      {value}
-    </p>
-    <p style={{ fontSize: 11, color: "#9a9a9a", margin: 0 }}>{label}</p>
-  </div>
-);
+// const StatCard = ({ icon, value, label, highlight }: StatCardProps) => (
+//   <div
+//     className="rounded-lg p-4 flex flex-col items-center justify-center text-center"
+//     style={{
+//       border: "0.5px solid #ededed",
+//       background: "#fff",
+//       boxShadow: "var(--shadow-1)",
+//     }}
+//   >
+//     <div
+//       className="w-7 h-7 rounded-[6px] flex items-center justify-center mb-2.5 shrink-0"
+//       style={{
+//         background: highlight ? "rgba(239,68,68,0.08)" : "rgba(0,82,255,0.08)",
+//       }}
+//     >
+//       {icon}
+//     </div>
+//     <p
+//       className="font-bold"
+//       style={{
+//         fontSize: 22,
+//         color: "#171717",
+//         margin: "0 0 4px 0",
+//         lineHeight: 1,
+//       }}
+//     >
+//       {value}
+//     </p>
+//     <p style={{ fontSize: 11, color: "#9a9a9a", margin: 0 }}>{label}</p>
+//   </div>
+// );
 
-const StatsStrip = ({
-  entries,
-  loading,
-}: {
-  entries: HistoryListEntry[];
-  loading: boolean;
-}) => {
-  const stats = useMemo(() => {
-    const totalSessions = entries.length;
-    const totalActions = entries.reduce((count, entry) => {
-      if (Array.isArray(entry.detectedActions)) {
-        return (
-          count + entry.detectedActions.filter((action) => action.trim()).length
-        );
-      }
-      return count + (entry.topAction ? 1 : 0);
-    }, 0);
-    const waveAlerts = entries.filter((e) => e.hasWaveAlert).length;
-    const minutesProcessed =
-      entries.reduce((acc, e) => acc + (e.durationSeconds ?? 0), 0) / 60;
+// const StatsStrip = ({
+//   entries,
+//   loading,
+// }: {
+//   entries: HistoryListEntry[];
+//   loading: boolean;
+// }) => {
+//   const stats = useMemo(() => {
+//     const totalSessions = entries.length;
+//     const totalActions = entries.reduce((count, entry) => {
+//       if (Array.isArray(entry.detectedActions)) {
+//         return (
+//           count + entry.detectedActions.filter((action) => action.trim()).length
+//         );
+//       }
+//       return count + (entry.topAction ? 1 : 0);
+//     }, 0);
+//     const waveAlerts = entries.filter((e) => e.hasWaveAlert).length;
+//     const minutesProcessed =
+//       entries.reduce((acc, e) => acc + (e.durationSeconds ?? 0), 0) / 60;
 
-    return {
-      totalSessions,
-      totalActions,
-      waveAlerts,
-      minutesProcessed: isFinite(minutesProcessed)
-        ? Math.round(minutesProcessed)
-        : 0,
-    };
-  }, [entries]);
+//     return {
+//       totalSessions,
+//       totalActions,
+//       waveAlerts,
+//       minutesProcessed: isFinite(minutesProcessed)
+//         ? Math.round(minutesProcessed)
+//         : 0,
+//     };
+//   }, [entries]);
 
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      <StatCard
-        icon={<FileVideo size={14} style={{ color: "#0052ff" }} />}
-        value={loading ? "—" : stats.totalSessions}
-        label="Total Sessions"
-      />
-      <StatCard
-        icon={<Activity size={14} style={{ color: "#0052ff" }} />}
-        value={loading ? "—" : stats.totalActions}
-        label="Total Actions"
-      />
-      <StatCard
-        icon={<AlertTriangle size={14} style={{ color: "#ef4444" }} />}
-        value={loading ? "—" : stats.waveAlerts}
-        label="Wave Alerts"
-        highlight
-      />
-    </div>
-  );
-};
+//   return (
+//     <div className="grid grid-cols-3 gap-3">
+//       <StatCard
+//         icon={<FileVideo size={14} style={{ color: "#0052ff" }} />}
+//         value={loading ? "—" : stats.totalSessions}
+//         label="Total Sessions"
+//       />
+//       <StatCard
+//         icon={<Activity size={14} style={{ color: "#0052ff" }} />}
+//         value={loading ? "—" : stats.totalActions}
+//         label="Total Actions"
+//       />
+//       <StatCard
+//         icon={<AlertTriangle size={14} style={{ color: "#ef4444" }} />}
+//         value={loading ? "—" : stats.waveAlerts}
+//         label="Wave Alerts"
+//         highlight
+//       />
+//     </div>
+//   );
+// };
 
 // ── ResumeCard ─────────────────────────────────────────────────────────────
 
@@ -322,25 +400,38 @@ const ResumeCard = ({
 
 const BackendStatus = ({
   healthData,
-  healthError,
+  //healthError,
 }: {
   healthData: HealthData | null;
   healthError: boolean;
 }) => {
-  const isOnline = healthData?.status === "ok" && !healthError;
+  //const isOnline = healthData?.status === "ok" && !healthError;
+
+  const isCuda = healthData?.device === "cuda";
+  const deviceLabel = isCuda
+    ? "GPU"
+    : healthData?.device
+      ? healthData.device.toUpperCase()
+      : "—";
+  const deviceSub = isCuda
+    ? healthData?.gpu_name || "CUDA device"
+    : isCuda === false && healthData?.device
+      ? "CPU compute"
+      : "Not detected";
 
   return (
     <div
-      className="rounded-lg overflow-hidden"
+      className="rounded-lg flex-1"
       style={{
         border: "0.5px solid #ededed",
         background: "#ffffff",
         boxShadow: "var(--shadow-1)",
+        minWidth: 0,
       }}
     >
       {/* Header */}
       <div
-        className="px-5 py-3"
+        className="px-5 py-3 flex"
         style={{ borderBottom: "0.5px solid #ededed" }}
       >
         <span
@@ -351,48 +442,48 @@ const BackendStatus = ({
         </span>
       </div>
 
-      {/* Body */}
-      <div className="px-5 py-3 space-y-3">
-        {/* Backend Status */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {isOnline ? (
-              <Wifi size={13} style={{ color: "#16a34a" }} />
-            ) : (
-              <WifiOff size={13} style={{ color: "#dc2626" }} />
-            )}
-            <span style={{ fontSize: 12, color: "#171717" }}>Backend</span>
-          </div>
-          <span
-            className="text-[11px] font-semibold px-2 py-1 rounded-[4px]"
-            style={{
-              background: isOnline
-                ? "rgba(34,197,94,0.1)"
-                : "rgba(239,68,68,0.1)",
-              color: isOnline ? "#16a34a" : "#dc2626",
-            }}
-          >
-            {isOnline ? "Online" : "Offline"}
-          </span>
+      {/* Device Hero */}
+      <div className="px-5 py-5 flex items-center gap-4">
+        {/* Icon bubble */}
+        <div
+          className="flex items-center justify-center rounded-xl shrink-0"
+          style={{
+            width: 52,
+            height: 52,
+            background: isCuda
+              ? "rgba(139,92,246,0.10)"
+              : "rgba(0,82,255,0.08)",
+          }}
+        >
+          {isCuda ? (
+            <Cpu size={24} style={{ color: "#8b5cf6" }} />
+          ) : (
+            <Cpu size={24} style={{ color: "#0052ff" }} />
+          )}
         </div>
 
-        {/* Device */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Cpu size={13} style={{ color: "#9a9a9a" }} />
-            <span style={{ fontSize: 12, color: "#171717" }}>Device</span>
-          </div>
-          <span className="text-[11px] font-mono" style={{ color: "#9a9a9a" }}>
-            {healthData?.device === "cuda"
-              ? `cuda · ${healthData.gpu_name || "GPU"}`
-              : healthData?.device || "—"}
-          </span>
+        {/* Text */}
+        <div className="min-w-0">
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-0.5"
+            style={{ color: "#9a9a9a", fontFamily: "var(--mono)" }}
+          >
+            Device
+          </p>
+          <p
+            className="font-bold leading-none truncate"
+            style={{ fontSize: 28, color: "#171717", letterSpacing: "-0.01em" }}
+          >
+            {healthData ? deviceLabel : "—"}
+          </p>
+          <p className="text-[11px] truncate mt-1" style={{ color: "#9a9a9a" }}>
+            {healthData ? deviceSub : "Loading…"}
+          </p>
         </div>
       </div>
     </div>
   );
 };
-
 // ── ActionDistributionPie ───────────────────────────────────────────────────
 
 const ACTION_COLORS = [
@@ -444,7 +535,7 @@ const ActionDistributionPie = ({
 
   return (
     <div
-      className="rounded-lg overflow-hidden h-full"
+      className="rounded-lg flex-1 h-full"
       style={{
         border: "0.5px solid #ededed",
         background: "#ffffff",
@@ -452,7 +543,7 @@ const ActionDistributionPie = ({
       }}
     >
       <div
-        className="px-5 py-3"
+        className="px-5 py-3 flex gap-2"
         style={{ borderBottom: "0.5px solid #ededed" }}
       >
         <span
@@ -461,6 +552,18 @@ const ActionDistributionPie = ({
         >
           Action Distribution
         </span>
+        {total > 0 && (
+          <span
+            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+            style={{
+              background: "rgba(0,82,255,0.1)",
+              color: "#0052ff",
+              fontFamily: "var(--mono)",
+            }}
+          >
+            {total}
+          </span>
+        )}
       </div>
 
       <div className="px-5 py-4 flex flex-col gap-4 h-full">
@@ -524,6 +627,30 @@ const Home = () => {
   const [waveOnly, setWaveOnly] = useState(false);
   const [healthData, setHealthData] = useState<HealthData | null>(null);
   const [healthError, setHealthError] = useState(false);
+
+  const stats = useMemo(() => {
+    const totalSessions = entries.length;
+    const totalActions = entries.reduce((count, entry) => {
+      if (Array.isArray(entry.detectedActions)) {
+        return (
+          count + entry.detectedActions.filter((action) => action.trim()).length
+        );
+      }
+      return count + (entry.topAction ? 1 : 0);
+    }, 0);
+    const waveAlerts = entries.filter((e) => e.hasWaveAlert).length;
+    const minutesProcessed =
+      entries.reduce((acc, e) => acc + (e.durationSeconds ?? 0), 0) / 60;
+
+    return {
+      totalSessions,
+      totalActions,
+      waveAlerts,
+      minutesProcessed: isFinite(minutesProcessed)
+        ? Math.round(minutesProcessed)
+        : 0,
+    };
+  }, [entries]);
 
   const loadHistory = async () => {
     setLoading(true);
@@ -625,14 +752,14 @@ const Home = () => {
   return (
     <AppLayout>
       <div
-        className="flex flex-col flex-1 min-h-0 overflow-y-auto w-full px-4 md:px-6 lg:px-8"
+        className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto w-full px-4 md:px-6 lg:px-8"
         style={{ width: "100%" }}
       >
-        <div className="flex flex-col gap-4 py-4 w-full">
+        <div className="flex flex-col gap-4 w-full">
           {/* ── Quick-action cards + Backend Status ── */}
-          <div className="grid grid-cols-2 gap-3" style={{ minHeight: 112 }}>
+          <div className="grid grid-cols-1 gap-3" style={{ minHeight: 112 }}>
             {/* Left: Quick-action cards */}
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-row w-full gap-3">
               {/* Realtime */}
               <Link
                 to="/realtime"
@@ -743,38 +870,42 @@ const Home = () => {
             </div>
 
             {/* Right: Backend Status */}
-            <BackendStatus healthData={healthData} healthError={healthError} />
           </div>
+        </div>
+        <div className="flex gap-2">
+          <BackendStatus healthData={healthData} healthError={healthError} />
+          <ActionDistributionPie entries={entries} />
+        </div>
 
-          {/* ── Stats + Action Distribution ── */}
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)] gap-3 items-stretch">
-            <StatsStrip entries={entries} loading={loading} />
-            <ActionDistributionPie entries={entries} />
-          </div>
+        {/* ── Stats + Action Distribution ──
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.95fr)] gap-3 items-stretch">
+          <StatsStrip entries={entries} loading={loading} />
+        </div>
+        */}
 
-          {/* ── Resume Card (if entries exist) ── */}
-          {entries.length > 0 && entries[0] && (
-            <ResumeCard
-              entry={entries[0]}
-              onOpen={() => navigate(`/library?history=${entries[0].id}`)}
-            />
-          )}
+        {entries.length > 0 && entries[0] && (
+          <ResumeCard
+            entry={entries[0]}
+            onOpen={() => navigate(`/library?history=${entries[0].id}`)}
+          />
+        )}
 
-          {/* ── History panel ── */}
+        {/* ── History panel ── */}
+        <div
+          className="flex flex-col rounded-lg overflow-y-auto"
+          style={{
+            background: "#ffffff",
+            border: "0.5px solid #ededed",
+            boxShadow: "var(--shadow-1)",
+          }}
+        >
+          {/* Panel header */}
           <div
-            className="flex flex-col rounded-lg overflow-hidden"
-            style={{
-              background: "#ffffff",
-              border: "0.5px solid #ededed",
-              boxShadow: "var(--shadow-1)",
-            }}
+            className="flex items-center justify-between px-5 py-3"
+            style={{ borderBottom: "0.5px solid #ededed" }}
           >
-            {/* Panel header */}
-            <div
-              className="flex items-center justify-between px-5 py-3"
-              style={{ borderBottom: "0.5px solid #ededed" }}
-            >
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-5">
+              <div className="flex  items-center justify-between gap-2 ">
                 <span
                   className="text-[12px] font-semibold uppercase tracking-[0.08em]"
                   style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
@@ -794,206 +925,223 @@ const Home = () => {
                   </span>
                 )}
               </div>
-
-              <div className="flex items-center gap-1.5">
-                {/* Date filter */}
-                {availableDates.length > 1 && (
-                  <div className="relative flex items-center">
-                    <CalendarDays
-                      size={11}
-                      className="absolute left-2.5 pointer-events-none"
-                      style={{ color: "#9a9a9a" }}
-                    />
-                    <select
-                      value={selectedDate ?? ""}
-                      onChange={(e) => setSelectedDate(e.target.value || null)}
-                      className="appearance-none rounded-[6px] pl-7 pr-6 text-[11px] font-medium transition-colors outline-none cursor-pointer"
-                      style={{
-                        height: 28,
-                        border: "0.5px solid #dfdfdf",
-                        background: "#ffffff",
-                        color: selectedDate ? "#171717" : "#9a9a9a",
-                      }}
-                    >
-                      <option value="">All dates</option>
-                      {availableDates.map((dateKey) => {
-                        const count = entries.filter(
-                          (e) =>
-                            Number.isFinite(e.createdAt) &&
-                            e.createdAt > 0 &&
-                            toDateKey(e.createdAt) === dateKey,
-                        ).length;
-                        return (
-                          <option key={dateKey} value={dateKey}>
-                            {formatDateKey(dateKey)} ({count})
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <ChevronDown
-                      size={10}
-                      className="absolute right-2 pointer-events-none"
-                      style={{ color: "#9a9a9a" }}
-                    />
-                  </div>
-                )}
-
-                {selectedDate && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(null)}
-                    className="flex items-center gap-1 rounded-[6px] px-2 transition-colors"
-                    style={{
-                      height: 28,
-                      border: "0.5px solid #dfdfdf",
-                      background: "#ffffff",
-                      color: "#9a9a9a",
-                      fontSize: 11,
-                    }}
-                  >
-                    <X size={10} />
-                    Clear
-                  </button>
-                )}
-
-                {/* Wave Alert Filter */}
-                {entries.some((e) => e.hasWaveAlert) && (
-                  <button
-                    onClick={() => setWaveOnly((prev) => !prev)}
-                    style={{
-                      height: 28,
-                      border: "0.5px solid #dfdfdf",
-                      background: waveOnly ? "rgba(239,68,68,0.08)" : "#fff",
-                      color: waveOnly ? "#dc2626" : "#9a9a9a",
-                      borderColor: waveOnly ? "#fca5a5" : "#dfdfdf",
-                    }}
-                    className="flex items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors"
-                  >
-                    <AlertTriangle size={10} />
-                    Alerts only
-                  </button>
-                )}
-
-                {/* Refresh */}
-                <button
-                  type="button"
-                  onClick={loadHistory}
-                  disabled={loading}
-                  className="w-7 h-7 rounded-[6px] flex items-center justify-center transition-colors disabled:opacity-40"
-                  style={{
-                    border: "0.5px solid #dfdfdf",
-                    background: "#ffffff",
-                    color: "#9a9a9a",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.borderColor =
-                      "#c7c7c7";
-                    (e.currentTarget as HTMLElement).style.color = "#171717";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.borderColor =
-                      "#dfdfdf";
-                    (e.currentTarget as HTMLElement).style.color = "#9a9a9a";
-                  }}
-                  title="Refresh"
+              <div className="flex  items-center justify-between gap-2 ">
+                <span
+                  className="text-[12px] font-semibold uppercase tracking-[0.08em]"
+                  style={{ fontFamily: "var(--mono)", color: "#1a1a1a" }}
                 >
-                  <RotateCw
-                    size={11}
-                    className={loading ? "animate-spin" : ""}
-                  />
-                </button>
-
-                {/* Clear all */}
-                {entries.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={handleClearHistory}
-                    disabled={loading || clearing || entries.length === 0}
-                    className="inline-flex items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors disabled:opacity-40 bg-red-400 text-white hover:bg-red-600"
+                  Wave Alerts
+                </span>
+                {stats.waveAlerts > 0 && (
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{
+                      background: "rgba(255,0,0,0.1)",
+                      color: "#ff0000",
+                      fontFamily: "var(--mono)",
+                    }}
                   >
-                    <Trash2 size={11} />
-                    {clearing ? "Clearing…" : "Clear all"}
-                  </Button>
+                    {stats.waveAlerts}
+                  </span>
                 )}
               </div>
             </div>
 
-            {/* Error */}
-            {error && (
-              <div
-                className="flex items-center gap-2.5 mx-4 my-3 px-3 py-2 rounded-[6px] text-[12px]"
-                style={{
-                  background: "#fff5f5",
-                  border: "0.5px solid #fca5a5",
-                  color: "#b91c1c",
-                }}
-              >
-                <AlertCircle size={13} />
-                {error}
-              </div>
-            )}
+            <div className="flex items-center gap-1.5">
+              {/* Date filter */}
+              {availableDates.length > 1 && (
+                <div className="relative flex items-center">
+                  <CalendarDays
+                    size={11}
+                    className="absolute left-2.5 pointer-events-none"
+                    style={{ color: "#9a9a9a" }}
+                  />
+                  <select
+                    value={selectedDate ?? ""}
+                    onChange={(e) => setSelectedDate(e.target.value || null)}
+                    className="appearance-none rounded-[6px] pl-7 pr-6 text-[11px] font-medium transition-colors outline-none cursor-pointer"
+                    style={{
+                      height: 28,
+                      border: "0.5px solid #dfdfdf",
+                      background: "#ffffff",
+                      color: selectedDate ? "#171717" : "#9a9a9a",
+                    }}
+                  >
+                    <option value="">All dates</option>
+                    {availableDates.map((dateKey) => {
+                      const count = entries.filter(
+                        (e) =>
+                          Number.isFinite(e.createdAt) &&
+                          e.createdAt > 0 &&
+                          toDateKey(e.createdAt) === dateKey,
+                      ).length;
+                      return (
+                        <option key={dateKey} value={dateKey}>
+                          {formatDateKey(dateKey)} ({count})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown
+                    size={10}
+                    className="absolute right-2 pointer-events-none"
+                    style={{ color: "#9a9a9a" }}
+                  />
+                </div>
+              )}
 
-            {/* Body */}
-            {loading && entries.length === 0 ? (
-              <div>
-                <SkeletonRow />
-                <SkeletonRow />
-                <SkeletonRow />
-              </div>
-            ) : filteredEntries.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
-                <div
-                  className="w-10 h-10 rounded-[8px] flex items-center justify-center mb-4"
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(null)}
+                  className="flex items-center gap-1 rounded-[6px] px-2 transition-colors"
                   style={{
-                    background: "#fafafa",
-                    border: "0.5px solid #ededed",
+                    height: 28,
+                    border: "0.5px solid #dfdfdf",
+                    background: "#ffffff",
+                    color: "#9a9a9a",
+                    fontSize: 11,
                   }}
                 >
-                  {selectedDate ? (
-                    <CalendarDays size={16} style={{ color: "#b2b2b2" }} />
-                  ) : (
-                    <Inbox size={16} style={{ color: "#b2b2b2" }} />
-                  )}
-                </div>
-                <p
-                  className="font-medium"
-                  style={{ fontSize: 13, color: "#171717", margin: 0 }}
+                  <X size={10} />
+                  Clear
+                </button>
+              )}
+
+              {/* Wave Alert Filter */}
+              {entries.some((e) => e.hasWaveAlert) && (
+                <button
+                  onClick={() => setWaveOnly((prev) => !prev)}
+                  style={{
+                    height: 28,
+                    border: "0.5px solid #dfdfdf",
+                    background: waveOnly ? "rgba(239,68,68,0.08)" : "#fff",
+                    color: waveOnly ? "#dc2626" : "#9a9a9a",
+                    borderColor: waveOnly ? "#fca5a5" : "#dfdfdf",
+                  }}
+                  className="flex items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors"
                 >
-                  {selectedDate
-                    ? `No entries for ${formatDateKey(selectedDate)}`
-                    : "No history yet"}
-                </p>
-                <p style={{ fontSize: 12, color: "#9a9a9a", marginTop: 4 }}>
-                  {selectedDate
-                    ? "Try a different date or clear the filter."
-                    : "Saved analyses will appear here."}
-                </p>
-                {selectedDate && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(null)}
-                    className="mt-4 text-[11px] font-medium underline underline-offset-2 transition-colors"
-                    style={{ color: "#0052ff" }}
-                  >
-                    Show all entries
-                  </button>
+                  <AlertTriangle size={10} />
+                  Alerts only
+                </button>
+              )}
+
+              {/* Refresh */}
+              <button
+                type="button"
+                onClick={loadHistory}
+                disabled={loading}
+                className="w-7 h-7 rounded-[6px] flex items-center justify-center transition-colors disabled:opacity-40"
+                style={{
+                  border: "0.5px solid #dfdfdf",
+                  background: "#ffffff",
+                  color: "#9a9a9a",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor =
+                    "#c7c7c7";
+                  (e.currentTarget as HTMLElement).style.color = "#171717";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor =
+                    "#dfdfdf";
+                  (e.currentTarget as HTMLElement).style.color = "#9a9a9a";
+                }}
+                title="Refresh"
+              >
+                <RotateCw size={11} className={loading ? "animate-spin" : ""} />
+              </button>
+
+              {/* Clear all */}
+              {entries.length > 0 && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleClearHistory}
+                  disabled={loading || clearing || entries.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors disabled:opacity-40 bg-red-400 text-white hover:bg-red-600"
+                >
+                  <Trash2 size={11} />
+                  {clearing ? "Clearing…" : "Clear all"}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              className="flex items-center gap-2.5 mx-4 my-3 px-3 py-2 rounded-[6px] text-[12px]"
+              style={{
+                background: "#fff5f5",
+                border: "0.5px solid #fca5a5",
+                color: "#b91c1c",
+              }}
+            >
+              <AlertCircle size={13} />
+              {error}
+            </div>
+          )}
+
+          {/* Body */}
+          {loading && entries.length === 0 ? (
+            <div>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </div>
+          ) : filteredEntries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
+              <div
+                className="w-10 h-10 rounded-[8px] flex items-center justify-center mb-4"
+                style={{
+                  background: "#fafafa",
+                  border: "0.5px solid #ededed",
+                }}
+              >
+                {selectedDate ? (
+                  <CalendarDays size={16} style={{ color: "#b2b2b2" }} />
+                ) : (
+                  <Inbox size={16} style={{ color: "#b2b2b2" }} />
                 )}
               </div>
-            ) : (
-              <div>
-                {filteredEntries.map((entry) => (
-                  <EntryRow
-                    key={entry.id}
-                    entry={entry}
-                    isDeleting={deletingId === entry.id}
-                    onOpen={() => navigate(`/library?history=${entry.id}`)}
-                    onDelete={() => handleDeleteEntry(entry)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+              <p
+                className="font-medium"
+                style={{ fontSize: 13, color: "#171717", margin: 0 }}
+              >
+                {selectedDate
+                  ? `No entries for ${formatDateKey(selectedDate)}`
+                  : "No history yet"}
+              </p>
+              <p style={{ fontSize: 12, color: "#9a9a9a", marginTop: 4 }}>
+                {selectedDate
+                  ? "Try a different date or clear the filter."
+                  : "Saved analyses will appear here."}
+              </p>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(null)}
+                  className="mt-4 text-[11px] font-medium underline underline-offset-2 transition-colors"
+                  style={{ color: "#0052ff" }}
+                >
+                  Show all entries
+                </button>
+              )}
+            </div>
+          ) : (
+            <div>
+              {filteredEntries.map((entry) => (
+                <EntryRow
+                  key={entry.id}
+                  entry={entry}
+                  isDeleting={deletingId === entry.id}
+                  onOpen={() => navigate(`/library?history=${entry.id}`)}
+                  onDelete={() => handleDeleteEntry(entry)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

@@ -324,25 +324,30 @@ const TimelineFooter = ({
         )}
 
         {/* ── Scrubber ── */}
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={0.05}
-          value={playheadPct}
-          onChange={(e) => {
-            const pct = Number(e.target.value) / 100;
-            const realSeconds =
-              (pct / zoom + scrollOffset) * timelineDurationSeconds;
-            const syntheticEvent = {
-              ...e,
-              target: { ...e.target, value: String(realSeconds) },
-            } as React.ChangeEvent<HTMLInputElement>;
-            onScrub(syntheticEvent);
-          }}
-          className="w-full cursor-pointer shrink-0 accent-[#0052ff]"
-          style={{ height: 4 }}
-        />
+        <div className={layered ? "flex items-center gap-2" : ""}>
+          {layered && <span className="w-16 shrink-0" />}
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={0.05}
+            value={playheadPct}
+            onChange={(e) => {
+              const pct = Number(e.target.value) / 100;
+              const realSeconds =
+                (pct / zoom + scrollOffset) * timelineDurationSeconds;
+              const syntheticEvent = {
+                ...e,
+                target: { ...e.target, value: String(realSeconds) },
+              } as React.ChangeEvent<HTMLInputElement>;
+              onScrub(syntheticEvent);
+            }}
+            className={`${
+              layered ? "flex-1" : "w-full"
+            } cursor-pointer shrink-0 accent-[#0052ff]`}
+            style={{ height: 4 }}
+          />
+        </div>
 
         {/* ── Track area ── */}
         {layered ? (

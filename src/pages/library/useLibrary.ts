@@ -27,6 +27,22 @@ const SESSION_STORAGE_KEY = "library:annotated-videos";
 const DEFAULT_RETENTION_SECONDS = 30 * 60;
 const JOB_STATUS_POLL_MS = 900;
 
+let lastSessionCache: SessionVideoEntry | null = null;
+
+const getValidCachedEntry = () => {
+  if (!lastSessionCache) return null;
+  if (lastSessionCache.expiresAt <= Date.now()) {
+    lastSessionCache = null;
+    return null;
+  }
+  return lastSessionCache;
+};
+
+const stripAnalysisForStorage = (entry: SessionVideoEntry) => ({
+  ...entry,
+  analysis: null,
+});
+
 export type ActionTimelineTag = {
   id: string;
   action: string;
@@ -249,6 +265,8 @@ export const useLibraryState = (historyId?: string | null) => {
     }
 
     setIsSubmitting(true);
+    const isHistoryReanalysis = !file && Boolean(loadedHistoryId);
+    if (!isHistoryReanalysis) setLoadedHistoryId(null);
     setError(null);
     setResultVideoUrl(null);
     setResultDownloadUrl(null);
@@ -448,11 +466,16 @@ export const useLibraryState = (historyId?: string | null) => {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         videoUrl: playbackUrl,
         downloadUrl,
+        sourceVideoUrl: sourcePlaybackUrl,
         summary: summaryText,
         filename: getFilenameFromUrl(downloadUrl),
         createdAt: Date.now(),
         expiresAt: Date.now() + retentionSeconds * 1000,
+        analysis: analysisPayload,
+        fps: newFps,
       };
+
+      lastSessionCache = entry;
 
       setResultVideoUrl(withCacheBust(playbackUrl));
       setResultDownloadUrl(downloadUrl);
@@ -516,7 +539,7 @@ export const useLibraryState = (historyId?: string | null) => {
   const confirmProjectNameAndSave = async (projectName: string) => {
     if (!analysis) {
       setError("Run the analysis before saving to history.");
-      return;
+      return false;
     }
 
     setShowProjectNameDialog(false);
@@ -550,13 +573,13 @@ export const useLibraryState = (historyId?: string | null) => {
         setCurrentProjectName(projectName);
         setSaveToastMessage(`Project "${projectName}" renamed successfully!`);
         setTimeout(() => setSaveToastMessage(null), 4000);
-        return;
+        return true;
       }
 
       // ── Branch B: fresh inference result → save as a new history entry ──
       if (!pendingHistoryData) {
         setError("Missing file information. Please try saving again.");
-        return;
+        return false;
       }
 
       const { annotatedFilename, sourceFilename } = pendingHistoryData;
@@ -591,23 +614,58 @@ export const useLibraryState = (historyId?: string | null) => {
         );
       }
 
+      const entry = payload as HistoryEntry;
       setHistorySavedAt(Date.now());
       setCurrentProjectName(projectName);
       setSaveToastMessage(`Project "${projectName}" saved successfully!`);
       setPendingHistoryData(null);
+      setLoadedHistoryId(entry.id ?? null);
       setTimeout(() => setSaveToastMessage(null), 4000);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return false;
     }
   };
 
-  const restoreRecentVideo = (entry: SessionVideoEntry) => {
-    setResultPlaybackError(null);
+  const resetCurrentSession = () => {
+    lastSessionCache = null;
+    setResultVideoUrl(null);
+    setResultDownloadUrl(null);
+    setSummary(null);
     setAnalysis(null);
+    setError(null);
+    setResultPlaybackError(null);
+    setProgressPercent(0);
+    setProgressMessage(null);
+    setProgressFrameIndex(null);
+    setProgressTotalFrames(null);
+    setHistorySavedAt(null);
+    setCurrentProjectName(null);
+    setPendingHistoryData(null);
+    setShowProjectNameDialog(false);
+    setProjectNameInput("");
+    setLoadedHistoryId(null);
+    setAnnotatedVideoFilename(null);
+    setSaveToastMessage(null);
+    setCurrentTimeSeconds(0);
+    setVideoDurationSeconds(0);
+  };
+
+  const restoreRecentVideo = (entry: SessionVideoEntry) => {
+    lastSessionCache = entry;
+    setResultPlaybackError(null);
+    if (typeof entry.fps === "number" && entry.fps > 0) {
+      setSeekFps(entry.fps);
+    }
+    setAnalysis(entry.analysis ?? null);
     setCurrentTimeSeconds(0);
     setVideoDurationSeconds(0);
     setResultVideoUrl(withCacheBust(entry.videoUrl));
     setResultDownloadUrl(entry.downloadUrl);
+    if (entry.sourceVideoUrl) {
+      replaceSourceVideoUrl(withCacheBust(entry.sourceVideoUrl));
+    }
     setSummary(entry.summary);
   };
 
@@ -654,6 +712,7 @@ export const useLibraryState = (historyId?: string | null) => {
   };
 
   const clearSessionVideos = () => {
+    lastSessionCache = null;
     setRecentVideos([]);
     setResultVideoUrl(null);
     setResultDownloadUrl(null);
@@ -668,7 +727,12 @@ export const useLibraryState = (historyId?: string | null) => {
 
   useEffect(() => {
     const loaded = loadSessionEntries(SESSION_STORAGE_KEY);
+    const cached = getValidCachedEntry();
     setRecentVideos(loaded);
+    if (cached) {
+      restoreRecentVideo(cached);
+      return;
+    }
     if (loaded[0]) restoreRecentVideo(loaded[0]);
   }, []);
 
@@ -679,7 +743,26 @@ export const useLibraryState = (historyId?: string | null) => {
       window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
       return;
     }
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(pruned));
+    try {
+      window.sessionStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify(pruned.map(stripAnalysisForStorage)),
+      );
+    } catch {
+      const latestOnly = pruned.slice(0, 1).map(stripAnalysisForStorage);
+      try {
+        window.sessionStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify(latestOnly),
+        );
+        setRecentVideos((prev) => {
+          if (prev.length === 0) return prev;
+          return prev.slice(0, 1);
+        });
+      } catch {
+        window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    }
   }, [recentVideos]);
 
   useEffect(() => {
@@ -819,6 +902,7 @@ export const useLibraryState = (historyId?: string | null) => {
     saveToastMessage,
     showProjectNameDialog,
     projectNameInput,
+    loadedHistoryId,
     // setters needed by child components
     setSourcePlaybackError,
     setResultPlaybackError,
@@ -837,8 +921,9 @@ export const useLibraryState = (historyId?: string | null) => {
     confirmProjectNameAndSave,
     clearSessionVideos,
     restoreRecentVideo,
+    resetCurrentSession,
 
     togglePlayPause,
     handlePlaybackStateChange,
   };
-};;
+};

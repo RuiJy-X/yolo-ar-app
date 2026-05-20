@@ -7,8 +7,10 @@ import TimelineFooter from "./library/timeline-footer";
 import Config from "./library/config";
 import ProjectNameDialog from "./library/project-name-dialog";
 import SaveToast from "./library/save-toast";
-import { useSearchParams } from "react-router";
-import { useState } from "react";
+import LeaveGuardDialog from "./library/leave-guard-dialog";
+import LeaveProgressDialog from "./library/leave-progress-dialog";
+import { useBlocker, useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
 
 const Library = () => {
   const [searchParams] = useSearchParams();
@@ -35,6 +37,7 @@ const Library = () => {
     saveToastMessage,
     showProjectNameDialog,
     projectNameInput,
+    loadedHistoryId,
     currentTimeSeconds,
     actionTimelineTags,
     timelineDurationSeconds,
@@ -50,6 +53,7 @@ const Library = () => {
     handleDownload,
     saveToHistory,
     confirmProjectNameAndSave,
+    resetCurrentSession,
     handleTimelineScrub,
     seekToFrame,
     togglePlayPause,
@@ -58,6 +62,57 @@ const Library = () => {
 
   const canSaveToHistory =
     Boolean(analysis) && Boolean(resultDownloadUrl ?? resultVideoUrl);
+
+  const hasUnsavedChanges = Boolean(analysis) && !loadedHistoryId;
+  const [showUploadGuard, setShowUploadGuard] = useState(false);
+  const [uploadAfterSave, setUploadAfterSave] = useState(false);
+  const progressBlocker = useBlocker(isSubmitting);
+
+  useEffect(() => {
+    if (!isSubmitting) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isSubmitting]);
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const handleRequestUpload = () => {
+    if (hasUnsavedChanges) {
+      setShowUploadGuard(true);
+      return;
+    }
+    openFilePicker();
+  };
+
+  const handleStayOnPage = () => {
+    setShowUploadGuard(false);
+    setUploadAfterSave(false);
+  };
+
+  const handleResetBeforeUpload = () => {
+    resetCurrentSession();
+    setShowUploadGuard(false);
+    setUploadAfterSave(false);
+    openFilePicker();
+  };
+
+  const handleSaveBeforeUpload = () => {
+    setShowUploadGuard(false);
+    setUploadAfterSave(true);
+    saveToHistory();
+  };
+
+  const handleConfirmAndSave = async (projectName: string) => {
+    const saved = await confirmProjectNameAndSave(projectName);
+    if (saved && uploadAfterSave) {
+      openFilePicker();
+    }
+    setUploadAfterSave(false);
+  };
 
   return (
     <AppLayout>
@@ -99,6 +154,7 @@ const Library = () => {
               progressTotalFrames={progressTotalFrames}
               canSaveToHistory={canSaveToHistory}
               historySavedAt={historySavedAt}
+              onRequestUpload={handleRequestUpload}
               onFileChange={handleFileChange}
               onRunInference={handleRunInference}
               onDownload={handleDownload}
@@ -147,8 +203,11 @@ const Library = () => {
       <ProjectNameDialog
         isOpen={showProjectNameDialog}
         initialValue={projectNameInput}
-        onConfirm={confirmProjectNameAndSave}
-        onCancel={() => setShowProjectNameDialog(false)}
+        onConfirm={handleConfirmAndSave}
+        onCancel={() => {
+          setShowProjectNameDialog(false);
+          setUploadAfterSave(false);
+        }}
       />
 
       {/* Save Toast */}
@@ -157,6 +216,19 @@ const Library = () => {
         onDismiss={() => {
           /* auto-dismisses after 4 seconds */
         }}
+      />
+
+      <LeaveGuardDialog
+        isOpen={showUploadGuard}
+        onStay={handleStayOnPage}
+        onSave={handleSaveBeforeUpload}
+        onReset={handleResetBeforeUpload}
+      />
+
+      <LeaveProgressDialog
+        isOpen={progressBlocker.state === "blocked"}
+        onCancel={() => progressBlocker.reset()}
+        onLeave={() => progressBlocker.proceed()}
       />
     </AppLayout>
   );

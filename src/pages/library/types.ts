@@ -43,15 +43,18 @@ export type SessionVideoEntry = {
   id: string;
   videoUrl: string;
   downloadUrl: string;
+  sourceVideoUrl?: string | null;
   summary: string;
   filename: string;
   createdAt: number;
   expiresAt: number;
+  analysis?: AnalyzeVideoResponse | null;
+  fps?: number | null;
 };
 
 export type HistoryListEntry = {
   id: string;
-  videoUrl: string;
+  videoUrl: string | null;
   sourceVideoUrl?: string | null;
   summary: string;
   filename: string;

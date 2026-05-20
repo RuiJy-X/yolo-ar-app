@@ -51,6 +51,15 @@ def get_output_dir() -> str:
     os.makedirs(out, exist_ok=True)
     return out
 
+# OpenCV uses BGR format
+CLASS_COLOR_MAP = {
+    "waving": (0, 0, 255),    # Red
+    "walking": (0, 255, 0),   # Green
+    "sitting": (255, 0, 0),   # Blue
+    "standing": (0, 255, 255) # Yellow
+}
+DEFAULT_COLOR = (255, 255, 255)  # White fallback for unexpected classes
+
 
 YOLO_FILENAME = "yolo-best.pt"
 VIDEO_POSE_MODEL_CANDIDATES = [
@@ -319,13 +328,13 @@ def _annotate_frame(frame: np.ndarray, payload: dict[str, Any]) -> np.ndarray:
         if not isinstance(person, dict):
             continue
         person_id = int(person.get("person_id", 0))
-        color = track_color(person_id)
+        label = person.get("action", {}).get("label", "Unknown")
+        color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
 
         bbox = person.get("bbox")
         if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
             x1, y1, x2, y2 = [int(v) for v in bbox]
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
-            label = person.get("action", {}).get("label", "Unknown")
             conf = person.get("action", {}).get("confidence")
             caption = f"ID {person_id}: {label}"
             if isinstance(conf, (int, float)) and label != "Unknown":
@@ -1687,7 +1696,7 @@ class ActionRecognitionPipeline:
                             matched_track_ids.add(best_track_id)
                             used_detection_ids.add(det_idx)
 
-                            color = track_color(best_track_id)
+                            color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
                             x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
                             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                             draw_pose(frame, track.last_keypoints, color)
@@ -1723,7 +1732,7 @@ class ActionRecognitionPipeline:
                         )
                         matched_track_ids.add(track_id)
 
-                        color = track_color(track_id)
+                        color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
                         x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                         draw_pose(frame, track.last_keypoints, color)

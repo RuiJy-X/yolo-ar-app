@@ -21,6 +21,7 @@ type VideoPanelProps = {
   onRunInference: () => void;
   onDownload: () => void;
   onSaveToHistory: () => void;
+  onRequestUpload: () => void;
   onVideoLoaded: (duration: number, currentTime: number) => void;
   onTimeUpdate: (currentTime: number) => void;
   onSourcePlaybackError: (msg: string | null) => void;
@@ -48,6 +49,7 @@ const VideoPanel = ({
   onRunInference,
   onDownload,
   onSaveToHistory,
+  onRequestUpload,
   onVideoLoaded,
   onTimeUpdate,
   onSourcePlaybackError,
@@ -72,12 +74,12 @@ const VideoPanel = ({
       {/* ── Panel header ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#ededed] shrink-0">
         <TitleMono text="Video Analysis" />
-        
+
         <div className="flex items-center gap-2">
           {(file || sourceVideoUrl || resultVideoUrl) && (
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={onRequestUpload}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium border border-[#dfdfdf] bg-[#ffffff] text-[#171717] hover:bg-[#fafafa] transition-colors"
             >
               <Upload size={13} />
@@ -176,7 +178,7 @@ const VideoPanel = ({
             </div>
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={onRequestUpload}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
             >
               <Upload size={13} />

@@ -1,5 +1,5 @@
 import ModelSelector from "@/components/model-selector";
-import { Save } from "lucide-react";
+import { Save, RefreshCw, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const apiBaseUrl =
@@ -32,13 +32,231 @@ type DraftConfig = {
   action_thresholds: Record<string, number>;
 };
 
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-const inputCls =
-  "w-full rounded-[6px] border border-[#dfdfdf] bg-[#ffffff] px-3 py-2 text-[13px] text-[#171717] outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/30 transition-colors";
+// ── Primitives ────────────────────────────────────────────────────────────────
 
-const labelCls =
-  "text-[11px] font-medium text-[#707070] uppercase tracking-[0.06em]";
+const Toggle = ({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    onClick={onChange}
+    className={`relative inline-flex w-9 h-5 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0052ff]/40 shrink-0 ${
+      checked ? "bg-[#0052ff]" : "bg-[#d4d4d4]"
+    }`}
+  >
+    <span
+      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+        checked ? "translate-x-4" : "translate-x-0"
+      }`}
+    />
+  </button>
+);
+
+const NumberInput = ({
+  value,
+  onChange,
+  disabled,
+  label,
+}: {
+  value: number;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  label: string;
+}) => (
+  <div className="flex flex-col gap-1">
+    <span className="text-[11px] text-[#9a9a9a] uppercase tracking-[0.05em] font-medium">
+      {label}
+    </span>
+    <div className="relative">
+      <input
+        type="number"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={`w-full rounded-md border px-3 py-2 text-[13px] outline-none transition-colors ${
+          disabled
+            ? "border-[#ededed] bg-[#f7f7f7] text-[#b0b0b0] cursor-not-allowed"
+            : "border-[#dfdfdf] bg-white text-[#171717] focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20"
+        }`}
+      />
+    </div>
+  </div>
+);
+
+// ── Section wrapper ───────────────────────────────────────────────────────────
+
+const Section = ({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) => (
+  <div className="flex flex-col gap-3">
+    <div className="flex items-start gap-2.5">
+      <div className="mt-0.5 w-6 h-6 rounded-md bg-[#f0f4ff] flex items-center justify-center shrink-0 text-[#0052ff]">
+        {icon}
+      </div>
+      <div>
+        <p className="text-[13px] font-semibold text-[#1a1a1a] leading-tight">
+          {title}
+        </p>
+        {description && (
+          <p className="text-[11px] text-[#9a9a9a] mt-0.5">{description}</p>
+        )}
+      </div>
+    </div>
+    <div className="flex flex-col gap-3">{children}</div>
+  </div>
+);
+
+// ── Pill badge ────────────────────────────────────────────────────────────────
+const Pill = ({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`px-3 py-1 rounded-full text-[12px] font-medium transition-colors border ${
+      active
+        ? "bg-[#0052ff] border-[#0052ff] text-white"
+        : "bg-white border-[#dfdfdf] text-[#707070] hover:border-[#0052ff] hover:text-[#0052ff]"
+    }`}
+  >
+    {children}
+  </button>
+);
+
+// ── Icons (inline SVG, minimal) ───────────────────────────────────────────────
+const IconDetect = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <rect
+      x="1"
+      y="1"
+      width="4"
+      height="4"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <rect
+      x="9"
+      y="1"
+      width="4"
+      height="4"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <rect
+      x="1"
+      y="9"
+      width="4"
+      height="4"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <rect
+      x="9"
+      y="9"
+      width="4"
+      height="4"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+  </svg>
+);
+const IconTune = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <line
+      x1="2"
+      y1="4"
+      x2="12"
+      y2="4"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+    <circle
+      cx="5"
+      cy="4"
+      r="1.5"
+      fill="white"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <line
+      x1="2"
+      y1="10"
+      x2="12"
+      y2="10"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+    <circle
+      cx="9"
+      cy="10"
+      r="1.5"
+      fill="white"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+  </svg>
+);
+const IconFrame = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <rect
+      x="1.5"
+      y="1.5"
+      width="11"
+      height="11"
+      rx="1.5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <path
+      d="M4.5 7h5M7 4.5v5"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+const IconModel = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="7" cy="7" r="2" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="7" cy="2" r="1" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="7" cy="12" r="1" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="2" cy="7" r="1" stroke="currentColor" strokeWidth="1.3" />
+    <circle cx="12" cy="7" r="1" stroke="currentColor" strokeWidth="1.3" />
+  </svg>
+);
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 type ConfigProps = { className?: string };
 
@@ -180,17 +398,15 @@ const Config = ({ className }: ConfigProps) => {
           String(nextDisableDownscale),
         );
       } catch {
-        // Ignore storage failures (private mode, quota, etc.)
+        // ignore
       }
       window.dispatchEvent(
         new CustomEvent("runtime-config-updated", {
-          detail: {
-            ...data,
-            realtime_disable_downscale: nextDisableDownscale,
-          },
+          detail: { ...data, realtime_disable_downscale: nextDisableDownscale },
         }),
       );
-      setSavedMessage("Configuration saved.");
+      setSavedMessage("Configuration saved successfully.");
+      setTimeout(() => setSavedMessage(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -198,21 +414,19 @@ const Config = ({ className }: ConfigProps) => {
     }
   };
 
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading || !draft || !config) {
     return (
       <div
-        className={`flex flex-col h-full rounded-lg bg-[#ffffff] border border-[#ededed] ${className ?? ""}`}
-        style={{ boxShadow: "var(--shadow-1)" }}
+        className={`flex flex-col h-full rounded-xl bg-white border border-[#ededed] ${className ?? ""}`}
       >
-        <div className="px-4 py-3 border-b border-[#ededed]">
-          <span
-            className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9a9a9a]"
-            style={{ fontFamily: "var(--mono)" }}
-          >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#ededed]">
+          <span className="text-[13px] font-semibold text-[#1a1a1a]">
             Configuration
           </span>
         </div>
-        <div className="flex items-center justify-center flex-1 text-[13px] text-[#9a9a9a]">
+        <div className="flex items-center justify-center flex-1 gap-2 text-[13px] text-[#9a9a9a]">
+          <RefreshCw size={14} className="animate-spin" />
           Loading…
         </div>
       </div>
@@ -221,52 +435,57 @@ const Config = ({ className }: ConfigProps) => {
 
   return (
     <div
-      className={`flex flex-col min-h-0 rounded-lg bg-[#ffffff] border border-[#ededed] ${className ?? ""}`}
-      style={{ boxShadow: "var(--shadow-1)" }}
+      className={`flex flex-col min-h-0 rounded-xl bg-white border border-[#ededed] ${className ?? ""}`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#ededed] shrink-0">
-        <span
-          className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#1a1a1a]"
-          style={{ fontFamily: "var(--mono)" }}
-        >
-          Configuration
-        </span>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#ededed] shrink-0">
+        <div>
+          <p className="text-[13px] font-semibold text-[#1a1a1a]">
+            Configuration
+          </p>
+          <p className="text-[11px] text-[#9a9a9a] mt-0.5">
+            Model &amp; detection settings
+          </p>
+        </div>
         <button
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] disabled:opacity-50 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] disabled:opacity-50 transition-colors shadow-sm"
         >
           <Save size={13} />
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
 
-      {/* Status messages */}
-      {error && (
-        <div className="mx-4 mt-3 px-3 py-2 rounded-[6px] bg-red-50 border border-red-200 text-[12px] text-red-700">
-          {error}
-        </div>
-      )}
-      {savedMessage && (
-        <div className="mx-4 mt-3 px-3 py-2 rounded-[6px] bg-[#0052ff]/10 border border-[#0052ff]/30 text-[12px] text-[#0041cc]">
-          {savedMessage}
+      {/* Toasts */}
+      {(error || savedMessage) && (
+        <div
+          className={`mx-4 mt-3 px-3.5 py-2.5 rounded-lg text-[12px] flex items-center gap-2 ${
+            error
+              ? "bg-red-50 border border-red-200 text-red-700"
+              : "bg-[#eef3ff] border border-[#c7d7ff] text-[#0041cc]"
+          }`}
+        >
+          {error ? "⚠ " + error : "✓ " + savedMessage}
         </div>
       )}
 
-      {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 flex flex-col gap-5">
-        {/* YOLO Pose Model */}
-        <div className="flex flex-col gap-2">
-          <label className={labelCls}>YOLO Pose Model</label>
+      {/* Body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 flex flex-col gap-6">
+        {/* ── 1. Pose Model ─────────────────────────────────────────────────── */}
+        <Section
+          icon={<IconDetect />}
+          title="Pose detection model"
+          description="YOLO model used to locate people in the frame"
+        >
           <div className="relative">
             <select
               value={draft.yolo_model}
               onChange={(e) =>
                 setDraft({ ...draft, yolo_model: e.target.value })
               }
-              className={inputCls + " appearance-none pr-7"}
+              className="w-full rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-[13px] text-[#171717] outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 appearance-none pr-8 transition-colors"
             >
               {config.yolo_models.map((model) => (
                 <option key={model.key} value={model.key}>
@@ -274,28 +493,40 @@ const Config = ({ className }: ConfigProps) => {
                 </option>
               ))}
             </select>
-            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9a9a9a]">
-              ▾
-            </span>
+            <ChevronDown
+              size={14}
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9a9a9a]"
+            />
           </div>
-        </div>
+        </Section>
 
-        {/* Realtime vs Library YOLO */}
-        <div className="flex flex-col gap-3">
-          <label className={labelCls}>YOLO Confidence / IOU</label>
+        <div className="h-px bg-[#f0f0f0]" />
 
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <span
-              onClick={() => {
+        {/* ── 2. YOLO Thresholds ────────────────────────────────────────────── */}
+        <Section
+          icon={<IconTune />}
+          title="Detection thresholds"
+          description="Confidence and IOU values for person detection"
+        >
+          {/* Sync toggle */}
+          <div className="flex items-center justify-between py-2.5 px-3.5 rounded-lg bg-[#f7f8fa] border border-[#ededed]">
+            <div>
+              <p className="text-[12px] font-medium text-[#1a1a1a]">
+                Sync library &amp; realtime
+              </p>
+              <p className="text-[11px] text-[#9a9a9a]">
+                Apply the same values to both modes
+              </p>
+            </div>
+            <Toggle
+              checked={matchLibrarySettings}
+              onChange={() => {
                 const next = !matchLibrarySettings;
                 if (next) {
                   setCachedRealtime({
                     yolo_conf: draft.yolo_conf,
                     yolo_iou: draft.yolo_iou,
                   });
-                }
-                setMatchLibrarySettings(next);
-                if (next) {
                   setDraft({
                     ...draft,
                     yolo_conf: draft.video_yolo_conf,
@@ -308,167 +539,128 @@ const Config = ({ className }: ConfigProps) => {
                     yolo_iou: cachedRealtime.yolo_iou,
                   });
                 }
+                setMatchLibrarySettings(next);
               }}
-              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
-                matchLibrarySettings ? "bg-[#0052ff]" : "bg-[#dfdfdf]"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  matchLibrarySettings ? "translate-x-3.5" : "translate-x-0"
-                }`}
-              />
-            </span>
-            <span className="text-[13px] text-[#707070]">
-              Use library YOLO settings for realtime
-            </span>
-          </label>
+            />
+          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-[#9a9a9a]">
-                Realtime confidence
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
+          {/* Grid: two columns = Realtime / Library */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-1">
+            {/* Realtime column */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg border border-[#ededed] bg-[#fafafa]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                <span className="text-[11px] font-semibold text-[#4a4a4a] uppercase tracking-[0.05em]">
+                  Realtime
+                </span>
+              </div>
+              <NumberInput
+                label="Confidence"
                 value={draft.yolo_conf}
-                onChange={(e) => updateDraftNumber("yolo_conf", e.target.value)}
+                onChange={(v) => updateDraftNumber("yolo_conf", v)}
                 disabled={matchLibrarySettings}
-                className={inputCls}
               />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-[#9a9a9a]">Realtime IOU</span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
+              <NumberInput
+                label="IOU"
                 value={draft.yolo_iou}
-                onChange={(e) => updateDraftNumber("yolo_iou", e.target.value)}
+                onChange={(v) => updateDraftNumber("yolo_iou", v)}
                 disabled={matchLibrarySettings}
-                className={inputCls}
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-[#9a9a9a]">
-                Library confidence
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
+            {/* Library column */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg border border-[#ededed] bg-[#fafafa]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" />
+                <span className="text-[11px] font-semibold text-[#4a4a4a] uppercase tracking-[0.05em]">
+                  Library
+                </span>
+              </div>
+              <NumberInput
+                label="Confidence"
                 value={draft.video_yolo_conf}
-                onChange={(e) =>
-                  updateLibraryNumber("video_yolo_conf", e.target.value)
-                }
-                className={inputCls}
+                onChange={(v) => updateLibraryNumber("video_yolo_conf", v)}
               />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] text-[#9a9a9a]">Library IOU</span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
+              <NumberInput
+                label="IOU"
                 value={draft.video_yolo_iou}
-                onChange={(e) =>
-                  updateLibraryNumber("video_yolo_iou", e.target.value)
-                }
-                className={inputCls}
+                onChange={(v) => updateLibraryNumber("video_yolo_iou", v)}
               />
             </div>
           </div>
-        </div>
+        </Section>
 
-        {/* Divider */}
+        <div className="h-px bg-[#f0f0f0]" />
 
-        {/* Realtime frame scaling */}
-        <div className="flex flex-col gap-2">
-          <label className={labelCls}>Realtime Frame Scaling</label>
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <span
-              onClick={() =>
+        {/* ── 3. Frame scaling ──────────────────────────────────────────────── */}
+        <Section
+          icon={<IconFrame />}
+          title="Realtime frame scaling"
+          description="Controls the resolution frames are sent at"
+        >
+          <div className="flex items-center justify-between py-2.5 px-3.5 rounded-lg bg-[#f7f8fa] border border-[#ededed]">
+            <div>
+              <p className="text-[12px] font-medium text-[#1a1a1a]">
+                Disable downscaling
+              </p>
+              <p className="text-[11px] text-[#9a9a9a]">
+                Send frames at full camera resolution
+              </p>
+            </div>
+            <Toggle
+              checked={draft.realtime_disable_downscale}
+              onChange={() =>
                 setDraft({
                   ...draft,
                   realtime_disable_downscale: !draft.realtime_disable_downscale,
                 })
               }
-              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
-                draft.realtime_disable_downscale
-                  ? "bg-[#0052ff]"
-                  : "bg-[#dfdfdf]"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  draft.realtime_disable_downscale
-                    ? "translate-x-3.5"
-                    : "translate-x-0"
-                }`}
-              />
-            </span>
-            <span className="text-[13px] text-[#707070]">
-              Disable realtime downscaling
-            </span>
-          </label>
-          <p className="text-[11px] text-[#9a9a9a]">
-            When enabled, frames are sent at full camera resolution.
-          </p>
-        </div>
+            />
+          </div>
+        </Section>
 
-        <div className="h-px bg-[#ededed]" />
-        {/* InfoGCN model selector */}
-        <ModelSelector />
+        <div className="h-px bg-[#f0f0f0]" />
 
-        {/* Divider */}
+        {/* ── 4. Action model ───────────────────────────────────────────────── */}
+        <Section
+          icon={<IconModel />}
+          title="Action recognition model"
+          description="InfoGCN model for classifying detected poses"
+        >
+          <ModelSelector />
+        </Section>
 
-        {/* Action Confidence Thresholds */}
-        <div className="flex flex-col gap-3">
-          <label className={labelCls}>Action Confidence Threshold</label>
+        <div className="h-px bg-[#f0f0f0]" />
 
-          {/* Uniform toggle */}
-          <label className="flex items-center gap-2.5 cursor-pointer select-none">
-            <span
+        {/* ── 5. Action thresholds ──────────────────────────────────────────── */}
+        <Section
+          icon={<IconTune />}
+          title="Action confidence thresholds"
+          description="Minimum confidence required to display an action label"
+        >
+          {/* Mode pills */}
+          <div className="flex items-center gap-2">
+            <Pill
+              active={draft.action_threshold_mode === "uniform"}
               onClick={() =>
-                setDraft({
-                  ...draft,
-                  action_threshold_mode:
-                    draft.action_threshold_mode === "uniform"
-                      ? "per-action"
-                      : "uniform",
-                })
+                setDraft({ ...draft, action_threshold_mode: "uniform" })
               }
-              className={`relative inline-flex w-8 h-4.5 rounded-full transition-colors cursor-pointer shrink-0 ${
-                draft.action_threshold_mode === "uniform"
-                  ? "bg-[#0052ff]"
-                  : "bg-[#dfdfdf]"
-              }`}
             >
-              <span
-                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                  draft.action_threshold_mode === "uniform"
-                    ? "translate-x-3.5"
-                    : "translate-x-0"
-                }`}
-              />
-            </span>
-            <span className="text-[13px] text-[#707070]">
-              Uniform threshold
-            </span>
-          </label>
+              Uniform
+            </Pill>
+            <Pill
+              active={draft.action_threshold_mode === "per-action"}
+              onClick={() =>
+                setDraft({ ...draft, action_threshold_mode: "per-action" })
+              }
+            >
+              Per action
+            </Pill>
+          </div>
 
           {draft.action_threshold_mode === "uniform" ? (
-            <div className="flex items-center gap-3">
-              <span className="text-[13px] text-[#707070] shrink-0 w-20">
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-[12px] text-[#707070] shrink-0">
                 Threshold
               </span>
               <input
@@ -480,30 +672,25 @@ const Config = ({ className }: ConfigProps) => {
                 onChange={(e) =>
                   updateDraftNumber("action_threshold", e.target.value)
                 }
-                className={inputCls}
+                className="flex-1 rounded-md border border-[#dfdfdf] bg-white px-3 py-2 text-[13px] text-[#171717] outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 transition-colors"
               />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mt-1">
               {actions.map((action) => (
-                <div key={action} className="flex flex-col gap-1">
-                  <span className="text-[11px] text-[#9a9a9a]">{action}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={draft.action_thresholds[action] ?? 0}
-                    onChange={(e) =>
-                      updateActionThreshold(action, e.target.value)
-                    }
-                    className={inputCls}
-                  />
-                </div>
+                <NumberInput
+                  key={action}
+                  label={action}
+                  value={draft.action_thresholds[action] ?? 0}
+                  onChange={(v) => updateActionThreshold(action, v)}
+                />
               ))}
             </div>
           )}
-        </div>
+        </Section>
+
+        {/* Bottom padding */}
+        <div className="h-2" />
       </div>
     </div>
   );

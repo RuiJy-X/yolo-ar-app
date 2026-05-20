@@ -32,6 +32,10 @@ If no best fold is resolved from report files, fallback is:
 1. Download the official Python 3.12 embeddable package for Windows and extract it into `python-embed/` at the repo root. This is the Python runtime Electron should bundle.
 2. Install pip into the embedded runtime, then install the backend dependencies with the embedded interpreter:
 
+Open python312.\_pth
+Ensure these lines exist (and are not commented):
+import site
+
 ```bash
 .\python-embed\python.exe .\get-pip.py
 .\python-embed\python.exe -m pip install -r backend\act_reg_final_version\requirements.txt
