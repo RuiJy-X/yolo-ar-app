@@ -14,6 +14,10 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TitleMono from "@/components/titile-mono";
@@ -22,8 +26,6 @@ import type { Detection } from "@/lib/types";
 const apiBaseUrl =
   import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 
-// ─── Waving Toast ─────────────────────────────────────────────────────────────
-
 type WaveToast = {
   id: number;
   timestamp: string;
@@ -31,16 +33,12 @@ type WaveToast = {
 
 const WAVE_THRESHOLD = 32; // consecutive frames required
 
-// ─── Save-to-history state ────────────────────────────────────────────────────
-
 type SaveState =
   | { status: "idle" }
   | { status: "uploading"; message: string }
   | { status: "saving" }
   | { status: "done"; historyId: string }
   | { status: "error"; message: string };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mimeToExtension(mimeType: string): string {
   if (mimeType.startsWith("video/mp4")) return ".mp4";
@@ -69,7 +67,7 @@ function buildSessionSummary(
   const parts: string[] = [`${frameCount} frames processed`];
   if (topActions) parts.push(`top actions: ${topActions}`);
   if (alertCount > 0) parts.push(`${alertCount} waving alert(s)`);
-  return `Live session — ${parts.join("; ")}`;
+  return `Live session ${parts.join("; ")}`;
 }
 
 function formatTimestamp(seconds: number): string {
@@ -95,8 +93,6 @@ const emptyAnalysisSummary = () => ({
   grouped_detections: {},
 });
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 const RealTime = () => {
   const navigate = useNavigate();
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -109,17 +105,15 @@ const RealTime = () => {
   >("disconnected");
   const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
 
-  // ─── Waving Alerts Accordion ──────────────────────────────────────────────────
-
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(true);
+  const [isLogsOpen, setIsLogsOpen] = useState(true);
   const [waveAlertLogs, setWaveAlertLogs] = useState<string[]>([]);
 
   // Waving alert state
   const [waveToasts, setWaveToasts] = useState<WaveToast[]>([]);
   const consecutiveWaveRef = useRef(0);
   const toastIdRef = useRef(0);
-
-  // ─── Save-to-history state ────────────────────────────────────────────────
 
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const saveAbortRef = useRef<AbortController | null>(null);
@@ -238,7 +232,6 @@ const RealTime = () => {
         });
       }
 
-      // ── Consecutive waving detection ─────────────────────────────────────
       const isWaving = label.toLowerCase().includes("wav");
 
       if (isWaving) {
@@ -251,7 +244,7 @@ const RealTime = () => {
           setWaveToasts((prev) => [...prev, { id: newId, timestamp: alertTs }]);
 
           setWaveAlertLogs((prev) => [
-            `[${alertTs}] ⚠ WAVING ALERT — ${WAVE_THRESHOLD} consecutive frames`,
+            `[${alertTs}] WAVING ALERT ${WAVE_THRESHOLD} consecutive frames`,
             ...prev,
           ]);
         }
@@ -261,8 +254,6 @@ const RealTime = () => {
     },
     [appendLog],
   );
-
-  // ─── Recording complete → upload → analyze → save to history ─────────────
 
   const saveRealtimeSession = useCallback(
     async (
@@ -274,7 +265,7 @@ const RealTime = () => {
 
       setSaveState({
         status: "uploading",
-        message: "Uploading session…",
+        message: "Uploading session",
       });
 
       const abortCtrl = new AbortController();
@@ -456,8 +447,6 @@ const RealTime = () => {
     setSaveState({ status: "idle" });
   }, []);
 
-  // ─── Save status banner ───────────────────────────────────────────────────
-
   const renderSaveBanner = () => {
     if (saveState.status === "idle") return null;
 
@@ -518,7 +507,7 @@ const RealTime = () => {
     const message =
       saveState.status === "uploading"
         ? saveState.message
-        : "Saving to history…";
+        : "Saving to history";
 
     return (
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 rounded-xl border border-blue-200 bg-white px-5 py-3 shadow-lg min-w-[320px]">
@@ -533,8 +522,8 @@ const RealTime = () => {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-slate-800">
               {saveState.status === "uploading"
-                ? "Uploading session…"
-                : "Saving to history…"}
+                ? "Uploading session"
+                : "Saving to history"}
             </p>
             <p className="text-xs text-slate-500 truncate">{message}</p>
           </div>
@@ -560,7 +549,6 @@ const RealTime = () => {
   return (
     <AppLayout>
       <div className="flex flex-col w-full h-full overflow-hidden">
-        {/* ── Waving Alert Toasts ─────────────────────────────────────────── */}
         <div className="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
           {waveToasts.map((toast) => (
             <div
@@ -588,59 +576,94 @@ const RealTime = () => {
             </div>
           ))}
         </div>
-
-        {/* ── Save status banner ───────────────────────────────────────────── */}
         {renderSaveBanner()}
 
         {/* Main Section: Config | Video | Logs */}
-        <div className="flex flex-1 min-h-0 w-full gap-1">
-          {/* 1. Config Panel (25%) */}
-          <div className="w-1/4 h-full border-r border-gray-200 overflow-auto">
-            <Config className="h-full" />
+        <div className="relative flex-1 min-h-0 w-full overflow-hidden rounded-xl bg-[#101215]">
+          {" "}
+          {/* Configuration overlay */}
+          <div
+            className={`absolute left-4 top-4 z-30 overflow-hidden transition-[width,height] duration-200 ${
+              isConfigOpen
+                ? "bottom-4 w-[min(22rem,calc(100%-2rem))]"
+                : "h-11 w-11"
+            }`}
+          >
+            {isConfigOpen && <Config transparent className="h-full" />}
+            <button
+              type="button"
+              aria-label={
+                isConfigOpen ? "Minimize configuration" : "Open configuration"
+              }
+              onClick={() => setIsConfigOpen((open) => !open)}
+              className={`absolute z-10 inline-flex items-center justify-center rounded-lg border border-white/50 bg-white/80 text-slate-700 shadow-lg backdrop-blur-xl transition-colors hover:bg-white ${
+                isConfigOpen ? "bottom-3 right-3 h-9 w-9" : "inset-0 h-11 w-11"
+              }`}
+            >
+              {isConfigOpen ? (
+                <PanelLeftClose size={18} />
+              ) : (
+                <PanelLeftOpen size={18} />
+              )}
+            </button>
+          </div>{" "}
+          {/* Full-size video surface */}
+          <div className="absolute inset-0 z-0">
+            <RealTimeVideo
+              isCameraActive={isCameraActive}
+              setIsCameraActive={handleSetCameraActive}
+              onInference={handleInference}
+              onConnectionStateChange={setConnectionState}
+              onCameraLabelChange={setCameraLabel}
+              onRecordingComplete={handleRecordingComplete}
+              onSourceRecordingComplete={handleSourceRecordingComplete}
+            />
           </div>
-
-          {/* 2. Video Panel (50%) */}
-          <div className="bg-white flex flex-col w-1/2 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <TitleMono text="Real-Time Inference" />
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-[#344054]">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      connectionState === "connected"
-                        ? "bg-emerald-500"
-                        : connectionState === "connecting"
-                          ? "bg-amber-500"
-                          : "bg-zinc-500"
-                    }`}
-                  />
-                  Socket: {connectionState}
-                </div>
-                <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-[#344054] max-w-[200px] truncate">
-                  {cameraLabel}
-                </div>
-              </div>
-            </div>
-            <div className="h-full flex flex-col overflow-hidden">
-              <RealTimeVideo
-                isCameraActive={isCameraActive}
-                setIsCameraActive={handleSetCameraActive}
-                onInference={handleInference}
-                onConnectionStateChange={setConnectionState}
-                onCameraLabelChange={setCameraLabel}
-                onRecordingComplete={handleRecordingComplete}
-                onSourceRecordingComplete={handleSourceRecordingComplete}
+          <div className="pointer-events-none absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/70 px-3 py-2 shadow-lg backdrop-blur-xl">
+            <TitleMono text="Real-Time Inference" />
+            <div className="flex items-center gap-2 rounded-full bg-white/70 px-2.5 py-1 text-xs text-[#344054]">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  connectionState === "connected"
+                    ? "bg-emerald-500"
+                    : connectionState === "connecting"
+                      ? "bg-amber-500"
+                      : "bg-zinc-500"
+                }`}
               />
+              {connectionState}
             </div>
-          </div>
-
-          {/* 3. Logs Panel (25%) */}
-          <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden flex flex-col bg-white">
+            <div className="max-w-[200px] truncate text-xs text-[#344054]">
+              {cameraLabel}
+            </div>
+          </div>{" "}
+          {/* Inference logs overlay */}
+          <div
+            className={`absolute right-4 top-4 z-30 flex flex-col overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl shadow-slate-950/10 backdrop-blur-xl transition-[width,height] duration-200 ${
+              isLogsOpen
+                ? "bottom-4 w-[min(22rem,calc(100%-2rem))]"
+                : "h-11 w-11 [&>*:not(:first-child)]:hidden"
+            }`}
+          >
+            {" "}
             {/* Panel header */}
-            <div className="p-3 border-b border-gray-200 bg-white shrink-0">
-              <TitleMono text="Inference Logs" />
+            <div className="flex items-center justify-between border-b border-white/40 bg-white/30 p-3 shrink-0">
+              {isLogsOpen && <TitleMono text="Inference Logs" />}
+              <button
+                type="button"
+                aria-label={
+                  isLogsOpen ? "Minimize inference logs" : "Open inference logs"
+                }
+                onClick={() => setIsLogsOpen((open) => !open)}
+                className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-white/70"
+              >
+                {isLogsOpen ? (
+                  <PanelRightClose size={16} />
+                ) : (
+                  <PanelRightOpen size={16} />
+                )}
+              </button>
             </div>
-
             {/* Live stats */}
             <div className="border-b border-gray-200 bg-white p-3 shrink-0 grid grid-cols-2 gap-2">
               <div>
@@ -649,7 +672,7 @@ const RealTime = () => {
                 </div>
                 <div className="mt-0.5 text-xs font-bold text-[#334155] truncate">
                   {latestAction ?? (
-                    <span className="text-[#94a3b8] font-normal">Waiting…</span>
+                    <span className="text-[#94a3b8] font-normal">Waiting</span>
                   )}
                 </div>
               </div>
@@ -692,7 +715,6 @@ const RealTime = () => {
                 </div>
               </div>
             </div>
-
             {/* Save status (compact, inside logs panel) */}
             {saveState.status !== "idle" &&
               saveState.status !== "done" &&
@@ -700,9 +722,7 @@ const RealTime = () => {
                 <div className="border-b border-gray-200 bg-blue-50 px-3 py-2 shrink-0 flex items-center gap-2">
                   <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
                   <span className="text-[10px] text-blue-700 truncate">
-                    {saveState.status === "uploading"
-                      ? "Uploading…"
-                      : "Saving…"}
+                    {saveState.status === "uploading" ? "Uploading" : "Saving"}
                   </span>
                 </div>
               )}
@@ -722,7 +742,6 @@ const RealTime = () => {
                 </button>
               </div>
             )}
-
             {/* Waving Alerts Accordion */}
             {waveAlertLogs.length > 0 && (
               <div className="border-b border-gray-200 shrink-0">
@@ -758,7 +777,6 @@ const RealTime = () => {
                 )}
               </div>
             )}
-
             {/* Log scroll area */}
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
               {logs.length === 0 ? (
@@ -769,7 +787,7 @@ const RealTime = () => {
               ) : (
                 <div className="space-y-1.5">
                   {logs.map((line, index) => {
-                    const isAlert = line.includes("⚠ WAVING ALERT");
+                    const isAlert = line.includes("WAVING ALERT");
                     return (
                       <div
                         key={`${line}-${index}`}

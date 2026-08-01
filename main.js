@@ -11,6 +11,7 @@ const BACKEND_HOST = "localhost";
 const BACKEND_PORT = 8000;
 const BACKEND_BASE_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 const BACKEND_HEALTH_URL = `${BACKEND_BASE_URL}/health`;
+const DEV_SERVER_URL = "http://localhost:5173";
 
 function getPaths() {
   if (app.isPackaged) {
@@ -128,7 +129,9 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadURL(BACKEND_BASE_URL);
+  // During development, load Vite so edits receive hot-module replacement.
+  // The packaged app loads the frontend generated into the FastAPI bundle.
+  mainWindow.loadURL(app.isPackaged ? BACKEND_BASE_URL : DEV_SERVER_URL);
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.on("closed", () => {
     mainWindow = null;

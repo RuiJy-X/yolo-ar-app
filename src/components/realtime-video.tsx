@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, RefreshCw } from "lucide-react";
 
-// ─── Types (kept identical so RealTime.tsx needs zero changes) ────────────────
 
 export type Keypoint = { id: number; x: number; y: number; confidence: number };
 
@@ -41,10 +40,7 @@ type RealTimeVideoProps = {
   onSourceRecordingComplete?: (blob: Blob, mimeType: string) => void;
 };
 
-// ─── Binary protocol parser ───────────────────────────────────────────────────
-//
-//  Backend sends: [4-byte big-endian uint32: JSON length][JSON bytes][JPEG bytes]
-//
+
 function parseAnnotatedFrame(buffer: ArrayBuffer): {
   payload: InferencePayload;
   jpegUrl: string;
@@ -72,7 +68,7 @@ function parseAnnotatedFrame(buffer: ArrayBuffer): {
   return { payload, jpegUrl };
 }
 
-// ─── Recording helpers ────────────────────────────────────────────────────────
+// Recording helpers 
 
 function pickRecordingMimeType(): string {
   const candidates = [
@@ -87,7 +83,6 @@ function pickRecordingMimeType(): string {
   return "";
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 
 const RealTimeVideo = ({
   isCameraActive,
@@ -107,8 +102,9 @@ const RealTimeVideo = ({
   const sendCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const sendIntervalRef = useRef<number | null>(null);
   const sendingRef = useRef(false);
+  // Keep only the newest frame: do not enqueue work while the backend is inferring.
+  const inferenceInFlightRef = useRef(false);
 
-  // ── NEW: annotated frame display ──────────────────────────────────────────
   // Instead of an overlay canvas we just swap the src of an <img> element.
   // We keep the previous object URL so we can revoke it after the swap.
   const annotatedImgRef = useRef<HTMLImageElement>(null);
@@ -142,7 +138,6 @@ const RealTimeVideo = ({
   const apiBaseUrl =
     import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 
-  // ── helpers ───────────────────────────────────────────────────────────────
 
   const updateConnectionState = useCallback(
     (state: "disconnected" | "connecting" | "connected") => {
@@ -158,6 +153,7 @@ const RealTimeVideo = ({
   );
 
   const closeSocket = useCallback(() => {
+    inferenceInFlightRef.current = false;
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -171,6 +167,7 @@ const RealTimeVideo = ({
       sendIntervalRef.current = null;
     }
     sendingRef.current = false;
+    inferenceInFlightRef.current = false;
   }, []);
 
   const clearAnnotatedFrame = useCallback(() => {
@@ -210,8 +207,6 @@ const RealTimeVideo = ({
       window.removeEventListener("runtime-config-updated", onConfigUpdated);
     };
   }, [apiBaseUrl]);
-
-  // ── Recording ─────────────────────────────────────────────────────────────
 
   const buildVideoConstraints = useCallback(
     (deviceId?: string): MediaTrackConstraints | boolean => {
@@ -304,10 +299,13 @@ const RealTimeVideo = ({
     if (recorder.state !== "inactive") recorder.stop();
   }, []);
 
-  // ── Receive annotated frame ───────────────────────────────────────────────
+ 
 
   const handleWsMessage = useCallback(
     async (event: MessageEvent) => {
+      // The server processes WebSocket frames serially. Releasing this only on a
+      // response prevents client-side buffering and keeps the displayed result fresh.
+      inferenceInFlightRef.current = false;
       // All responses from the new backend are binary (packed frame)
       if (event.data instanceof ArrayBuffer) {
         const parsed = parseAnnotatedFrame(event.data);
@@ -413,8 +411,7 @@ const RealTimeVideo = ({
     [isCameraActive, onInference, startRecording],
   );
 
-  // ── Camera stream ─────────────────────────────────────────────────────────
-
+  
   const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
     const video = videoRef.current;
     if (!video) return;
@@ -482,7 +479,6 @@ const RealTimeVideo = ({
     }
   }, [getPreferredCameraId]);
 
-  // ── Start / stop camera ───────────────────────────────────────────────────
 
   const startCamera = async (deviceIdOverride?: string) => {
     try {
@@ -559,7 +555,7 @@ const RealTimeVideo = ({
     setIsCameraActive(false);
   };
 
-  // ── Effects ───────────────────────────────────────────────────────────────
+ 
 
   // Re-attach stream if video element remounts
   useEffect(() => {
@@ -610,11 +606,17 @@ const RealTimeVideo = ({
     }
     updateConnectionState("connecting");
     const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer"; // ← important: receive as ArrayBuffer
+    ws.binaryType = "arraybuffer"; // important: receive as ArrayBuffer
     ws.onopen = () => updateConnectionState("connected");
     ws.onmessage = handleWsMessage;
-    ws.onerror = () => setError("WebSocket connection error.");
-    ws.onclose = () => updateConnectionState("disconnected");
+    ws.onerror = () => {
+      inferenceInFlightRef.current = false;
+      setError("WebSocket connection error.");
+    };
+    ws.onclose = () => {
+      inferenceInFlightRef.current = false;
+      updateConnectionState("disconnected");
+    };
     wsRef.current = ws;
     return () => closeSocket();
   }, [
@@ -625,7 +627,7 @@ const RealTimeVideo = ({
     wsUrl,
   ]);
 
-  // Frame-send loop — unchanged from original, still sends raw JPEG to backend
+  // Frame-send loop  unchanged from original, still sends raw JPEG to backend
   useEffect(() => {
     if (!isCameraActive) {
       stopFrameLoop();
@@ -641,7 +643,12 @@ const RealTimeVideo = ({
         video.videoWidth === 0
       )
         return;
-      if (sendingRef.current || ws.bufferedAmount > 1_000_000) return;
+      if (
+        sendingRef.current ||
+        inferenceInFlightRef.current ||
+        ws.bufferedAmount > 1_000_000
+      )
+        return;
       const maxWidth = 640;
       const scale = disableDownscale
         ? 1
@@ -666,7 +673,14 @@ const RealTimeVideo = ({
             .arrayBuffer()
             .then((buffer) => {
               const socket = wsRef.current;
-              if (socket?.readyState === WebSocket.OPEN) socket.send(buffer);
+              if (socket?.readyState !== WebSocket.OPEN) return;
+              try {
+                inferenceInFlightRef.current = true;
+                socket.send(buffer);
+              } catch {
+                inferenceInFlightRef.current = false;
+                throw new Error("Failed to send frame.");
+              }
             })
             .catch(() => setError("Failed to encode frame."))
             .finally(() => {
@@ -704,7 +718,6 @@ const RealTimeVideo = ({
     stopSourceRecording,
   ]);
 
-  // ── Connection dot colour ─────────────────────────────────────────────────
 
   const connDot =
     connectionState === "connected"
@@ -713,11 +726,11 @@ const RealTimeVideo = ({
         ? "bg-amber-400 animate-pulse"
         : "bg-[#9a9a9a]";
 
-  // ── Render ────────────────────────────────────────────────────────────────
+
 
   return (
     <div className="w-full h-full rounded-lg overflow-hidden bg-[#1c1c1c] relative">
-      {/* ── Empty state ───────────────────────────────────────────────────── */}
+     
       {!isCameraActive && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4">
           <div className="w-14 h-14 rounded-[12px] bg-[#202020] border border-[#dfdfdf]/10 flex items-center justify-center">
@@ -777,13 +790,13 @@ const RealTimeVideo = ({
       )}
 
       {/*
-        ── NEW display layer ────────────────────────────────────────────────
+        
         The raw camera feed sits beneath, hidden.
         On top we display the annotated JPEG returned by the backend.
         Both are positioned absolute/fill so they stack correctly.
       */}
 
-      {/* Raw camera feed (hidden — still needed to capture frames to send) */}
+      {/* Raw camera feed (hidden still needed to capture frames to send) */}
       <video
         ref={videoRef}
         autoPlay
@@ -792,7 +805,7 @@ const RealTimeVideo = ({
         className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
       />
 
-      {/* Annotated frame from backend — shown when camera is active */}
+      {/* Annotated frame from backend shown when camera is active */}
       <img
         ref={annotatedImgRef}
         alt="Annotated inference"
@@ -809,7 +822,7 @@ const RealTimeVideo = ({
         />
       )}
 
-      {/* ── Status bar ────────────────────────────────────────────────────── */}
+    
       {isCameraActive && (
         <div className="absolute top-3 left-3 z-20 flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -819,7 +832,7 @@ const RealTimeVideo = ({
                 {connectionState === "connected"
                   ? "Live"
                   : connectionState === "connecting"
-                    ? "Connecting…"
+                    ? "Connecting"
                     : "Offline"}
               </span>
             </div>
@@ -871,7 +884,7 @@ const RealTimeVideo = ({
         </div>
       )}
 
-      {/* ── Stop button ───────────────────────────────────────────────────── */}
+     
       {isCameraActive && (
         <div className="absolute top-3 right-3 z-20">
           <button
@@ -885,7 +898,7 @@ const RealTimeVideo = ({
         </div>
       )}
 
-      {/* ── Error banner ──────────────────────────────────────────────────── */}
+   
       {error && (
         <div className="absolute bottom-3 left-3 right-3 z-20 rounded-[8px] bg-red-900/90 border border-red-700/50 px-3 py-2 text-[12px] text-red-200 backdrop-blur-sm">
           {error}

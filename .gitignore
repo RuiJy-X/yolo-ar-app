@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Generated Electron/package inputs. Recreate with npm run bundle:prepare.
+backend-bundle/
+backend/**/frontend/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -67,6 +71,10 @@ backend/**/build/*
 .env
 .env.local
 .env.*.local
+
+# Generated Electron/package inputs. Recreate with npm run bundle:prepare.
+backend-bundle/
+backend/**/frontend/
 
 # Backend artifacts, models and large outputs
 backend/**/outputs/

@@ -34,7 +34,7 @@ type DraftConfig = {
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-// ── Primitives ────────────────────────────────────────────────────────────────
+// â”€â”€ Primitives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const Toggle = ({
   checked,
@@ -94,7 +94,7 @@ const NumberInput = ({
   </div>
 );
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
+// â”€â”€ Section wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const Section = ({
   icon,
@@ -125,7 +125,7 @@ const Section = ({
   </div>
 );
 
-// ── Pill badge ────────────────────────────────────────────────────────────────
+// â”€â”€ Pill badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Pill = ({
   active,
   children,
@@ -148,7 +148,7 @@ const Pill = ({
   </button>
 );
 
-// ── Icons (inline SVG, minimal) ───────────────────────────────────────────────
+// â”€â”€ Icons (inline SVG, minimal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IconDetect = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     <rect
@@ -256,11 +256,14 @@ const IconModel = () => (
   </svg>
 );
 
-// ── Main component ────────────────────────────────────────────────────────────
+// â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-type ConfigProps = { className?: string };
+type ConfigProps = {
+  className?: string;
+  transparent?: boolean;
+};
 
-const Config = ({ className }: ConfigProps) => {
+const Config = ({ className, transparent = false }: ConfigProps) => {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [draft, setDraft] = useState<DraftConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -414,11 +417,11 @@ const Config = ({ className }: ConfigProps) => {
     }
   };
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (loading || !draft || !config) {
     return (
       <div
-        className={`flex flex-col h-full rounded-xl bg-white border border-[#ededed] ${className ?? ""}`}
+        className={`flex flex-col h-full rounded-xl ${transparent ? "bg-white/80 backdrop-blur-xl border-white/50 shadow-xl shadow-slate-950/10" : "bg-white border border-[#ededed]"} ${className ?? ""}`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#ededed]">
           <span className="text-[13px] font-semibold text-[#1a1a1a]">
@@ -427,7 +430,7 @@ const Config = ({ className }: ConfigProps) => {
         </div>
         <div className="flex items-center justify-center flex-1 gap-2 text-[13px] text-[#9a9a9a]">
           <RefreshCw size={14} className="animate-spin" />
-          Loading…
+          Loadingâ€¦
         </div>
       </div>
     );
@@ -435,7 +438,7 @@ const Config = ({ className }: ConfigProps) => {
 
   return (
     <div
-      className={`flex flex-col min-h-0 rounded-xl bg-white border border-[#ededed] ${className ?? ""}`}
+      className={`flex flex-col min-h-0 rounded-xl ${transparent ? "bg-white/80 backdrop-blur-xl border-white/50 shadow-xl shadow-slate-950/10" : "bg-white border border-[#ededed]"} ${className ?? ""}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#ededed] shrink-0">
@@ -454,7 +457,7 @@ const Config = ({ className }: ConfigProps) => {
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] disabled:opacity-50 transition-colors shadow-sm"
         >
           <Save size={13} />
-          {saving ? "Saving…" : "Save"}
+          {saving ? "Savingâ€¦" : "Save"}
         </button>
       </div>
 
@@ -467,13 +470,13 @@ const Config = ({ className }: ConfigProps) => {
               : "bg-[#eef3ff] border border-[#c7d7ff] text-[#0041cc]"
           }`}
         >
-          {error ? "⚠ " + error : "✓ " + savedMessage}
+          {error ? "âš  " + error : "âœ“ " + savedMessage}
         </div>
       )}
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 flex flex-col gap-6">
-        {/* ── 1. Pose Model ─────────────────────────────────────────────────── */}
+        {/* â”€â”€ 1. Pose Model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconDetect />}
           title="Pose detection model"
@@ -502,7 +505,7 @@ const Config = ({ className }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* ── 2. YOLO Thresholds ────────────────────────────────────────────── */}
+        {/* â”€â”€ 2. YOLO Thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconTune />}
           title="Detection thresholds"
@@ -592,7 +595,7 @@ const Config = ({ className }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* ── 3. Frame scaling ──────────────────────────────────────────────── */}
+        {/* â”€â”€ 3. Frame scaling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconFrame />}
           title="Realtime frame scaling"
@@ -621,7 +624,7 @@ const Config = ({ className }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* ── 4. Action model ───────────────────────────────────────────────── */}
+        {/* â”€â”€ 4. Action model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconModel />}
           title="Action recognition model"
@@ -632,7 +635,7 @@ const Config = ({ className }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* ── 5. Action thresholds ──────────────────────────────────────────── */}
+        {/* â”€â”€ 5. Action thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconTune />}
           title="Action confidence thresholds"
