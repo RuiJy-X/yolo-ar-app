@@ -72,6 +72,7 @@ backend/**/build/*
 .env.local
 .env.*.local
 
+
 # Generated Electron/package inputs. Recreate with npm run bundle:prepare.
 backend-bundle/
 backend/**/frontend/
@@ -93,3 +94,5 @@ backend/**/results/*
 # OS files
 Thumbs.db
 desktop.ini
+
+training/

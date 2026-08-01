@@ -656,7 +656,9 @@ const Home = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/history`);
+      const response = await fetch(`${apiBaseUrl}/api/history`, {
+        signal: AbortSignal.timeout(4000),
+      });
       const payload = (await response.json().catch(() => null)) as
         | HistoryListEntry[]
         | { detail?: string };
@@ -679,7 +681,7 @@ const Home = () => {
   useEffect(() => {
     loadHistory();
     // Fetch health data
-    fetch(`${apiBaseUrl}/health`)
+    fetch(`${apiBaseUrl}/health`, { signal: AbortSignal.timeout(4000) })
       .then((r) => r.json())
       .then(setHealthData)
       .catch(() => setHealthError(true));

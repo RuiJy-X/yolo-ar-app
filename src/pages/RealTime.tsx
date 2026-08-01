@@ -38,6 +38,11 @@ const WAVE_THRESHOLD = 32; // consecutive frames required
 
 type SaveState =
   | { status: "idle" }
+  | {
+      status: "pending_confirmation";
+      annotated: { blob: Blob; mime: string };
+      source: { blob: Blob; mime: string } | null;
+    }
   | { status: "uploading"; message: string }
   | { status: "saving" }
   | { status: "done"; historyId: string }
@@ -408,8 +413,12 @@ const RealTime = () => {
     if (!annotated || !source) return;
     annotatedCaptureRef.current = null;
     sourceCaptureRef.current = null;
-    saveRealtimeSession(annotated, source);
-  }, [saveRealtimeSession]);
+    setSaveState({
+      status: "pending_confirmation",
+      annotated,
+      source,
+    });
+  }, []);
 
   const handleRecordingComplete = useCallback(
     (blob: Blob, mimeType: string) => {
@@ -455,6 +464,47 @@ const RealTime = () => {
 
   const renderSaveBanner = () => {
     if (saveState.status === "idle") return null;
+
+    if (saveState.status === "pending_confirmation") {
+      const { annotated, source } = saveState;
+      return (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-3.5 rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur-xl min-w-[360px] max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-start gap-3.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100/80 shadow-sm">
+              <Save className="h-5 w-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-slate-900">
+                Save Webcam Session?
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+                Camera feed stopped. Do you want to save this recorded video
+                session and inference analysis to your History library?
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 h-8 px-3 rounded-lg font-medium"
+              onClick={() => setSaveState({ status: "idle" })}
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Discard / Don't Save
+            </Button>
+            <Button
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-4 rounded-lg shadow-sm font-medium gap-1.5"
+              onClick={() => saveRealtimeSession(annotated, source)}
+            >
+              <Save className="h-3.5 w-3.5" />
+              Save Video
+            </Button>
+          </div>
+        </div>
+      );
+    }
 
     if (saveState.status === "done") {
       return (
@@ -616,7 +666,7 @@ const RealTime = () => {
           {/* Video / Drone surface */}
           <div className="absolute inset-0 z-0 overflow-y-auto">
             {streamSource === "tello" ? (
-              <div className="w-full h-full p-4 pt-16">
+              <div className="w-full h-full p-0">
                 <TelloDronePanel onInference={handleInference} />
               </div>
             ) : (
@@ -762,16 +812,39 @@ const RealTime = () => {
               </div>
             </div>
             {/* Save status (compact, inside logs panel) */}
-            {saveState.status !== "idle" &&
-              saveState.status !== "done" &&
-              saveState.status !== "error" && (
-                <div className="border-b border-gray-200 bg-blue-50 px-3 py-2 shrink-0 flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
-                  <span className="text-[10px] text-blue-700 truncate">
-                    {saveState.status === "uploading" ? "Uploading" : "Saving"}
-                  </span>
+            {saveState.status === "pending_confirmation" && (
+              <div className="border-b border-gray-200 bg-amber-50 px-3 py-2 shrink-0 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] text-amber-800 font-semibold truncate">
+                  <Save className="h-3 w-3 text-amber-600 shrink-0" />
+                  <span className="truncate">Save video session?</span>
                 </div>
-              )}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2 py-0.5 rounded shadow-sm"
+                    onClick={() =>
+                      saveRealtimeSession(saveState.annotated, saveState.source)
+                    }
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="text-[10px] text-slate-600 hover:text-slate-900 px-1 py-0.5"
+                    onClick={() => setSaveState({ status: "idle" })}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+            {(saveState.status === "uploading" ||
+              saveState.status === "saving") && (
+              <div className="border-b border-gray-200 bg-blue-50 px-3 py-2 shrink-0 flex items-center gap-2">
+                <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
+                <span className="text-[10px] text-blue-700 truncate">
+                  {saveState.status === "uploading" ? "Uploading" : "Saving"}
+                </span>
+              </div>
+            )}
             {saveState.status === "done" && (
               <div className="border-b border-gray-200 bg-emerald-50 px-3 py-2 shrink-0 flex items-center gap-2">
                 <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />

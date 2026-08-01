@@ -1906,7 +1906,8 @@ def run_video_inference_job(
                 total_frames=total_frames if total_frames > 0 else None,
             )
 
-        result = app.state.pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
+        pipeline = get_pipeline()
+        result = pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
         raw_output_path = output_path
         raw_output_name = output_name
 
@@ -1962,17 +1963,38 @@ def run_video_inference_job(
         cleanup_inference_jobs()
 
 
+def get_pipeline() -> ActionRecognitionPipeline:
+    pipeline = getattr(app.state, "pipeline", None)
+    if pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model pipeline is still initializing. Please try again in a moment.",
+        )
+    return pipeline
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     cleanup_annotated_outputs()
     cleanup_preview_outputs()
     cleanup_inference_jobs()
-    app.state.pipeline = ActionRecognitionPipeline(CURRENT_DIR)
+    app.state.pipeline = None
+
+    def _init_pipeline_bg():
+        try:
+            print("[startup] Initializing ActionRecognitionPipeline in background...")
+            app.state.pipeline = ActionRecognitionPipeline(CURRENT_DIR)
+            print("[startup] ActionRecognitionPipeline initialized successfully!")
+        except Exception as err:
+            print(f"[startup] Failed to initialize ActionRecognitionPipeline: {err}")
+
+    threading.Thread(target=_init_pipeline_bg, daemon=True).start()
 
 
 @app.get("/health")
 def healthcheck() -> dict[str, Any]:
-    pipeline_loaded = hasattr(app.state, "pipeline")
+    pipeline = getattr(app.state, "pipeline", None)
+    pipeline_loaded = pipeline is not None
     return {
         "status": "ok" if pipeline_loaded else "starting",
         "pipeline_loaded": pipeline_loaded,
@@ -1983,7 +2005,7 @@ def healthcheck() -> dict[str, Any]:
         "action_inference_stride": ACTION_INFERENCE_STRIDE,
         "tta_enabled": INFERENCE_TTA_ENABLED,
         "torch_compile_enabled": os.getenv("TORCH_COMPILE", "0") == "1",
-        "active_model": app.state.pipeline.active_model_name if pipeline_loaded else None,
+        "active_model": pipeline.active_model_name if pipeline_loaded else None,
     }
 
 
@@ -2021,20 +2043,18 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
 
 @app.get("/api/models")
 def list_models() -> dict[str, Any]:
-    # FIX: use active_model_name property instead of non-existent action_model_path
+    pipeline = getattr(app.state, "pipeline", None)
     registry = discover_action_models()
     return {
         "models": registry,
-        "active_model": app.state.pipeline.active_model_name,
+        "active_model": pipeline.active_model_name if pipeline else None,
     }
 
 
 @app.post("/api/models/active")
 def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
-    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    pipeline: ActionRecognitionPipeline = get_pipeline()
     try:
-        # FIX: apply preset BEFORE swapping the model so that WINDOW_SIZE is
-        # correct when init_action_model reads it inside swap_action_model.
         applied_preset = apply_model_preset(body.model_name, pipeline)
         pipeline.swap_action_model(body.model_name)
     except ValueError as exc:
@@ -2051,13 +2071,13 @@ def set_active_model(body: SetActiveModelRequest) -> dict[str, Any]:
 
 @app.get("/api/config")
 def get_runtime_config() -> dict[str, Any]:
-    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    pipeline: ActionRecognitionPipeline = get_pipeline()
     return build_runtime_config(pipeline)
 
 
 @app.post("/api/config")
 def update_runtime_config(body: UpdateConfigRequest) -> dict[str, Any]:
-    pipeline: ActionRecognitionPipeline = app.state.pipeline
+    pipeline: ActionRecognitionPipeline = get_pipeline()
     try:
         pipeline.update_config(body)
     except ValueError as exc:
@@ -2107,7 +2127,8 @@ def run_history_reinference_job(
                 total_frames=total_frames if total_frames > 0 else None,
             )
 
-        result = app.state.pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
+        pipeline = get_pipeline()
+        result = pipeline._infer_video_file_sync(preview_path, output_path, on_progress)
         raw_output_path = output_path
 
         if raw_output_path.suffix.lower() == ".mp4":
@@ -2661,6 +2682,10 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "message": "Frame payload missing."})
                 continue
 
+            if getattr(app.state, "pipeline", None) is None:
+                await websocket.send_json({"type": "error", "message": "Model pipeline is still initializing. Please wait a moment."})
+                continue
+
             state.frame_index += 1
             result = await app.state.pipeline.infer_frame(frame, state)
             if result.get("type") == "inference":
@@ -2790,6 +2815,11 @@ async def tello_stream_websocket(websocket: WebSocket) -> None:
             frame = tello_manager.get_frame()
             if frame is None:
                 await asyncio.sleep(0.04)
+                continue
+
+            if getattr(app.state, "pipeline", None) is None:
+                await websocket.send_json({"type": "error", "message": "Model pipeline is still initializing. Please wait a moment."})
+                await asyncio.sleep(1.0)
                 continue
 
             state.frame_index += 1

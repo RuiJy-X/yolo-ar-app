@@ -329,100 +329,112 @@ export default function TelloDronePanel({
   };
 
   return (
-    <div className="flex flex-col space-y-4 w-full text-foreground">
-      {/* ── Top Telemetry HUD & Status Bar ──────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 bg-card/60 backdrop-blur-md p-3 rounded-xl border border-border/50 shadow-sm">
-        {/* Connection Status */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          <Wifi className={`w-4 h-4 ${telemetry.connected ? "text-emerald-400 animate-pulse" : "text-muted-foreground"}`} />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Connection</span>
-            <span className="text-xs font-bold">
+    <div className="relative w-full h-full min-h-[550px] flex-1 flex flex-col rounded-2xl overflow-hidden bg-black/95 border border-white/10 shadow-2xl text-foreground">
+      {/* ── Hero Live Stream Canvas (Fills Entire Frame) ──────────────────── */}
+      <img
+        ref={annotatedImgRef}
+        alt="Tello Live Stream"
+        className="w-full h-full object-cover absolute inset-0"
+        style={{
+          display: streamActive && telemetry.connected ? "block" : "none",
+        }}
+      />
+
+      {/* ── Offline / Disconnected Overlay ────────────────────────────────── */}
+      {(!telemetry.connected || !streamActive) && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6 space-y-4 bg-black/85 backdrop-blur-md">
+          <div className="w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 shadow-inner">
+            <Plane className="w-8 h-8 text-cyan-400 animate-pulse" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-bold text-white">
+              Tello Stream Disconnected
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed max-w-md">
+              Connect your computer's Wi-Fi to the Tello drone AP (
+              <code className="text-cyan-400 font-mono">TELLO-XXXXXX</code>) and
+              click Connect Drone.
+            </p>
+          </div>
+          <Button
+            onClick={handleConnectDrone}
+            disabled={isConnecting}
+            className="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-6 shadow-lg text-xs"
+          >
+            {isConnecting ? "Establishing UDP Link..." : "Connect Tello Drone"}
+          </Button>
+        </div>
+      )}
+
+      {/* ── Floating Top Telemetry & Status HUD ───────────────────────────── */}
+      <div className="absolute top-4 left-4 right-4 z-30 flex flex-wrap items-center justify-between gap-3 bg-black/80 backdrop-blur-xl border border-white/15 px-4 py-2.5 rounded-xl shadow-2xl">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2">
+            <Wifi
+              className={`w-4 h-4 ${telemetry.connected ? "text-emerald-400 animate-pulse" : "text-muted-foreground"}`}
+            />
+            <span className="text-xs font-bold text-white">
               {telemetry.connected ? "TELLO CONNECTED" : "OFFLINE"}
             </span>
           </div>
-        </div>
 
-        {/* Battery Indicator */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          {telemetry.battery <= 20 ? (
-            <BatteryWarning className="w-4 h-4 text-red-400 animate-bounce" />
-          ) : (
-            <Battery className="w-4 h-4 text-emerald-400" />
+          <Badge className="bg-white/10 text-cyan-300 border border-white/10 text-[11px]">
+            {telemetry.is_flying ? "AIRBORNE" : "LANDED"}
+          </Badge>
+
+          {telemetry.connected && streamActive && (
+            <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[11px] flex items-center space-x-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              <span>LIVE ANNOTATED</span>
+            </Badge>
           )}
-          <div className="flex flex-col w-full">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Battery</span>
-              <span className="text-xs font-bold">{telemetry.battery}%</span>
-            </div>
-            <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden mt-1">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  telemetry.battery > 50 ? "bg-emerald-500" : telemetry.battery > 20 ? "bg-amber-500" : "bg-red-500"
-                }`}
-                style={{ width: `${Math.max(0, Math.min(100, telemetry.battery))}%` }}
-              />
-            </div>
-          </div>
         </div>
 
-        {/* Altitude / Height */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          <Gauge className="w-4 h-4 text-cyan-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Altitude</span>
-            <span className="text-xs font-bold">
-              {telemetry.height} cm <span className="text-[10px] text-muted-foreground">({(telemetry.height / 100).toFixed(1)}m)</span>
-            </span>
+        <div className="flex items-center space-x-4 text-xs font-semibold text-white">
+          {/* Battery */}
+          <div className="flex items-center space-x-1.5">
+            {telemetry.battery <= 20 ? (
+              <BatteryWarning className="w-4 h-4 text-red-400 animate-bounce" />
+            ) : (
+              <Battery className="w-4 h-4 text-emerald-400" />
+            )}
+            <span>{telemetry.battery}%</span>
           </div>
-        </div>
 
-        {/* Flight Time */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          <Zap className="w-4 h-4 text-yellow-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Flight Time</span>
-            <span className="text-xs font-bold">{telemetry.flight_time}s</span>
+          {/* Altitude */}
+          <div className="flex items-center space-x-1.5">
+            <Gauge className="w-4 h-4 text-cyan-400" />
+            <span>{(telemetry.height / 100).toFixed(1)}m</span>
           </div>
-        </div>
 
-        {/* Temperature */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          <Thermometer className="w-4 h-4 text-orange-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Temperature</span>
-            <span className="text-xs font-bold">{telemetry.temperature}°C</span>
+          {/* Flight Time */}
+          <div className="flex items-center space-x-1.5">
+            <Zap className="w-4 h-4 text-yellow-400" />
+            <span>{telemetry.flight_time}s</span>
           </div>
-        </div>
 
-        {/* Attitude (Pitch / Roll / Yaw) */}
-        <div className="flex items-center space-x-2.5 p-2 rounded-lg bg-background/50 border border-border/40">
-          <Compass className="w-4 h-4 text-indigo-400" />
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">P / R / Y</span>
-            <span className="text-xs font-mono font-semibold">
-              {telemetry.pitch}° / {telemetry.roll}° / {telemetry.yaw}°
-            </span>
+          {/* Temp */}
+          <div className="flex items-center space-x-1.5">
+            <Thermometer className="w-4 h-4 text-orange-400" />
+            <span>{telemetry.temperature}°C</span>
           </div>
-        </div>
 
-        {/* Action Connect/Disconnect */}
-        <div className="flex items-center justify-end p-1">
+          {/* Connect / Disconnect button */}
           {!telemetry.connected ? (
             <Button
               onClick={handleConnectDrone}
               disabled={isConnecting}
               size="sm"
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9 shadow-md"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-7 px-3 shadow"
             >
-              {isConnecting ? "Connecting..." : "Connect Drone"}
+              {isConnecting ? "Connecting..." : "Connect"}
             </Button>
           ) : (
             <Button
               onClick={handleDisconnectDrone}
               variant="outline"
               size="sm"
-              className="w-full border-red-500/40 text-red-400 hover:bg-red-500/10 font-semibold text-xs h-9"
+              className="border-red-500/40 text-red-400 hover:bg-red-500/20 font-semibold text-xs h-7 px-3"
             >
               Disconnect
             </Button>
@@ -430,275 +442,231 @@ export default function TelloDronePanel({
         </div>
       </div>
 
-      {/* Error Alert Message */}
+      {/* ── Error Alert Message Banner ────────────────────────────────────── */}
       {errorMsg && (
-        <div className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-xs font-medium">
+        <div className="absolute top-20 left-4 right-4 z-30 flex items-center justify-between p-3 bg-red-500/20 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium backdrop-blur-md">
           <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
             <span>{errorMsg}</span>
           </div>
-          <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-white font-bold ml-2">
+          <button
+            onClick={() => setErrorMsg(null)}
+            className="text-red-400 hover:text-white font-bold ml-2"
+          >
             ×
           </button>
         </div>
       )}
 
-      {/* ── Main Stream View + Flight Control Panel Grid ──────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left Column: Live Annotated Stream Window (2 cols) */}
-        <div className="lg:col-span-2 relative bg-black/90 rounded-2xl overflow-hidden border border-border/60 shadow-xl flex items-center justify-center min-h-[380px]">
-          {/* Live Frame Image */}
-          <img
-            ref={annotatedImgRef}
-            alt="Tello Live Stream"
-            className="w-full h-full object-contain max-h-[500px]"
-            style={{ display: streamActive && telemetry.connected ? "block" : "none" }}
-          />
-
-          {/* Offline / Connect Prompt Overlay */}
-          {(!telemetry.connected || !streamActive) && (
-            <div className="flex flex-col items-center justify-center text-center p-6 space-y-4 max-w-md">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-                <Plane className="w-8 h-8 text-primary animate-pulse" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-bold">Tello Stream Disconnected</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Connect your computer's Wi-Fi to the Tello drone AP (<code className="text-cyan-400">TELLO-XXXXXX</code>) and click Connect Drone.
-                </p>
-              </div>
-              <Button
-                onClick={handleConnectDrone}
-                disabled={isConnecting}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6 shadow-lg"
-              >
-                {isConnecting ? "Establishing UDP Link..." : "Connect Tello Drone"}
-              </Button>
-            </div>
-          )}
-
-          {/* Stream Overlay HUD Header */}
-          {telemetry.connected && streamActive && (
-            <div className="absolute top-3 left-3 right-3 flex justify-between items-center pointer-events-none">
-              <Badge className="bg-black/60 backdrop-blur-md text-emerald-400 border border-emerald-500/40 px-2.5 py-1 text-xs flex items-center space-x-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                <span>LIVE ANNOTATED FEED</span>
-              </Badge>
-
-              <Badge className="bg-black/60 backdrop-blur-md text-cyan-300 border border-cyan-500/40 text-xs">
-                {telemetry.is_flying ? "AIRBORNE" : "LANDED"}
-              </Badge>
-            </div>
-          )}
+      {/* ── Floating Flight Control Deck Dock (Bottom Right) ──────────────── */}
+      <div className="absolute bottom-4 right-4 z-30 flex flex-col gap-2.5 bg-black/85 backdrop-blur-xl border border-white/15 p-3.5 rounded-2xl shadow-2xl max-w-[320px] text-white">
+        {/* Controls Header */}
+        <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+          <h3 className="text-xs font-bold flex items-center space-x-1.5">
+            <Plane className="w-4 h-4 text-cyan-400" />
+            <span>Flight Deck</span>
+          </h3>
+          <Badge
+            variant="outline"
+            className="text-[9px] border-white/20 text-white/70"
+          >
+            Keyboard Active
+          </Badge>
         </div>
 
-        {/* Right Column: Drone Controls & Virtual Joysticks (1 col) */}
-        <div className="flex flex-col space-y-4 bg-card/60 backdrop-blur-md p-4 rounded-2xl border border-border/50 shadow-sm">
-          <div className="flex items-center justify-between border-b border-border/40 pb-2">
-            <h3 className="text-sm font-bold flex items-center space-x-2">
-              <Plane className="w-4 h-4 text-primary" />
-              <span>Flight Control Deck</span>
-            </h3>
-            <Badge variant="outline" className="text-[10px] uppercase font-mono">
-              Keyboard: Active
-            </Badge>
-          </div>
+        {/* Takeoff / Land / Stop Buttons */}
+        <div className="grid grid-cols-3 gap-1.5">
+          <Button
+            onClick={() => sendCommand("takeoff")}
+            disabled={!telemetry.connected || telemetry.is_flying}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 shadow"
+          >
+            Takeoff
+          </Button>
 
-          {/* Primary Takeoff / Land / Emergency Bar */}
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              onClick={() => sendCommand("takeoff")}
-              disabled={!telemetry.connected || telemetry.is_flying}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-10 shadow"
-            >
-              Takeoff
-            </Button>
+          <Button
+            onClick={() => sendCommand("land")}
+            disabled={!telemetry.connected || !telemetry.is_flying}
+            className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-8 shadow"
+          >
+            Land
+          </Button>
 
-            <Button
-              onClick={() => sendCommand("land")}
-              disabled={!telemetry.connected || !telemetry.is_flying}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-10 shadow"
-            >
-              Land
-            </Button>
+          <Button
+            onClick={() => sendCommand("emergency")}
+            disabled={!telemetry.connected}
+            variant="destructive"
+            className="font-bold text-xs h-8 shadow border border-red-500/50"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 mr-1" />
+            Stop
+          </Button>
+        </div>
 
-            <Button
-              onClick={() => sendCommand("emergency")}
-              disabled={!telemetry.connected}
-              variant="destructive"
-              className="font-bold text-xs h-10 shadow-lg border border-red-500/50"
-            >
-              <ShieldAlert className="w-3.5 h-3.5 mr-1" />
-              Stop
-            </Button>
-          </div>
+        {/* Joysticks Grid */}
+        <div className="grid grid-cols-2 gap-2 pt-0.5">
+          {/* Translate W/A/S/D */}
+          <div className="flex flex-col items-center bg-white/5 p-2 rounded-xl border border-white/10">
+            <span className="text-[9px] font-semibold text-white/70 mb-1">
+              Translate (W/A/S/D)
+            </span>
+            <div className="grid grid-cols-3 gap-1 w-full max-w-[110px]">
+              <div />
+              <Button
+                size="icon"
+                variant={activeKeys.has("KeyW") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, 40, 0, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </Button>
+              <div />
 
-          {/* Movement Joysticks Section */}
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            {/* Translational D-Pad (Pitch / Roll) */}
-            <div className="flex flex-col items-center bg-background/40 p-3 rounded-xl border border-border/30">
-              <span className="text-[10px] font-semibold text-muted-foreground mb-2">Translate (W/A/S/D)</span>
-              <div className="grid grid-cols-3 gap-1.5 w-full max-w-[130px]">
-                <div />
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("KeyW") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, 40, 0, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </Button>
-                <div />
+              <Button
+                size="icon"
+                variant={activeKeys.has("KeyA") ? "default" : "outline"}
+                onMouseDown={() => sendRC(-40, 0, 0, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </Button>
 
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("KeyA") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(-40, 0, 0, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
+              <Button
+                size="icon"
+                variant="secondary"
+                onClick={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7 text-[9px] font-bold"
+              >
+                ●
+              </Button>
 
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  onClick={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8 text-[10px] font-bold"
-                >
-                  ●
-                </Button>
+              <Button
+                size="icon"
+                variant={activeKeys.has("KeyD") ? "default" : "outline"}
+                onMouseDown={() => sendRC(40, 0, 0, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
 
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("KeyD") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(40, 0, 0, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                >
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-
-                <div />
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("KeyS") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, -40, 0, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                >
-                  <ArrowDown className="w-4 h-4" />
-                </Button>
-                <div />
-              </div>
-            </div>
-
-            {/* Altitude / Yaw D-Pad (Arrows) */}
-            <div className="flex flex-col items-center bg-background/40 p-3 rounded-xl border border-border/30">
-              <span className="text-[10px] font-semibold text-muted-foreground mb-2">Altitude & Yaw</span>
-              <div className="grid grid-cols-3 gap-1.5 w-full max-w-[130px]">
-                <div />
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("ArrowUp") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, 0, 40, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                  title="Ascend (Up Arrow)"
-                >
-                  <ArrowUp className="w-4 h-4 text-cyan-400" />
-                </Button>
-                <div />
-
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("ArrowLeft") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, 0, 0, -40)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                  title="Turn Left (Left Arrow)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </Button>
-
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  onClick={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8 text-[10px] font-bold"
-                >
-                  ●
-                </Button>
-
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("ArrowRight") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, 0, 0, 40)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                  title="Turn Right (Right Arrow)"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                </Button>
-
-                <div />
-                <Button
-                  size="icon"
-                  variant={activeKeys.has("ArrowDown") ? "default" : "outline"}
-                  onMouseDown={() => sendRC(0, 0, -40, 0)}
-                  onMouseUp={() => sendRC(0, 0, 0, 0)}
-                  className="h-8 w-8"
-                  title="Descend (Down Arrow)"
-                >
-                  <ArrowDown className="w-4 h-4 text-amber-400" />
-                </Button>
-                <div />
-              </div>
+              <div />
+              <Button
+                size="icon"
+                variant={activeKeys.has("KeyS") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, -40, 0, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </Button>
+              <div />
             </div>
           </div>
 
-          {/* Aerobatic Flips */}
-          <div className="pt-2">
-            <span className="text-[10px] font-semibold text-muted-foreground block mb-1.5">Acrobatic Flips</span>
-            <div className="grid grid-cols-4 gap-1.5">
+          {/* Altitude & Yaw */}
+          <div className="flex flex-col items-center bg-white/5 p-2 rounded-xl border border-white/10">
+            <span className="text-[9px] font-semibold text-white/70 mb-1">
+              Alt & Yaw (Arrows)
+            </span>
+            <div className="grid grid-cols-3 gap-1 w-full max-w-[110px]">
+              <div />
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendCommand("flip", "f")}
-                disabled={!telemetry.is_flying}
-                className="text-[10px] h-7 font-semibold"
+                size="icon"
+                variant={activeKeys.has("ArrowUp") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, 0, 40, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
               >
-                Flip FWD
+                <ArrowUp className="w-3.5 h-3.5 text-cyan-400" />
               </Button>
+              <div />
+
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendCommand("flip", "b")}
-                disabled={!telemetry.is_flying}
-                className="text-[10px] h-7 font-semibold"
+                size="icon"
+                variant={activeKeys.has("ArrowLeft") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, 0, 0, -40)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
               >
-                Flip BWD
+                <RotateCcw className="w-3 h-3" />
               </Button>
+
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendCommand("flip", "l")}
-                disabled={!telemetry.is_flying}
-                className="text-[10px] h-7 font-semibold"
+                size="icon"
+                variant="secondary"
+                onClick={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7 text-[9px] font-bold"
               >
-                Flip LEFT
+                ●
               </Button>
+
               <Button
-                variant="outline"
-                size="sm"
-                onClick={() => sendCommand("flip", "r")}
-                disabled={!telemetry.is_flying}
-                className="text-[10px] h-7 font-semibold"
+                size="icon"
+                variant={activeKeys.has("ArrowRight") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, 0, 0, 40)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
               >
-                Flip RIGHT
+                <RotateCw className="w-3 h-3" />
               </Button>
+
+              <div />
+              <Button
+                size="icon"
+                variant={activeKeys.has("ArrowDown") ? "default" : "outline"}
+                onMouseDown={() => sendRC(0, 0, -40, 0)}
+                onMouseUp={() => sendRC(0, 0, 0, 0)}
+                className="h-7 w-7"
+              >
+                <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
+              </Button>
+              <div />
             </div>
+          </div>
+        </div>
+
+        {/* Aerobatic Flips */}
+        <div className="pt-0.5">
+          <div className="grid grid-cols-4 gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendCommand("flip", "f")}
+              disabled={!telemetry.is_flying}
+              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+            >
+              Flip FWD
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendCommand("flip", "b")}
+              disabled={!telemetry.is_flying}
+              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+            >
+              Flip BWD
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendCommand("flip", "l")}
+              disabled={!telemetry.is_flying}
+              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+            >
+              Flip L
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendCommand("flip", "r")}
+              disabled={!telemetry.is_flying}
+              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+            >
+              Flip R
+            </Button>
           </div>
         </div>
       </div>

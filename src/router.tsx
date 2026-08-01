@@ -1,29 +1,43 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router";
-import RealTime from "./pages/RealTime";
-import Library from "./pages/Library";
-import Home from "./pages/Home";
-import Help from "./pages/Help";
-import Splash from "./pages/Splash";
+
+const Splash = lazy(() => import("./pages/Splash"));
+const Home = lazy(() => import("./pages/Home"));
+const RealTime = lazy(() => import("./pages/RealTime"));
+const Library = lazy(() => import("./pages/Library"));
+const Help = lazy(() => import("./pages/Help"));
+
+const LoadingFallback = () => (
+  <div className="fixed inset-0 bg-white flex items-center justify-center">
+    <div className="w-8 h-8 border-4 border-[#0052ff] border-t-transparent rounded-full animate-spin" />
+  </div>
+);
+
+const withSuspense = (Component: React.ComponentType) => (
+  <Suspense fallback={<LoadingFallback />}>
+    <Component />
+  </Suspense>
+);
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: Splash,
+    element: withSuspense(Splash),
   },
   {
     path: "/home",
-    Component: Home,
+    element: withSuspense(Home),
   },
   {
     path: "/realtime",
-    Component: RealTime,
+    element: withSuspense(RealTime),
   },
   {
     path: "/library",
-    Component: Library,
+    element: withSuspense(Library),
   },
   {
     path: "/help",
-    Component: Help,
+    element: withSuspense(Help),
   },
 ]);
