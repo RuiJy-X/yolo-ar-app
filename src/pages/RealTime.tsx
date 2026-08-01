@@ -3,12 +3,15 @@ import { Badge } from "@/components/ui/badge";
 import RealTimeVideo, {
   type InferencePayload,
 } from "@/components/realtime-video";
+import TelloDronePanel from "@/components/tello-drone-panel";
 import Config from "./library/config";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   AlertTriangle,
+  Camera,
   ChevronDown,
+  Plane,
   X,
   Save,
   Loader2,
@@ -96,6 +99,9 @@ const emptyAnalysisSummary = () => ({
 const RealTime = () => {
   const navigate = useNavigate();
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [streamSource, setStreamSource] = useState<"webcam" | "tello">(
+    "webcam",
+  );
   const [logs, setLogs] = useState<string[]>([]);
   const [latestAction, setLatestAction] = useState<string | null>(null);
   const [detectionCount, setDetectionCount] = useState(0);
@@ -583,67 +589,107 @@ const RealTime = () => {
           {" "}
           {/* Configuration overlay */}
           <div
-            className={`absolute left-4 top-4 z-30 overflow-hidden transition-[width,height] duration-200 ${
+            className={`absolute left-4 top-4 ${
               isConfigOpen
-                ? "bottom-4 w-[min(22rem,calc(100%-2rem))]"
-                : "h-11 w-11"
-            }`}
+                ? "z-30 bottom-4 w-[min(22rem,calc(100%-2rem))]"
+                : "z-20 h-11 w-11"
+            } overflow-hidden transition-[width,height] duration-200`}
           >
-            {isConfigOpen && <Config transparent className="h-full" />}
-            <button
-              type="button"
-              aria-label={
-                isConfigOpen ? "Minimize configuration" : "Open configuration"
-              }
-              onClick={() => setIsConfigOpen((open) => !open)}
-              className={`absolute z-10 inline-flex items-center justify-center rounded-lg border border-white/50 bg-white/80 text-slate-700 shadow-lg backdrop-blur-xl transition-colors hover:bg-white ${
-                isConfigOpen ? "bottom-3 right-3 h-9 w-9" : "inset-0 h-11 w-11"
-              }`}
-            >
-              {isConfigOpen ? (
-                <PanelLeftClose size={18} />
-              ) : (
-                <PanelLeftOpen size={18} />
-              )}
-            </button>
-          </div>{" "}
-          {/* Full-size video surface */}
-          <div className="absolute inset-0 z-0">
-            <RealTimeVideo
-              isCameraActive={isCameraActive}
-              setIsCameraActive={handleSetCameraActive}
-              onInference={handleInference}
-              onConnectionStateChange={setConnectionState}
-              onCameraLabelChange={setCameraLabel}
-              onRecordingComplete={handleRecordingComplete}
-              onSourceRecordingComplete={handleSourceRecordingComplete}
-            />
-          </div>
-          <div className="pointer-events-none absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/70 px-3 py-2 shadow-lg backdrop-blur-xl">
-            <TitleMono text="Real-Time Inference" />
-            <div className="flex items-center gap-2 rounded-full bg-white/70 px-2.5 py-1 text-xs text-[#344054]">
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  connectionState === "connected"
-                    ? "bg-emerald-500"
-                    : connectionState === "connecting"
-                      ? "bg-amber-500"
-                      : "bg-zinc-500"
-                }`}
+            {isConfigOpen ? (
+              <Config
+                transparent
+                className="h-full"
+                onMinimize={() => setIsConfigOpen(false)}
               />
-              {connectionState}
+            ) : (
+              <button
+                type="button"
+                aria-label="Open configuration"
+                title="Open configuration"
+                onClick={() => setIsConfigOpen(true)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/50 bg-white/80 text-slate-700 shadow-lg backdrop-blur-xl transition-colors hover:bg-white"
+              >
+                <PanelLeftOpen size={18} />
+              </button>
+            )}
+          </div>{" "}
+          {/* Video / Drone surface */}
+          <div className="absolute inset-0 z-0 overflow-y-auto">
+            {streamSource === "tello" ? (
+              <div className="w-full h-full p-4 pt-16">
+                <TelloDronePanel onInference={handleInference} />
+              </div>
+            ) : (
+              <RealTimeVideo
+                isCameraActive={isCameraActive}
+                setIsCameraActive={handleSetCameraActive}
+                onInference={handleInference}
+                onConnectionStateChange={setConnectionState}
+                onCameraLabelChange={setCameraLabel}
+                onRecordingComplete={handleRecordingComplete}
+                onSourceRecordingComplete={handleSourceRecordingComplete}
+              />
+            )}
+          </div>
+          <div className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/70 px-3 py-2 shadow-lg backdrop-blur-xl">
+            <TitleMono text="Real-Time Inference" />
+
+            {/* Stream Mode Toggle (Webcam vs Tello Drone) */}
+            <div className="flex items-center bg-white/80 p-0.5 rounded-lg border border-slate-200 shadow-sm pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => setStreamSource("webcam")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  streamSource === "webcam"
+                    ? "bg-slate-900 text-white shadow"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Webcam</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStreamSource("tello")}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  streamSource === "tello"
+                    ? "bg-cyan-600 text-white shadow"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Plane className="w-3.5 h-3.5" />
+                <span>Tello Drone</span>
+              </button>
             </div>
-            <div className="max-w-[200px] truncate text-xs text-[#344054]">
-              {cameraLabel}
-            </div>
+
+            {streamSource === "webcam" && !isCameraActive && (
+              <>
+                <div className="flex items-center gap-2 rounded-full bg-white/70 px-2.5 py-1 text-xs text-[#344054]">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      connectionState === "connected"
+                        ? "bg-emerald-500"
+                        : connectionState === "connecting"
+                          ? "bg-amber-500"
+                          : "bg-zinc-500"
+                    }`}
+                  />
+                  {connectionState}
+                </div>
+                <div className="max-w-[160px] truncate text-xs text-[#344054]">
+                  {cameraLabel}
+                </div>
+              </>
+            )}
           </div>{" "}
           {/* Inference logs overlay */}
           <div
-            className={`absolute right-4 top-4 z-30 flex flex-col overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl shadow-slate-950/10 backdrop-blur-xl transition-[width,height] duration-200 ${
+            className={`absolute right-4 top-4 ${
               isLogsOpen
-                ? "bottom-4 w-[min(22rem,calc(100%-2rem))]"
-                : "h-11 w-11 [&>*:not(:first-child)]:hidden"
-            }`}
+                ? "z-30 bottom-4 w-[min(22rem,calc(100%-2rem))]"
+                : "z-20 h-11 w-11 [&>*:not(:first-child)]:hidden"
+            } flex flex-col overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl shadow-slate-950/10 backdrop-blur-xl transition-[width,height] duration-200`}
           >
             {" "}
             {/* Panel header */}

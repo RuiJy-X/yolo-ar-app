@@ -41,6 +41,7 @@ if str(CURRENT_DIR) not in sys.path:
 from feeders import tools  # noqa: E402
 from model.sode import SODE  # noqa: E402
 from utils import import_class  # noqa: E402
+from tello_manager import tello_manager  # noqa: E402
 
 def get_output_dir() -> str:
     if getattr(sys, 'frozen', False):
@@ -2677,6 +2678,144 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
     except Exception as exc:
         await websocket.send_json({"type": "error", "message": str(exc)})
         await websocket.close(code=1011)
+
+
+# ── Tello Drone API & WebSockets ─────────────────────────────────────────────
+class TelloCommandRequest(BaseModel):
+    action: str
+    direction: str | None = None
+
+class TelloRCRequest(BaseModel):
+    left_right: int = 0
+    forward_backward: int = 0
+    up_down: int = 0
+    yaw: int = 0
+
+@app.get("/api/tello/status")
+def get_tello_status() -> dict[str, Any]:
+    return tello_manager.get_telemetry()
+
+@app.post("/api/tello/connect")
+def connect_tello() -> dict[str, Any]:
+    success, message = tello_manager.connect()
+    return {"success": success, "message": message, "telemetry": tello_manager.get_telemetry()}
+
+@app.post("/api/tello/disconnect")
+def disconnect_tello() -> dict[str, Any]:
+    success, message = tello_manager.disconnect()
+    return {"success": success, "message": message}
+
+@app.post("/api/tello/command")
+def send_tello_command(body: TelloCommandRequest) -> dict[str, Any]:
+    action = body.action.lower().strip()
+    if action == "takeoff":
+        success, message = tello_manager.takeoff()
+    elif action == "land":
+        success, message = tello_manager.land()
+    elif action == "emergency":
+        success, message = tello_manager.emergency()
+    elif action == "flip" and body.direction:
+        success, message = tello_manager.flip(body.direction)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown or invalid command: {action}")
+    
+    return {"success": success, "message": message, "telemetry": tello_manager.get_telemetry()}
+
+@app.post("/api/tello/rc")
+def send_tello_rc(body: TelloRCRequest) -> dict[str, Any]:
+    success = tello_manager.send_rc_control(
+        left_right=body.left_right,
+        forward_backward=body.forward_backward,
+        up_down=body.up_down,
+        yaw=body.yaw,
+    )
+    return {"success": success}
+
+@app.websocket("/ws/tello/control")
+async def tello_control_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if not isinstance(data, dict):
+                continue
+            
+            action = data.get("action")
+            if action == "rc":
+                tello_manager.send_rc_control(
+                    left_right=data.get("left_right", 0),
+                    forward_backward=data.get("forward_backward", 0),
+                    up_down=data.get("up_down", 0),
+                    yaw=data.get("yaw", 0),
+                )
+            elif action == "takeoff":
+                tello_manager.takeoff()
+            elif action == "land":
+                tello_manager.land()
+            elif action == "emergency":
+                tello_manager.emergency()
+            elif action == "flip" and "direction" in data:
+                tello_manager.flip(str(data["direction"]))
+            
+            # Send updated telemetry back
+            await websocket.send_json({"type": "telemetry", "telemetry": tello_manager.get_telemetry()})
+    except WebSocketDisconnect:
+        tello_manager.send_rc_control(0, 0, 0, 0)
+        return
+    except Exception:
+        await websocket.close(code=1011)
+
+@app.websocket("/ws/tello/stream")
+async def tello_stream_websocket(websocket: WebSocket) -> None:
+    await websocket.accept()
+    state = ClientState()
+
+    try:
+        raw_quality = websocket.query_params.get("quality", "72")
+        jpeg_quality = int(raw_quality)
+    except (TypeError, ValueError):
+        jpeg_quality = 72
+    jpeg_quality = max(20, min(95, jpeg_quality))
+
+    try:
+        while True:
+            if not tello_manager.connected:
+                await websocket.send_json({
+                    "type": "error", 
+                    "message": tello_manager.last_error or "Tello drone is not connected. Please connect via Wi-Fi."
+                })
+                await asyncio.sleep(1.0)
+                continue
+
+            frame = tello_manager.get_frame()
+            if frame is None:
+                await asyncio.sleep(0.04)
+                continue
+
+            state.frame_index += 1
+            result = await app.state.pipeline.infer_frame(frame, state)
+            
+            telemetry = tello_manager.get_telemetry()
+            result["tello_telemetry"] = telemetry
+
+            if result.get("type") == "inference":
+                annotated = _annotate_frame(frame, result)
+                packed = _pack_annotated_frame(result, annotated, jpeg_quality)
+                if packed is None:
+                    await websocket.send_json(result)
+                else:
+                    await websocket.send_bytes(packed)
+            else:
+                await websocket.send_json(result)
+
+            await asyncio.sleep(0.03)
+
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        await websocket.send_json({"type": "error", "message": str(exc)})
+        await websocket.close(code=1011)
+
 
 
 class RenameHistoryRequest(BaseModel):

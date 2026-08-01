@@ -1,5 +1,5 @@
 import ModelSelector from "@/components/model-selector";
-import { Save, RefreshCw, ChevronDown } from "lucide-react";
+import { Save, RefreshCw, ChevronDown, PanelLeftClose } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const apiBaseUrl =
@@ -33,8 +33,6 @@ type DraftConfig = {
 };
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-
-// â”€â”€ Primitives â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const Toggle = ({
   checked,
@@ -94,7 +92,6 @@ const NumberInput = ({
   </div>
 );
 
-// â”€â”€ Section wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const Section = ({
   icon,
@@ -125,7 +122,7 @@ const Section = ({
   </div>
 );
 
-// â”€â”€ Pill badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 const Pill = ({
   active,
   children,
@@ -148,7 +145,6 @@ const Pill = ({
   </button>
 );
 
-// â”€â”€ Icons (inline SVG, minimal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const IconDetect = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     <rect
@@ -256,14 +252,13 @@ const IconModel = () => (
   </svg>
 );
 
-// â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 type ConfigProps = {
   className?: string;
   transparent?: boolean;
+  onMinimize?: () => void;
 };
 
-const Config = ({ className, transparent = false }: ConfigProps) => {
+const Config = ({ className, transparent = false, onMinimize }: ConfigProps) => {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [draft, setDraft] = useState<DraftConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -417,7 +412,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
     }
   };
 
-  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (loading || !draft || !config) {
     return (
       <div
@@ -430,7 +424,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         </div>
         <div className="flex items-center justify-center flex-1 gap-2 text-[13px] text-[#9a9a9a]">
           <RefreshCw size={14} className="animate-spin" />
-          Loadingâ€¦
+          Loading
         </div>
       </div>
     );
@@ -442,13 +436,26 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-[#ededed] shrink-0">
-        <div>
-          <p className="text-[13px] font-semibold text-[#1a1a1a]">
-            Configuration
-          </p>
-          <p className="text-[11px] text-[#9a9a9a] mt-0.5">
-            Model &amp; detection settings
-          </p>
+        <div className="flex items-center gap-2.5">
+          {onMinimize && (
+            <button
+              type="button"
+              aria-label="Minimize configuration"
+              title="Minimize configuration"
+              onClick={onMinimize}
+              className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-[#dfdfdf] bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors shadow-sm shrink-0"
+            >
+              <PanelLeftClose size={15} />
+            </button>
+          )}
+          <div>
+            <p className="text-[13px] font-semibold text-[#1a1a1a]">
+              Configuration
+            </p>
+            <p className="text-[11px] text-[#9a9a9a] mt-0.5">
+              Model &amp; detection settings
+            </p>
+          </div>
         </div>
         <button
           type="button"
@@ -457,7 +464,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] disabled:opacity-50 transition-colors shadow-sm"
         >
           <Save size={13} />
-          {saving ? "Savingâ€¦" : "Save"}
+          {saving ? "Saving" : "Save"}
         </button>
       </div>
 
@@ -470,13 +477,12 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
               : "bg-[#eef3ff] border border-[#c7d7ff] text-[#0041cc]"
           }`}
         >
-          {error ? "âš  " + error : "âœ“ " + savedMessage}
+          {error ? "" + error : "" + savedMessage}
         </div>
       )}
 
       {/* Body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 flex flex-col gap-6">
-        {/* â”€â”€ 1. Pose Model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconDetect />}
           title="Pose detection model"
@@ -505,7 +511,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* â”€â”€ 2. YOLO Thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconTune />}
           title="Detection thresholds"
@@ -595,7 +600,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* â”€â”€ 3. Frame scaling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconFrame />}
           title="Realtime frame scaling"
@@ -624,7 +628,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* â”€â”€ 4. Action model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconModel />}
           title="Action recognition model"
@@ -635,7 +638,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
 
         <div className="h-px bg-[#f0f0f0]" />
 
-        {/* â”€â”€ 5. Action thresholds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <Section
           icon={<IconTune />}
           title="Action confidence thresholds"

@@ -732,7 +732,7 @@ const RealTimeVideo = ({
     <div className="w-full h-full rounded-lg overflow-hidden bg-[#1c1c1c] relative">
      
       {!isCameraActive && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4">
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4">
           <div className="w-14 h-14 rounded-[12px] bg-[#202020] border border-[#dfdfdf]/10 flex items-center justify-center">
             <Camera size={22} className="text-[#9a9a9a]" />
           </div>
@@ -747,7 +747,7 @@ const RealTimeVideo = ({
           <button
             type="button"
             onClick={() => startCamera(selectedDeviceId || undefined)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors shadow-lg"
           >
             <Camera size={14} />
             Open Camera
@@ -823,29 +823,30 @@ const RealTimeVideo = ({
       )}
 
     
+      {/* Active Camera Overlay Controls & Indicators (Centered Top Middle) */}
       {isCameraActive && (
-        <div className="absolute top-3 left-3 z-20 flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
-              <span className={`h-1.5 w-1.5 rounded-full ${connDot}`} />
-              <span className="text-[11px] font-medium text-[#ffffff]">
-                {connectionState === "connected"
-                  ? "Live"
-                  : connectionState === "connecting"
-                    ? "Connecting"
-                    : "Offline"}
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center justify-center gap-2 rounded-xl bg-[#1c1c1c]/90 px-3.5 py-2 backdrop-blur-md border border-white/15 shadow-2xl max-w-[calc(100%-2rem)]">
+          {/* Connection State Badge */}
+          <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1">
+            <span className={`h-2 w-2 rounded-full ${connDot}`} />
+            <span className="text-[11px] font-medium text-white capitalize">
+              {connectionState}
+            </span>
+          </div>
+
+          {/* REC Badge */}
+          {isRecording && (
+            <div className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 border border-red-500/40 animate-pulse">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <span className="text-[11px] font-bold text-red-400">
+                REC
               </span>
             </div>
-            {isRecording && (
-              <div className="flex items-center gap-1.5 rounded-full bg-[#1c1c1c]/80 px-3 py-1 backdrop-blur-sm border border-white/10">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-[11px] font-medium text-[#ffffff]">
-                  REC
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 rounded-[8px] bg-[#1c1c1c]/80 px-2 py-1 backdrop-blur-sm border border-white/10">
+          )}
+
+          {/* Camera Selector Dropdown & Refresh */}
+          <div className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2 py-1 border border-white/10">
+            <Camera size={13} className="text-white/70 ml-0.5 shrink-0" />
             <select
               value={selectedDeviceId}
               onChange={(event) => {
@@ -857,13 +858,19 @@ const RealTimeVideo = ({
                   startCamera(nextId);
                 }
               }}
-              className="bg-transparent text-[#ffffff] text-[11px] outline-none min-w-[180px]"
+              className="bg-transparent text-white text-[11px] font-medium outline-none cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
             >
               {cameraDevices.length === 0 && (
-                <option value="">No cameras found</option>
+                <option value="" className="bg-[#1c1c1c] text-white">
+                  No cameras found
+                </option>
               )}
               {cameraDevices.map((device, index) => (
-                <option key={device.deviceId} value={device.deviceId}>
+                <option
+                  key={device.deviceId}
+                  value={device.deviceId}
+                  className="bg-[#1c1c1c] text-white"
+                >
                   {device.label || `Camera ${index + 1}`}
                 </option>
               ))}
@@ -871,29 +878,24 @@ const RealTimeVideo = ({
             <button
               type="button"
               onClick={refreshCameraDevices}
-              className="inline-flex items-center gap-1 text-[11px] text-white/80 hover:text-white"
+              className="p-1 text-white/70 hover:text-white transition-colors shrink-0"
               title="Refresh camera list"
             >
               <RefreshCw
-                size={11}
+                size={12}
                 className={isDeviceListLoading ? "animate-spin" : ""}
               />
-              Refresh
             </button>
           </div>
-        </div>
-      )}
 
-     
-      {isCameraActive && (
-        <div className="absolute top-3 right-3 z-20">
+          {/* Stop Camera Button */}
           <button
             type="button"
             onClick={stopCamera}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#1c1c1c]/80 text-[#ffffff] border border-white/10 hover:bg-[#1c1c1c] backdrop-blur-sm transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[12px] font-semibold bg-red-600/80 text-white border border-red-500/40 hover:bg-red-600 transition-colors shadow-sm shrink-0"
           >
             <CameraOff size={13} />
-            Stop
+            Stop Camera
           </button>
         </div>
       )}
