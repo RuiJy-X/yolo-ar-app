@@ -58,5 +58,9 @@ module.exports = {
         description: 'Action Recognition Application',
       },
     },
+    {
+      name: '@electron-forge/maker-zip',
+      platforms: ['win32'],
+    },
   ],
 };
