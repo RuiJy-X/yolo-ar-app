@@ -42,6 +42,7 @@ type SaveState =
       status: "pending_confirmation";
       annotated: { blob: Blob; mime: string };
       source: { blob: Blob; mime: string } | null;
+      isTello?: boolean;
     }
   | { status: "uploading"; message: string }
   | { status: "saving" }
@@ -126,6 +127,105 @@ const RealTime = () => {
   const consecutiveWaveRef = useRef(0);
   const toastIdRef = useRef(0);
 
+  // Rolling Ring Buffer & Auto-Save Cooldown Lock
+  const ringBufferRef = useRef<Array<{ blob: Blob; timestamp: number }>>([]);
+  const lastWaveAutoSaveTimeRef = useRef<number>(0);
+
+  const saveWavingClipFromRingBuffer = useCallback(async () => {
+    const snapshotFrames = [...ringBufferRef.current];
+    if (snapshotFrames.length === 0) return;
+
+    try {
+      const firstUrl = URL.createObjectURL(snapshotFrames[0].blob);
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || 640;
+        canvas.height = img.naturalHeight || 480;
+        URL.revokeObjectURL(firstUrl);
+
+        const ctx = canvas.getContext("2d");
+        const stream = canvas.captureStream(15);
+        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : "video/webm";
+        const recorder = new MediaRecorder(stream, { mimeType });
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          const videoBlob = new Blob(chunks, { type: mimeType });
+          const timestampStr = new Date().toISOString().replace(/[:.]/g, "-");
+          const annotatedName = `annotated_wave_${timestampStr}.webm`;
+
+          const formData = new FormData();
+          formData.append(
+            "annotated",
+            new File([videoBlob], annotatedName, { type: mimeType }),
+          );
+
+          try {
+            const uploadRes = await fetch(
+              `${apiBaseUrl}/api/upload-realtime-session`,
+              {
+                method: "POST",
+                body: formData,
+              },
+            );
+            if (!uploadRes.ok) return;
+            const uploadData = await uploadRes.json();
+
+            const timeTitle = new Date().toLocaleTimeString();
+            await fetch(`${apiBaseUrl}/api/history`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                annotatedFilename: uploadData.annotated_filename,
+                summary: "Automated Waving Distress Alert Clip",
+                filename: `Waving Alert Clip (${timeTitle})`,
+                analysis: {
+                  fps: 15,
+                  source: "realtime",
+                  waveAlertLogs: [
+                    `[${timeTitle}] WAVING ALERT AUTOMATIC CAPTURE`,
+                  ],
+                  framesProcessed: snapshotFrames.length,
+                },
+              }),
+            });
+          } catch (err) {
+            console.error("Auto save waving clip failed:", err);
+          }
+        };
+
+        recorder.start();
+        for (const frameItem of snapshotFrames) {
+          await new Promise<void>((resolve) => {
+            const frameImg = new Image();
+            const frameUrl = URL.createObjectURL(frameItem.blob);
+            frameImg.onload = () => {
+              ctx?.drawImage(frameImg, 0, 0, canvas.width, canvas.height);
+              URL.revokeObjectURL(frameUrl);
+              setTimeout(resolve, 66);
+            };
+            frameImg.onerror = () => {
+              URL.revokeObjectURL(frameUrl);
+              resolve();
+            };
+            frameImg.src = frameUrl;
+          });
+        }
+        recorder.stop();
+      };
+      img.src = firstUrl;
+    } catch (e) {
+      console.error("Ring buffer clip generation error:", e);
+    }
+  }, []);
+
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const saveAbortRef = useRef<AbortController | null>(null);
 
@@ -141,6 +241,7 @@ const RealTime = () => {
   const logsRef = useRef<string[]>([]);
   const waveAlertLogsRef = useRef<string[]>([]);
   const frameCountRef = useRef(0);
+  const lastUiUpdateMsRef = useRef<number>(0);
 
   useEffect(() => {
     logsRef.current = logs;
@@ -210,13 +311,16 @@ const RealTime = () => {
           : "n/a";
       const detection = payload.detection ? "person" : "none";
 
-      setLatestAction(`${label} (${confidence})`);
-      setFrameCount((c) => c + 1);
-      if (payload.detection) setDetectionCount((c) => c + 1);
-
-      appendLog(
-        `[${ts}] frame=${payload.frame_index ?? "-"} detection=${detection} action=${label} conf=${confidence} latency=${payload.timing_ms ?? "-"}ms`,
-      );
+      const nowMs = performance.now();
+      if (nowMs - lastUiUpdateMsRef.current > 200) {
+        lastUiUpdateMsRef.current = nowMs;
+        setLatestAction(`${label} (${confidence})`);
+        setFrameCount(frameCountRef.current + 1);
+        if (payload.detection) setDetectionCount((c) => c + 1);
+        appendLog(
+          `[${ts}] frame=${payload.frame_index ?? "-"} detection=${detection} action=${label} conf=${confidence} latency=${payload.timing_ms ?? "-"}ms`,
+        );
+      }
 
       const frameNumber =
         typeof payload.frame_index === "number"
@@ -227,13 +331,21 @@ const RealTime = () => {
       }
       lastInferenceMsRef.current = performance.now();
       lastFrameIndexRef.current = frameNumber;
+
       if (payload.persons && payload.persons.length > 0) {
         const elapsedSeconds =
           (performance.now() - (sessionStartMsRef.current ?? 0)) / 1000;
         const timestamp = formatTimestamp(elapsedSeconds);
+        // Canvas stream recording in TelloDronePanel / RealTimeVideo uses 15.0 FPS.
+        // Map elapsed time to the exact 15 FPS recorded video frame number (1-indexed).
+        const videoFrameNumber = Math.max(
+          1,
+          Math.round(elapsedSeconds * 15.0) + 1,
+        );
+
         payload.persons.forEach((person) => {
           detectionsRef.current.push({
-            frame_number: frameNumber,
+            frame_number: videoFrameNumber,
             action_label: person.action?.label ?? "Unknown",
             confidence: person.action?.confidence ?? 0,
             person_id: person.person_id ?? 0,
@@ -241,6 +353,17 @@ const RealTime = () => {
             all_scores: person.all_scores ?? undefined,
           });
         });
+      }
+
+      // Push frame blob to rolling ring buffer (keep last 60 frames ~ 3-4s)
+      if (payload.frameBlob) {
+        ringBufferRef.current.push({
+          blob: payload.frameBlob,
+          timestamp: Date.now(),
+        });
+        if (ringBufferRef.current.length > 60) {
+          ringBufferRef.current.shift();
+        }
       }
 
       const isWaving = label.toLowerCase().includes("wav");
@@ -258,12 +381,20 @@ const RealTime = () => {
             `[${alertTs}] WAVING ALERT ${WAVE_THRESHOLD} consecutive frames`,
             ...prev,
           ]);
+
+          // Check anti-bombardment cooldown lock (15 seconds)
+          const now = Date.now();
+          const COOLDOWN_MS = 15000;
+          if (now - lastWaveAutoSaveTimeRef.current >= COOLDOWN_MS) {
+            lastWaveAutoSaveTimeRef.current = now;
+            saveWavingClipFromRingBuffer();
+          }
         }
       } else {
         consecutiveWaveRef.current = 0;
       }
     },
-    [appendLog],
+    [appendLog, saveWavingClipFromRingBuffer],
   );
 
   const saveRealtimeSession = useCallback(
@@ -330,25 +461,23 @@ const RealTime = () => {
           startMs != null && endMs != null && endMs > startMs
             ? (endMs - startMs) / 1000
             : 0;
-        const derivedFps =
-          elapsedSeconds > 0 && lastFrame > 0 ? lastFrame / elapsedSeconds : 0;
-        const sessionFps =
-          Number.isFinite(derivedFps) && derivedFps > 1
-            ? Math.round(derivedFps * 100) / 100
-            : 15;
+        // Canvas recording streams in TelloDronePanel / RealTimeVideo use 15 FPS.
+        const sessionFps = 15.0;
+        const totalVideoFrames = Math.max(
+          1,
+          Math.round(elapsedSeconds * sessionFps),
+        );
 
+        // Keep exact real-time timestamps and 15 FPS video-aligned frame numbers
         const detections = detectionsRef.current.map((entry) => ({
           ...entry,
-          timestamp: formatTimestamp(
-            Math.max(0, entry.frame_number - 1) / sessionFps,
-          ),
         }));
         const analysisRes = await fetch(`${apiBaseUrl}/analyze-video`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             detections_log: detections,
-            total_frames: totalFrames,
+            total_frames: totalVideoFrames,
           }),
           signal: abortCtrl.signal,
         });
@@ -436,6 +565,40 @@ const RealTime = () => {
     [tryFinalizeSave],
   );
 
+  const handleTelloFlightStarted = useCallback(() => {
+    setSaveState({ status: "idle" });
+    setLogs([]);
+    setWaveAlertLogs([]);
+    setFrameCount(0);
+    setDetectionCount(0);
+    setLatestAction(null);
+    consecutiveWaveRef.current = 0;
+    detectionsRef.current = [];
+    sessionStartMsRef.current = performance.now();
+    lastInferenceMsRef.current = null;
+    lastFrameIndexRef.current = 0;
+    annotatedCaptureRef.current = null;
+    sourceCaptureRef.current = null;
+    saveInFlightRef.current = false;
+  }, []);
+
+  const handleTelloFlightFinished = useCallback(
+    (annotatedBlob: Blob, sourceBlob: Blob | null) => {
+      setSaveState({
+        status: "pending_confirmation",
+        annotated: {
+          blob: annotatedBlob,
+          mime: annotatedBlob.type || "video/webm",
+        },
+        source: sourceBlob
+          ? { blob: sourceBlob, mime: sourceBlob.type || "video/webm" }
+          : null,
+        isTello: true,
+      });
+    },
+    [],
+  );
+
   // When camera becomes active, reset save state and logs
   const handleSetCameraActive = useCallback((active: boolean) => {
     if (active) {
@@ -466,20 +629,27 @@ const RealTime = () => {
     if (saveState.status === "idle") return null;
 
     if (saveState.status === "pending_confirmation") {
-      const { annotated, source } = saveState;
+      const { annotated, source, isTello } = saveState;
       return (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-3.5 rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur-xl min-w-[360px] max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex items-start gap-3.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 border border-blue-100/80 shadow-sm">
-              <Save className="h-5 w-5" />
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-sm ${
+                isTello
+                  ? "bg-cyan-50 text-cyan-600 border-cyan-100"
+                  : "bg-blue-50 text-blue-600 border-blue-100/80"
+              }`}
+            >
+              {isTello ? <Plane className="h-5 w-5" /> : <Save className="h-5 w-5" />}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-semibold text-slate-900">
-                Save Webcam Session?
+                {isTello ? "Save Tello Drone Flight?" : "Save Webcam Session?"}
               </h3>
               <p className="mt-1 text-xs text-slate-500 leading-relaxed">
-                Camera feed stopped. Do you want to save this recorded video
-                session and inference analysis to your History library?
+                {isTello
+                  ? "Tello drone flight finished. Do you want to save the recorded video feed and inference logs from this flight to your History library?"
+                  : "Camera feed stopped. Do you want to save this recorded video session and inference analysis to your History library?"}
               </p>
             </div>
           </div>
@@ -495,7 +665,9 @@ const RealTime = () => {
             </Button>
             <Button
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 px-4 rounded-lg shadow-sm font-medium gap-1.5"
+              className={`${
+                isTello ? "bg-cyan-600 hover:bg-cyan-700" : "bg-blue-600 hover:bg-blue-700"
+              } text-white text-xs h-8 px-4 rounded-lg shadow-sm font-medium gap-1.5`}
               onClick={() => saveRealtimeSession(annotated, source)}
             >
               <Save className="h-3.5 w-3.5" />
@@ -667,7 +839,11 @@ const RealTime = () => {
           <div className="absolute inset-0 z-0 overflow-y-auto">
             {streamSource === "tello" ? (
               <div className="w-full h-full p-0">
-                <TelloDronePanel onInference={handleInference} />
+                <TelloDronePanel
+                  onInference={handleInference}
+                  onFlightStarted={handleTelloFlightStarted}
+                  onFlightFinished={handleTelloFlightFinished}
+                />
               </div>
             ) : (
               <RealTimeVideo

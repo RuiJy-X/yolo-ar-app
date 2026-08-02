@@ -17,6 +17,7 @@ import {
   Cpu,
   Plus,
   Camera,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -70,14 +71,14 @@ const formatDateKey = (key: string): string => {
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
-const SkeletonRow = () => (
-  <div className="flex items-center gap-4 px-5 py-4 border-b border-[#ededed] last:border-0">
-    <div className="w-8 h-8 rounded-[6px] bg-[#f0f0f0] animate-pulse shrink-0" />
-    <div className="flex-1 flex flex-col gap-2">
-      <div className="h-3 w-48 rounded-full bg-[#f0f0f0] animate-pulse" />
-      <div className="h-2.5 w-32 rounded-full bg-[#f5f5f5] animate-pulse" />
+const SkeletonCard = () => (
+  <div className="flex flex-col rounded-xl overflow-hidden border border-[#ededed] bg-white animate-pulse">
+    <div className="aspect-video w-full bg-[#f0f0f0]" />
+    <div className="p-3.5 space-y-2">
+      <div className="h-4 bg-[#f0f0f0] rounded w-3/4" />
+      <div className="h-3 bg-[#f0f0f0] rounded w-1/2" />
+      <div className="h-8 bg-[#f0f0f0] rounded mt-2" />
     </div>
-    <div className="h-7 w-16 rounded-[6px] bg-[#f0f0f0] animate-pulse shrink-0" />
   </div>
 );
 
@@ -85,10 +86,10 @@ const SkeletonRow = () => (
 
 const VideoThumbnail = ({
   videoUrl,
-  size = 32,
+  className = "",
 }: {
   videoUrl?: string | null;
-  size?: number;
+  className?: string;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [captured, setCaptured] = useState(false);
@@ -106,18 +107,18 @@ const VideoThumbnail = ({
     video.src = `${apiBaseUrl}${videoUrl}`;
 
     const drawFrame = () => {
+      if (disposed) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      canvas.width = video.videoWidth || size;
-      canvas.height = video.videoHeight || size;
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 360;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       setCaptured(true);
     };
 
     const capture = () => {
-      // Seek a tiny amount to ensure the seeked event fires.
       const targetTime = Math.min(0.001, video.duration || 0);
       try {
         video.currentTime = targetTime;
@@ -138,38 +139,26 @@ const VideoThumbnail = ({
       video.removeEventListener("loadeddata", drawFrame);
       video.src = "";
     };
-  }, [videoUrl, size]);
-
-  const borderRadius = 6;
+  }, [videoUrl]);
 
   return (
-    <div
-      className="relative shrink-0"
-      style={{ width: size, height: size, borderRadius }}
-    >
+    <div className={`relative w-full h-full overflow-hidden ${className}`}>
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 object-cover"
-        style={{ width: size, height: size, borderRadius }}
+        className="w-full h-full object-cover"
       />
       {(!videoUrl || !captured) && (
-        <div
-          className="absolute inset-0 flex items-center justify-center"
-          style={{
-            borderRadius,
-            background: "rgba(0,82,255,0.08)",
-          }}
-        >
-          <FileVideo size={14} style={{ color: "#0052ff" }} />
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 text-blue-400">
+          <FileVideo size={28} className="opacity-80" />
         </div>
       )}
     </div>
   );
 };
 
-// ── Entry Row ─────────────────────────────────────────────────────────────────
+// ── Entry Card (YouTube Thumbnail Style) ──────────────────────────────────────
 
-const EntryRow = ({
+const EntryCard = ({
   entry,
   isDeleting,
   onOpen,
@@ -180,75 +169,88 @@ const EntryRow = ({
   onOpen: () => void;
   onDelete: () => void;
 }) => (
-  <div className="group flex items-center gap-4 px-5 py-3.5 border-b border-[#ededed] last:border-0 hover:bg-[#fafafa] transition-colors">
-    {/* Thumbnail */}
-    <VideoThumbnail videoUrl={entry.videoUrl} size={32} />
+  <div className="group flex flex-col rounded-xl overflow-hidden border border-[#ededed] bg-white shadow-xs hover:shadow-md hover:border-[#0052ff]/40 transition-all duration-200">
+    {/* Top 16:9 Video Thumbnail Banner */}
+    <div
+      onClick={onOpen}
+      className="relative aspect-video w-full bg-slate-950 cursor-pointer overflow-hidden group/thumb"
+    >
+      <VideoThumbnail videoUrl={entry.videoUrl} />
 
-    {/* Info */}
-    <div className="flex-1 min-w-0">
-      <p
-        className="text-[13px] font-medium truncate"
-        style={{ color: "#171717" }}
-      >
-        {entry.filename || "Untitled Analysis"}
-      </p>
+      {/* Play Overlay Icon on Hover */}
+      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity duration-200">
+        <div className="w-10 h-10 rounded-full bg-white text-[#0052ff] flex items-center justify-center shadow-lg transform scale-90 group-hover/thumb:scale-100 transition-transform">
+          <Play size={18} className="ml-0.5 fill-current" />
+        </div>
+      </div>
+
+      {/* Wave Alert Badge */}
       {entry.hasWaveAlert && (
-        <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full mt-1"
-          style={{ background: "rgba(239,68,68,0.1)", color: "#dc2626" }}
-        >
-          <AlertTriangle size={9} />
+        <span className="absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-600/90 text-white backdrop-blur-md shadow">
+          <AlertTriangle size={10} />
           Wave alert
         </span>
       )}
-      <div className="flex items-center gap-1.5 mt-0.5">
-        <Clock size={10} style={{ color: "#9a9a9a" }} />
-        <span className="text-[11px] font-mono" style={{ color: "#9a9a9a" }}>
-          {formatDateTime(entry.createdAt)}
+
+      {/* Duration Badge */}
+      {entry.durationSeconds ? (
+        <span className="absolute bottom-2.5 right-2.5 z-10 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/80 text-white backdrop-blur-md">
+          {Math.round(entry.durationSeconds)}s
         </span>
-        {entry.summary && (
-          <>
-            <span style={{ color: "#d4d4d4" }}>·</span>
-            <span
-              className="text-[11px] truncate max-w-70"
-              style={{ color: "#9a9a9a" }}
-            >
-              {entry.summary}
-            </span>
-          </>
-        )}
-      </div>
+      ) : null}
     </div>
 
-    {/* Actions */}
-    <div className="flex items-center gap-1.5 shrink-0 transition-opacity">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[12px] font-medium transition-colors"
-        style={{
-          background: "#0052ff",
-          color: "#ffffff",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "#0041cc")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "#0052ff")}
-      >
-        <ExternalLink size={11} />
-        Open
-      </button>
-      <Button
-        variant={"destructive"}
-        type="button"
-        onClick={onDelete}
-        disabled={isDeleting}
-        className="w-7 h-7 rounded-[6px] flex items-center justify-center transition-colors disabled:opacity-40 bg-red-400 text-white hover:bg-red-600"
-      >
-        {isDeleting ? (
-          <RotateCw size={11} className="animate-spin" />
-        ) : (
-          <Trash2 size={11} />
+    {/* Bottom Details Section */}
+    <div className="p-3.5 flex flex-col flex-1 justify-between gap-3">
+      <div>
+        <h4
+          onClick={onOpen}
+          className="text-[13px] font-semibold text-[#171717] line-clamp-1 group-hover:text-[#0052ff] cursor-pointer transition-colors"
+          title={entry.filename || "Untitled Analysis"}
+        >
+          {entry.filename || "Untitled Analysis"}
+        </h4>
+
+        {entry.summary && (
+          <p className="text-[11px] text-[#707070] line-clamp-1 mt-1 leading-snug">
+            {entry.summary}
+          </p>
         )}
-      </Button>
+
+        <div className="flex items-center gap-1.5 mt-2 text-[#9a9a9a]">
+          <Clock size={11} />
+          <span className="text-[11px] font-mono">
+            {formatDateTime(entry.createdAt)}
+          </span>
+        </div>
+      </div>
+
+      {/* Card Footer Actions */}
+      <div className="flex items-center justify-between pt-2 border-t border-[#f0f0f0] mt-auto">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[12px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] transition-colors"
+        >
+          <ExternalLink size={11} />
+          <span>Open</span>
+        </button>
+
+        <Button
+          variant="destructive"
+          type="button"
+          onClick={onDelete}
+          disabled={isDeleting}
+          className="w-7 h-7 rounded-[6px] flex items-center justify-center transition-colors disabled:opacity-40 bg-red-500/10 text-red-600 hover:bg-red-600 hover:text-white"
+          title="Delete video"
+        >
+          {isDeleting ? (
+            <RotateCw size={11} className="animate-spin" />
+          ) : (
+            <Trash2 size={11} />
+          )}
+        </Button>
+      </div>
     </div>
   </div>
 );
@@ -1087,10 +1089,11 @@ const Home = () => {
 
           {/* Body */}
           {loading && entries.length === 0 ? (
-            <div>
-              <SkeletonRow />
-              <SkeletonRow />
-              <SkeletonRow />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
             </div>
           ) : filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
@@ -1132,9 +1135,9 @@ const Home = () => {
               )}
             </div>
           ) : (
-            <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
               {filteredEntries.map((entry) => (
-                <EntryRow
+                <EntryCard
                   key={entry.id}
                   entry={entry}
                   isDeleting={deletingId === entry.id}

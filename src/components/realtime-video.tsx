@@ -22,6 +22,7 @@ export type InferencePayload = {
   action?: { label?: string; confidence?: number };
   bbox?: [number, number, number, number] | null;
   keypoints?: Keypoint[];
+  frameBlob?: Blob;
 };
 
 type RuntimeConfig = {
@@ -44,6 +45,7 @@ type RealTimeVideoProps = {
 function parseAnnotatedFrame(buffer: ArrayBuffer): {
   payload: InferencePayload;
   jpegUrl: string;
+  blob: Blob;
 } | null {
   if (buffer.byteLength < 4) return null;
 
@@ -65,7 +67,7 @@ function parseAnnotatedFrame(buffer: ArrayBuffer): {
   const blob = new Blob([jpegBytes], { type: "image/jpeg" });
   const jpegUrl = URL.createObjectURL(blob);
 
-  return { payload, jpegUrl };
+  return { payload, jpegUrl, blob };
 }
 
 // Recording helpers 
@@ -346,7 +348,7 @@ const RealTimeVideo = ({
         if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
         prevUrlRef.current = jpegUrl;
 
-        onInference?.(payload);
+        onInference?.({ ...payload, frameBlob: parsed.blob });
         return;
       }
 

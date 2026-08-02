@@ -10,6 +10,7 @@ const frontend = path.join(root, "dist");
 const required = [
   "websocket_api.py",
   "utils.py",
+  "tello_manager.py",
   "feeders",
   "graph",
   "model",

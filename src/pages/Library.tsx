@@ -146,6 +146,7 @@ const Library = () => {
               sourceVideoUrl={sourceVideoUrl}
               resultVideoUrl={resultVideoUrl}
               resultDownloadUrl={resultDownloadUrl}
+              loadedHistoryId={loadedHistoryId}
               isSubmitting={isSubmitting}
               isDownloading={isDownloading}
               progressPercent={progressPercent}

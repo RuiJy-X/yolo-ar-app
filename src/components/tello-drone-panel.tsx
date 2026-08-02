@@ -40,13 +40,33 @@ export type TelloTelemetry = {
 
 type TelloDronePanelProps = {
   onInference?: (payload: InferencePayload) => void;
+  onFlightFinished?: (annotatedBlob: Blob, sourceBlob: Blob | null) => void;
+  onFlightStarted?: () => void;
   apiBaseUrl?: string;
   wsBaseUrl?: string;
 };
 
+function pickRecordingMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime;
+  }
+  return "";
+}
+
 function parseAnnotatedFrame(buffer: ArrayBuffer): {
   payload: InferencePayload & { tello_telemetry?: TelloTelemetry };
   jpegUrl: string;
+  blob: Blob;
+  rawBlob?: Blob;
 } | null {
   if (buffer.byteLength < 4) return null;
 
@@ -64,15 +84,45 @@ function parseAnnotatedFrame(buffer: ArrayBuffer): {
     return null;
   }
 
-  const jpegBytes = new Uint8Array(buffer, 4 + jsonLen);
+  const afterJson = 4 + jsonLen;
+  const remaining = buffer.byteLength - afterJson;
+
+  // Dual-frame format: [4-byte rawLen][rawJPEG][annotatedJPEG]
+  // Single-frame format (webcam): all remaining bytes are the annotated JPEG
+  if (remaining > 8) {
+    const maybeRawLen = view.getUint32(afterJson, false);
+    // Sanity check: rawLen must be reasonable (< remaining - 4, and > 100 bytes for a JPEG)
+    if (maybeRawLen > 100 && maybeRawLen < remaining - 4) {
+      const rawStart = afterJson + 4;
+      const rawBytes = new Uint8Array(buffer, rawStart, maybeRawLen);
+      const annotatedStart = rawStart + maybeRawLen;
+      const annotatedBytes = new Uint8Array(buffer, annotatedStart);
+
+      // Verify both start with JPEG SOI marker (0xFF 0xD8)
+      if (
+        rawBytes.length >= 2 && rawBytes[0] === 0xff && rawBytes[1] === 0xd8 &&
+        annotatedBytes.length >= 2 && annotatedBytes[0] === 0xff && annotatedBytes[1] === 0xd8
+      ) {
+        const rawBlob = new Blob([rawBytes], { type: "image/jpeg" });
+        const annotatedBlob = new Blob([annotatedBytes], { type: "image/jpeg" });
+        const jpegUrl = URL.createObjectURL(annotatedBlob);
+        return { payload, jpegUrl, blob: annotatedBlob, rawBlob };
+      }
+    }
+  }
+
+  // Fallback: single-frame format (webcam stream)
+  const jpegBytes = new Uint8Array(buffer, afterJson);
   const blob = new Blob([jpegBytes], { type: "image/jpeg" });
   const jpegUrl = URL.createObjectURL(blob);
 
-  return { payload, jpegUrl };
+  return { payload, jpegUrl, blob };
 }
 
 export default function TelloDronePanel({
   onInference,
+  onFlightFinished,
+  onFlightStarted,
   apiBaseUrl = import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000",
   wsBaseUrl = import.meta.env.VITE_ACTION_WS_URL
     ? import.meta.env.VITE_ACTION_WS_URL.replace("/ws/action-recognition", "")
@@ -102,6 +152,128 @@ export default function TelloDronePanel({
   const controlWsRef = useRef<WebSocket | null>(null);
   const annotatedImgRef = useRef<HTMLImageElement | null>(null);
   const prevUrlRef = useRef<string | null>(null);
+
+  // Flight Video Recording Refs
+  const telloRecorderRef = useRef<MediaRecorder | null>(null);
+  const telloChunksRef = useRef<Blob[]>([]);
+  const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const telloSourceRecorderRef = useRef<MediaRecorder | null>(null);
+  const telloSourceChunksRef = useRef<Blob[]>([]);
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const isRecordingRef = useRef(false);
+  const wasFlyingRef = useRef(false);
+  const lastTelemetryUpdateRef = useRef<number>(0);
+
+  const startTelloRecording = useCallback(() => {
+    if (isRecordingRef.current) return;
+    telloChunksRef.current = [];
+    telloSourceChunksRef.current = [];
+    if (!recordCanvasRef.current) {
+      recordCanvasRef.current = document.createElement("canvas");
+    }
+    if (!sourceCanvasRef.current) {
+      sourceCanvasRef.current = document.createElement("canvas");
+    }
+    const canvas = recordCanvasRef.current;
+    canvas.width = 640;
+    canvas.height = 480;
+
+    const sourceCanvas = sourceCanvasRef.current;
+    sourceCanvas.width = 640;
+    sourceCanvas.height = 480;
+
+    try {
+      const mimeType = pickRecordingMimeType();
+      const stream = canvas.captureStream(15);
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) telloChunksRef.current.push(e.data);
+      };
+      recorder.start(1000);
+      telloRecorderRef.current = recorder;
+
+      const sourceStream = sourceCanvas.captureStream(15);
+      const sourceRecorder = new MediaRecorder(
+        sourceStream,
+        mimeType ? { mimeType } : undefined,
+      );
+      sourceRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) telloSourceChunksRef.current.push(e.data);
+      };
+      sourceRecorder.start(1000);
+      telloSourceRecorderRef.current = sourceRecorder;
+
+      isRecordingRef.current = true;
+    } catch {
+      // recording optional
+    }
+  }, []);
+
+  const stopTelloRecording = useCallback(async (): Promise<{
+    annotated: Blob;
+    source: Blob | null;
+  } | null> => {
+    if (!isRecordingRef.current) return null;
+    isRecordingRef.current = false;
+
+    const stopRec = (
+      rec: MediaRecorder | null,
+      chunks: Blob[],
+    ): Promise<Blob | null> => {
+      if (!rec) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        rec.onstop = () => {
+          const mimeType = rec.mimeType || "video/webm";
+          const videoBlob = new Blob(chunks, { type: mimeType });
+          resolve(videoBlob);
+        };
+        rec.stop();
+      });
+    };
+
+    const [annotatedBlob, sourceBlob] = await Promise.all([
+      stopRec(telloRecorderRef.current, telloChunksRef.current),
+      stopRec(telloSourceRecorderRef.current, telloSourceChunksRef.current),
+    ]);
+
+    telloChunksRef.current = [];
+    telloSourceChunksRef.current = [];
+    telloRecorderRef.current = null;
+    telloSourceRecorderRef.current = null;
+
+    if (!annotatedBlob || annotatedBlob.size === 0) return null;
+    return {
+      annotated: annotatedBlob,
+      source: sourceBlob && sourceBlob.size > 0 ? sourceBlob : null,
+    };
+  }, []);
+
+  // Monitor flight state transitions (Takeoff / Land)
+  useEffect(() => {
+    if (telemetry.is_flying && !wasFlyingRef.current) {
+      wasFlyingRef.current = true;
+      startTelloRecording();
+      onFlightStarted?.();
+    } else if (!telemetry.is_flying && wasFlyingRef.current) {
+      wasFlyingRef.current = false;
+      stopTelloRecording().then((res) => {
+        if (res && res.annotated) {
+          onFlightFinished?.(res.annotated, res.source);
+        }
+      });
+    }
+  }, [
+    telemetry.is_flying,
+    startTelloRecording,
+    stopTelloRecording,
+    onFlightFinished,
+    onFlightStarted,
+  ]);
 
   // Velocity RC state vector
   const rcStateRef = useRef({ lr: 0, fb: 0, ud: 0, yaw: 0 });
@@ -197,15 +369,62 @@ export default function TelloDronePanel({
           if (annotatedImgRef.current) {
             annotatedImgRef.current.src = parsed.jpegUrl;
           }
+          if (isRecordingRef.current) {
+            if (recordCanvasRef.current) {
+              createImageBitmap(parsed.blob)
+                .then((bitmap) => {
+                  if (recordCanvasRef.current && isRecordingRef.current) {
+                    const ctx = recordCanvasRef.current.getContext("2d");
+                    if (ctx) {
+                      ctx.drawImage(
+                        bitmap,
+                        0,
+                        0,
+                        recordCanvasRef.current.width,
+                        recordCanvasRef.current.height,
+                      );
+                    }
+                  }
+                  bitmap.close();
+                })
+                .catch(() => {});
+            }
+
+            const rawBlobToDraw = parsed.rawBlob || parsed.blob;
+            if (sourceCanvasRef.current) {
+              createImageBitmap(rawBlobToDraw)
+                .then((bitmap) => {
+                  if (sourceCanvasRef.current && isRecordingRef.current) {
+                    const ctx = sourceCanvasRef.current.getContext("2d");
+                    if (ctx) {
+                      ctx.drawImage(
+                        bitmap,
+                        0,
+                        0,
+                        sourceCanvasRef.current.width,
+                        sourceCanvasRef.current.height,
+                      );
+                    }
+                  }
+                  bitmap.close();
+                })
+                .catch(() => {});
+            }
+          }
           if (prevUrlRef.current) {
             URL.revokeObjectURL(prevUrlRef.current);
           }
           prevUrlRef.current = parsed.jpegUrl;
 
-          if (parsed.payload.tello_telemetry) {
+          const now = Date.now();
+          if (
+            parsed.payload.tello_telemetry &&
+            now - lastTelemetryUpdateRef.current > 500
+          ) {
+            lastTelemetryUpdateRef.current = now;
             setTelemetry(parsed.payload.tello_telemetry);
           }
-          onInference?.(parsed.payload);
+          onInference?.({ ...parsed.payload, frameBlob: parsed.blob });
         }
       } else if (typeof event.data === "string") {
         try {
@@ -289,6 +508,10 @@ export default function TelloDronePanel({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!telemetry.connected) return;
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (["input", "textarea", "select"].includes(targetTag)) return;
+
       if (["KeyW", "KeyS", "KeyA", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
         e.preventDefault();
         active.add(e.code);
@@ -305,6 +528,10 @@ export default function TelloDronePanel({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (!telemetry.connected) return;
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (["input", "textarea", "select"].includes(targetTag)) return;
+
       if (["KeyW", "KeyS", "KeyA", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
         active.delete(e.code);
         setActiveKeys(new Set(active));
@@ -319,7 +546,7 @@ export default function TelloDronePanel({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [sendRC, telemetry.is_flying]);
+  }, [sendRC, telemetry.is_flying, telemetry.connected]);
 
   // Battery helper
   const getBatteryColor = (bat: number) => {
@@ -329,7 +556,7 @@ export default function TelloDronePanel({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[550px] flex-1 flex flex-col rounded-2xl overflow-hidden bg-black/95 border border-white/10 shadow-2xl text-foreground">
+    <div className="relative w-full h-full min-h-[550px] flex-1 flex flex-col rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl text-foreground">
       {/* ── Hero Live Stream Canvas (Fills Entire Frame) ──────────────────── */}
       <img
         ref={annotatedImgRef}
@@ -342,9 +569,9 @@ export default function TelloDronePanel({
 
       {/* ── Offline / Disconnected Overlay ────────────────────────────────── */}
       {(!telemetry.connected || !streamActive) && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6 space-y-4 bg-black/85 backdrop-blur-md">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6 space-y-4 bg-[#0a0b0e] text-white">
           <div className="w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 shadow-inner">
-            <Plane className="w-8 h-8 text-cyan-400 animate-pulse" />
+            <Plane className="w-8 h-8 text-cyan-400" />
           </div>
           <div className="space-y-1">
             <h3 className="text-lg font-bold text-white">
@@ -367,7 +594,7 @@ export default function TelloDronePanel({
       )}
 
       {/* ── Floating Top Telemetry & Status HUD ───────────────────────────── */}
-      <div className="absolute top-4 left-4 right-4 z-30 flex flex-wrap items-center justify-between gap-3 bg-black/80 backdrop-blur-xl border border-white/15 px-4 py-2.5 rounded-xl shadow-2xl">
+      <div className="absolute top-20 left-4 right-4 z-30 flex flex-wrap items-center justify-between gap-3 bg-black/90 border border-white/15 px-4 py-2.5 rounded-xl shadow-2xl">
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-2">
             <Wifi
@@ -444,7 +671,7 @@ export default function TelloDronePanel({
 
       {/* ── Error Alert Message Banner ────────────────────────────────────── */}
       {errorMsg && (
-        <div className="absolute top-20 left-4 right-4 z-30 flex items-center justify-between p-3 bg-red-500/20 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium backdrop-blur-md">
+        <div className="absolute top-36 left-4 right-4 z-30 flex items-center justify-between p-3 bg-red-500/20 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium backdrop-blur-md">
           <div className="flex items-center space-x-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
             <span>{errorMsg}</span>
@@ -517,7 +744,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("KeyW") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, 40, 0, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
               </Button>
@@ -528,7 +755,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("KeyA") ? "default" : "outline"}
                 onMouseDown={() => sendRC(-40, 0, 0, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
               </Button>
@@ -537,7 +764,7 @@ export default function TelloDronePanel({
                 size="icon"
                 variant="secondary"
                 onClick={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7 text-[9px] font-bold"
+                className="h-7 w-7 text-[9px] font-bold text-white bg-white/15 border-white/20"
               >
                 ●
               </Button>
@@ -547,7 +774,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("KeyD") ? "default" : "outline"}
                 onMouseDown={() => sendRC(40, 0, 0, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowRight className="w-3.5 h-3.5" />
               </Button>
@@ -558,7 +785,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("KeyS") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, -40, 0, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowDown className="w-3.5 h-3.5" />
               </Button>
@@ -578,7 +805,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("ArrowUp") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, 0, 40, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowUp className="w-3.5 h-3.5 text-cyan-400" />
               </Button>
@@ -589,7 +816,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("ArrowLeft") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, 0, 0, -40)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <RotateCcw className="w-3 h-3" />
               </Button>
@@ -598,7 +825,7 @@ export default function TelloDronePanel({
                 size="icon"
                 variant="secondary"
                 onClick={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7 text-[9px] font-bold"
+                className="h-7 w-7 text-[9px] font-bold text-white bg-white/15 border-white/20"
               >
                 ●
               </Button>
@@ -608,7 +835,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("ArrowRight") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, 0, 0, 40)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <RotateCw className="w-3 h-3" />
               </Button>
@@ -619,7 +846,7 @@ export default function TelloDronePanel({
                 variant={activeKeys.has("ArrowDown") ? "default" : "outline"}
                 onMouseDown={() => sendRC(0, 0, -40, 0)}
                 onMouseUp={() => sendRC(0, 0, 0, 0)}
-                className="h-7 w-7"
+                className="h-7 w-7 text-white border-white/20 bg-white/10 hover:bg-white/20"
               >
                 <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
               </Button>
@@ -636,7 +863,7 @@ export default function TelloDronePanel({
               size="sm"
               onClick={() => sendCommand("flip", "f")}
               disabled={!telemetry.is_flying}
-              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+              className="text-[9px] h-6 font-semibold text-white border-white/20 bg-white/5 hover:bg-white/10"
             >
               Flip FWD
             </Button>
@@ -645,7 +872,7 @@ export default function TelloDronePanel({
               size="sm"
               onClick={() => sendCommand("flip", "b")}
               disabled={!telemetry.is_flying}
-              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+              className="text-[9px] h-6 font-semibold text-white border-white/20 bg-white/5 hover:bg-white/10"
             >
               Flip BWD
             </Button>
@@ -654,7 +881,7 @@ export default function TelloDronePanel({
               size="sm"
               onClick={() => sendCommand("flip", "l")}
               disabled={!telemetry.is_flying}
-              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+              className="text-[9px] h-6 font-semibold text-white border-white/20 bg-white/5 hover:bg-white/10"
             >
               Flip L
             </Button>
@@ -663,7 +890,7 @@ export default function TelloDronePanel({
               size="sm"
               onClick={() => sendCommand("flip", "r")}
               disabled={!telemetry.is_flying}
-              className="text-[9px] h-6 font-semibold border-white/20 hover:bg-white/10"
+              className="text-[9px] h-6 font-semibold text-white border-white/20 bg-white/5 hover:bg-white/10"
             >
               Flip R
             </Button>

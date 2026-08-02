@@ -265,7 +265,7 @@ const Config = ({ className, transparent = false, onMinimize }: ConfigProps) => 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [matchLibrarySettings, setMatchLibrarySettings] = useState(false);
+  const [matchLibrarySettings, setMatchLibrarySettings] = useState(true);
   const [cachedRealtime, setCachedRealtime] = useState<{
     yolo_conf: number;
     yolo_iou: number;

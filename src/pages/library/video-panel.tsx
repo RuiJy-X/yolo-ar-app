@@ -9,6 +9,7 @@ type VideoPanelProps = {
   sourceVideoUrl: string | null;
   resultVideoUrl: string | null;
   resultDownloadUrl: string | null;
+  loadedHistoryId?: string | null;
   isSubmitting: boolean;
   isDownloading: boolean;
   progressPercent: number;
@@ -37,6 +38,7 @@ const VideoPanel = ({
   sourceVideoUrl,
   resultVideoUrl,
   resultDownloadUrl,
+  loadedHistoryId,
   isSubmitting,
   isDownloading,
   progressPercent,
@@ -87,15 +89,16 @@ const VideoPanel = ({
             </button>
           )}
 
-          {(file || sourceVideoUrl) && !isSubmitting && (
-            <button
-              type="button"
-              onClick={onRunInference}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
-            >
-              {resultVideoUrl ? "Re-analyze" : "Analyze"}
-            </button>
-          )}
+          {(file || sourceVideoUrl || resultVideoUrl || loadedHistoryId) &&
+            !isSubmitting && (
+              <button
+                type="button"
+                onClick={onRunInference}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+              >
+                {resultVideoUrl || loadedHistoryId ? "Re-analyze" : "Analyze"}
+              </button>
+            )}
 
           {resultDownloadUrl && !isSubmitting && (
             <button

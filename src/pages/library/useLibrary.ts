@@ -113,6 +113,8 @@ function normalizeAnalysis(raw: unknown): AnalyzeVideoResponse | null {
   return null;
 }
 
+import { getActionColor } from "./action-colors";
+
 const buildActionTimelineTags = (
   analysis: AnalyzeVideoResponse | null,
   fps: number,
@@ -151,7 +153,7 @@ const buildActionTimelineTags = (
             endFrame: run.end,
             startSeconds,
             endSeconds,
-            color: ACTION_TAG_COLORS[actionIdx % ACTION_TAG_COLORS.length],
+            color: getActionColor(action),
           });
         });
       });
@@ -234,11 +236,10 @@ export const useLibraryState = (historyId?: string | null) => {
     );
   }, [actionTimelineTags]);
 
-  const timelineDurationSeconds = Math.max(
-    1,
-    videoDurationSeconds,
-    inferredDurationSeconds,
-  );
+  const timelineDurationSeconds =
+    videoDurationSeconds > 0
+      ? videoDurationSeconds
+      : Math.max(1, inferredDurationSeconds);
 
   const handleFileChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const selected = event.target.files?.[0];
@@ -259,7 +260,7 @@ export const useLibraryState = (historyId?: string | null) => {
   };
 
   const handleRunInference = async () => {
-    if (!file && !sourceVideoUrl) {
+    if (!file && !sourceVideoUrl && !resultVideoUrl && !loadedHistoryId) {
       setError("Please select a video file first.");
       return;
     }
@@ -295,16 +296,21 @@ export const useLibraryState = (historyId?: string | null) => {
         inferUrl = `${apiBaseUrl}/api/infer-video/from-history/${loadedHistoryId}`;
         fetchInit = { method: "POST" };
       } else {
-        // Scenario C: sourceVideoUrl is a remote URL but we have no local File.
+        // Scenario C: sourceVideoUrl or resultVideoUrl is available but we have no local File or History ID.
         // Fetch it as a Blob and re-upload so the normal pipeline handles it.
-        setProgressMessage("Fetching source video for re-upload...");
-        const blobResponse = await fetch(sourceVideoUrl!);
+        const rawTarget = sourceVideoUrl || resultVideoUrl;
+        if (!rawTarget) {
+          throw new Error("No video available for re-analysis.");
+        }
+        const videoTarget = toAbsoluteUrl(rawTarget, apiBaseUrl);
+        setProgressMessage("Fetching video for re-analysis...");
+        const blobResponse = await fetch(videoTarget);
         if (!blobResponse.ok)
           throw new Error(
-            `Could not fetch source video (${blobResponse.status}).`,
+            `Could not fetch video for re-analysis (${blobResponse.status}).`,
           );
         const blob = await blobResponse.blob();
-        const filename = getFilenameFromUrl(sourceVideoUrl!) || "source.mp4";
+        const filename = getFilenameFromUrl(videoTarget) || "video.mp4";
         const reuploadFile = new File([blob], filename, {
           type: blob.type || "video/mp4",
         });

@@ -2,16 +2,18 @@
     "name":  "aerview",
     "version":  "1.0.0",
     "main":  "main.js",
-    "scripts":  {
-                    "dev":  "vite",
-                    "build":  "vite build",
-                    "electron":  "electron .",
-                    "electron:dev":  "electron .",
-                    "make":  "electron-forge make",
-                    "package":  "electron-forge package",
-                    "backend:dev":  "backend\\act_reg_final_version\\.venv\\Scripts\\python.exe -m uvicorn websocket_api:app --host 127.0.0.1 --port 8000 --reload --app-dir backend/act_reg_final_version",
-                    "bundle:prepare":  "node scripts/prepare-bundle.mjs"
-                },
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "electron": "electron .",
+        "electron:dev": "electron .",
+        "prepackage": "npm run build && npm run bundle:prepare",
+        "package": "electron-forge package",
+        "premake": "npm run build && npm run bundle:prepare",
+        "make": "electron-forge make",
+        "backend:dev": "backend\\act_reg_final_version\\.venv\\Scripts\\python.exe -m uvicorn websocket_api:app --host 127.0.0.1 --port 8000 --reload --app-dir backend/act_reg_final_version",
+        "bundle:prepare": "node scripts/prepare-bundle.mjs"
+    },
     "dependencies":  {
                          "@base-ui/react":  "^1.4.1",
                          "@ffmpeg/core":  "^0.12.10",

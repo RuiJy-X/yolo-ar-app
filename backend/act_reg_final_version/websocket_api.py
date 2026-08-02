@@ -21,7 +21,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 import torch
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,12 +52,12 @@ def get_output_dir() -> str:
     os.makedirs(out, exist_ok=True)
     return out
 
-# OpenCV uses BGR format
+# OpenCV uses BGR format (matching frontend action-colors.ts)
 CLASS_COLOR_MAP = {
-    "waving": (0, 0, 255),    # Red
-    "walking": (0, 255, 0),   # Green
-    "sitting": (255, 0, 0),   # Blue
-    "standing": (0, 255, 255) # Yellow
+    "waving": (221, 119, 127),   # #7F77DD (Purple)
+    "sitting": (117, 158, 29),   # #1D9E75 (Teal/Green)
+    "walking": (11, 158, 245),   # #F59E0B (Amber/Orange)
+    "standing": (221, 138, 55),  # #378ADD (Blue)
 }
 DEFAULT_COLOR = (255, 255, 255)  # White fallback for unexpected classes
 
@@ -79,8 +79,8 @@ VISIBILITY_THRESH = 0.20
 MIN_FRAMES_FOR_INFERENCE = 16
 DISPLAY_CONF_THRESH = 0.25
 SCORE_EMA_ALPHA = 0.75
-YOLO_CONF = 0.60
-YOLO_IOU = 0.60
+YOLO_CONF = 0.30
+YOLO_IOU = 0.55
 VIDEO_YOLO_CONF = 0.30
 VIDEO_YOLO_IOU = 0.55
 
@@ -90,8 +90,8 @@ PRESETS: dict[str, dict[str, float | int | str]] = {
         "min_frames": 8,
         "stride": 6,
         "ema_alpha": 0.65,
-        "yolo_conf": 0.55,
-        "video_yolo_conf": 0.25,
+        "yolo_conf": 0.20,
+        "video_yolo_conf": 0.15,
         "model_name": "Frame_16",
     },
     "Frame_32": {
@@ -99,8 +99,8 @@ PRESETS: dict[str, dict[str, float | int | str]] = {
         "min_frames": 16,
         "stride": 4,
         "ema_alpha": 0.75,
-        "yolo_conf": 0.60,
-        "video_yolo_conf": 0.30,
+        "yolo_conf": 0.20,
+        "video_yolo_conf": 0.15,
         "model_name": "Frame_32",
     },
     "Frame_64": {
@@ -108,8 +108,8 @@ PRESETS: dict[str, dict[str, float | int | str]] = {
         "min_frames": 32,
         "stride": 2,
         "ema_alpha": 0.82,
-        "yolo_conf": 0.65,
-        "video_yolo_conf": 0.35,
+        "yolo_conf": 0.20,
+        "video_yolo_conf": 0.15,
         "model_name": "Frame_64",
     },
 }
@@ -375,6 +375,26 @@ def _pack_annotated_frame(payload: dict[str, Any], frame: np.ndarray, quality: i
     return header + json_bytes + jpeg_bytes
 
 
+def _pack_dual_frame(
+    payload: dict[str, Any],
+    raw_jpeg: bytes,
+    annotated_jpeg: bytes,
+) -> bytes | None:
+    """Pack JSON + raw source JPEG + annotated JPEG into a single binary message.
+
+    Wire format:
+        [4 bytes] JSON length (big-endian uint32)
+        [N bytes] JSON payload
+        [4 bytes] raw JPEG length (big-endian uint32)
+        [M bytes] raw source JPEG (unannotated)
+        [R bytes] annotated JPEG (remainder of message)
+    """
+    json_bytes = json.dumps(payload).encode("utf-8")
+    header_json = struct.pack(">I", len(json_bytes))
+    header_raw = struct.pack(">I", len(raw_jpeg))
+    return header_json + json_bytes + header_raw + raw_jpeg + annotated_jpeg
+
+
 def create_video_writer(
     output_path: Path,
     fps: float,
@@ -446,17 +466,26 @@ def is_browser_compatible_mp4(path: Path) -> bool:
         return False
 
 
-def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
+def transcode_video_to_browser_mp4(
+    input_path: Path, output_path: Path, target_fps: float | None = None
+) -> str:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
         output_path.unlink(missing_ok=True)
 
     ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin and os.path.exists(FFMPEG_PATH):
+        ffmpeg_bin = FFMPEG_PATH
+
     if ffmpeg_bin:
         ffmpeg_cmd = [
             ffmpeg_bin,
             "-y",
             "-i", str(input_path),
+        ]
+        if target_fps and target_fps > 0:
+            ffmpeg_cmd.extend(["-r", str(target_fps)])
+        ffmpeg_cmd.extend([
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-crf", "23",
@@ -465,7 +494,7 @@ def transcode_video_to_browser_mp4(input_path: Path, output_path: Path) -> str:
             "-c:a", "aac",
             "-b:a", "128k",
             str(output_path),
-        ]
+        ])
         proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=False)
         if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
             return "ffmpeg"
@@ -1195,7 +1224,9 @@ class ActionRecognitionPipeline:
         self._model_lock = threading.Lock()
         self._swap_lock = threading.Lock()
 
-        yolo_path = base_dir / YOLO_FILENAME
+        yolo_path = base_dir / YOLO_MODEL_CHOICES["base"]
+        if not yolo_path.exists():
+            yolo_path = base_dir / YOLO_FILENAME
         if not yolo_path.exists():
             raise FileNotFoundError(f"YOLO model not found: {yolo_path}")
 
@@ -1362,13 +1393,13 @@ class ActionRecognitionPipeline:
 
         return label, confidence, next_ema, all_scores
 
-    def _update_track_from_detection(
+    def _update_track_buffer(
         self,
         track: TrackState,
         keypoints_body12: np.ndarray,
         bbox: np.ndarray,
         frame_index: int,
-    ) -> tuple[str, float, dict[str, float]]:
+    ) -> bool:
         stabilized = stabilize_keypoints(keypoints_body12, track.last_valid_keypoints)
         track.buffer.append(stabilized)
         track.last_keypoints = stabilized
@@ -1378,22 +1409,62 @@ class ActionRecognitionPipeline:
         track.missed_frames = 0
         track.frames_since_inference += 1
 
-        should_infer = (
+        return (
             track.frames_since_inference >= ACTION_INFERENCE_STRIDE
             or track.last_action_label == "Unknown"
         )
-        if should_infer:
-            label, confidence, next_ema, all_scores = self._infer_action_from_window(
-                track.buffer,
-                track.score_ema,
-                use_tta=False,
-            )
+
+    def _infer_actions_batch(
+        self,
+        pending_tracks: list[TrackState],
+        use_tta: bool = False,
+    ) -> None:
+        """
+        Parallel linear batch inference for N active tracks in a single PyTorch forward pass.
+        Replaces N individual sequential PyTorch calls with 1 batch tensor pass: (N, C, T, V, M).
+        """
+        ready_tracks = [
+            t for t in pending_tracks if len(t.buffer) >= MIN_FRAMES_FOR_INFERENCE
+        ]
+        if not ready_tracks:
+            return
+
+        tensors = [self._build_input_tensor(t.buffer) for t in ready_tracks]
+        batch_input = torch.cat(tensors, dim=0)
+
+        current_model = self.action_model
+        batch_probs = infer_probs_with_tta(current_model, batch_input, use_tta=use_tta)
+
+        for i, track in enumerate(ready_tracks):
+            probs = batch_probs[i]
+            next_ema = SCORE_EMA_ALPHA * track.score_ema + (1.0 - SCORE_EMA_ALPHA) * probs
+            pred_idx = int(np.argmax(next_ema))
+            confidence = float(next_ema[pred_idx])
+            label = ACTION_MAP[pred_idx]
+            if confidence < self._get_action_threshold(label):
+                label = "Unknown"
+
+            all_scores = {
+                ACTION_MAP[idx]: round(float(next_ema[idx]), 4)
+                for idx in range(len(ACTION_MAP))
+            }
+
             track.score_ema = next_ema
             track.last_action_label = label
             track.last_action_conf = confidence
             track.last_all_scores = all_scores
             track.frames_since_inference = 0
 
+    def _update_track_from_detection(
+        self,
+        track: TrackState,
+        keypoints_body12: np.ndarray,
+        bbox: np.ndarray,
+        frame_index: int,
+    ) -> tuple[str, float, dict[str, float]]:
+        should_infer = self._update_track_buffer(track, keypoints_body12, bbox, frame_index)
+        if should_infer:
+            self._infer_actions_batch([track], use_tta=False)
         return track.last_action_label, track.last_action_conf, track.last_all_scores
 
     def _extract_pose_detections(
@@ -1402,6 +1473,7 @@ class ActionRecognitionPipeline:
         model: YOLO,
         conf: float,
         iou: float,
+        imgsz: int = 1024,
     ) -> list[dict[str, Any]]:
         with self._model_lock:
             results = model.predict(
@@ -1409,6 +1481,7 @@ class ActionRecognitionPipeline:
                 conf=conf,
                 iou=iou,
                 classes=[0],
+                imgsz=imgsz,
                 device=self.device,
                 verbose=False,
             )
@@ -1473,6 +1546,7 @@ class ActionRecognitionPipeline:
 
         matched_track_ids: set[int] = set()
         used_detection_ids: set[int] = set()
+        matched_pairs: list[tuple[TrackState, dict[str, Any]]] = []
         persons_out = []
 
         active_track_ids = [
@@ -1496,12 +1570,9 @@ class ActionRecognitionPipeline:
 
             if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
                 track = state.tracks[best_track_id]
-                label, confidence, all_scores = self._update_track_from_detection(
-                    track, detection["keypoints_body12"], detection["bbox"], state.frame_index
-                )
+                matched_pairs.append((track, detection))
                 matched_track_ids.add(best_track_id)
                 used_detection_ids.add(det_idx)
-                persons_out.append(_make_person_payload(best_track_id, label, confidence, detection, track))
 
         for det_idx, detection in enumerate(detections):
             if det_idx in used_detection_ids:
@@ -1510,11 +1581,32 @@ class ActionRecognitionPipeline:
             state.next_track_id += 1
             track = TrackState(track_id=track_id)
             state.tracks[track_id] = track
-            label, confidence, all_scores = self._update_track_from_detection(
+            matched_pairs.append((track, detection))
+            matched_track_ids.add(track_id)
+
+        # Batch update keypoint buffers and collect tracks needing inference
+        pending_inference: list[TrackState] = []
+        for track, detection in matched_pairs:
+            should_infer = self._update_track_buffer(
                 track, detection["keypoints_body12"], detection["bbox"], state.frame_index
             )
-            matched_track_ids.add(track_id)
-            persons_out.append(_make_person_payload(track_id, label, confidence, detection, track))
+            if should_infer:
+                pending_inference.append(track)
+
+        # Single batched PyTorch forward pass for all active people in the frame
+        if pending_inference:
+            self._infer_actions_batch(pending_inference, use_tta=False)
+
+        for track, detection in matched_pairs:
+            persons_out.append(
+                _make_person_payload(
+                    track.track_id,
+                    track.last_action_label,
+                    track.last_action_conf,
+                    detection,
+                    track,
+                )
+            )
 
         for tid in list(state.tracks.keys()):
             if tid not in matched_track_ids:
@@ -1650,6 +1742,7 @@ class ActionRecognitionPipeline:
                         self.video_pose_model,
                         self.video_yolo_conf,
                         self.video_yolo_iou,
+                        imgsz=1024,
                     )
                     counters["detected_people_total"] += len(detections)
                     counters["yolo_confidences"].extend(
@@ -1658,6 +1751,7 @@ class ActionRecognitionPipeline:
 
                     matched_track_ids: set[int] = set()
                     used_detection_ids: set[int] = set()
+                    matched_pairs: list[tuple[TrackState, dict[str, Any]]] = []
 
                     active_track_ids = [
                         tid
@@ -1681,33 +1775,9 @@ class ActionRecognitionPipeline:
 
                         if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
                             track = tracks[best_track_id]
-                            label, confidence, all_scores = self._update_track_from_detection(
-                                track, detection["keypoints_body12"], detection["bbox"], frame_index,
-                            )
-                            counters["detections_log"].append(
-                                Detection(
-                                    frame_number=frame_index,
-                                    action_label=normalize_action_label(label),
-                                    confidence=round(max(0.0, min(1.0, float(confidence))), 4),
-                                    person_id=best_track_id,
-                                    timestamp=frame_to_timestamp(frame_index, fps),
-                                    all_scores=all_scores or None,
-                                )
-                            )
+                            matched_pairs.append((track, detection))
                             matched_track_ids.add(best_track_id)
                             used_detection_ids.add(det_idx)
-
-                            color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
-                            x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
-                            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
-                            draw_pose(frame, track.last_keypoints, color)
-                            caption = f"ID {best_track_id}: {label}"
-                            if label != "Unknown":
-                                caption += f" {confidence * 100:.1f}%"
-                            cv2.putText(
-                                frame, caption, (x1, max(24, y1 - 8)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
-                            )
 
                     for det_idx, detection in enumerate(detections):
                         if det_idx in used_detection_ids:
@@ -1717,27 +1787,39 @@ class ActionRecognitionPipeline:
                         counters["next_track_id"] += 1
                         track = TrackState(track_id=track_id)
                         tracks[track_id] = track
+                        matched_pairs.append((track, detection))
+                        matched_track_ids.add(track_id)
 
-                        label, confidence, all_scores = self._update_track_from_detection(
-                            track, detection["keypoints_body12"], detection["bbox"], frame_index,
+                    pending_inference: list[TrackState] = []
+                    for track, detection in matched_pairs:
+                        should_infer = self._update_track_buffer(
+                            track, detection["keypoints_body12"], detection["bbox"], frame_index
                         )
+                        if should_infer:
+                            pending_inference.append(track)
+
+                    if pending_inference:
+                        self._infer_actions_batch(pending_inference, use_tta=False)
+
+                    for track, detection in matched_pairs:
+                        label = track.last_action_label
+                        confidence = track.last_action_conf
+                        all_scores = track.last_all_scores
                         counters["detections_log"].append(
                             Detection(
                                 frame_number=frame_index,
                                 action_label=normalize_action_label(label),
                                 confidence=round(max(0.0, min(1.0, float(confidence))), 4),
-                                person_id=track_id,
+                                person_id=track.track_id,
                                 timestamp=frame_to_timestamp(frame_index, fps),
                                 all_scores=all_scores or None,
                             )
                         )
-                        matched_track_ids.add(track_id)
-
                         color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
                         x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
                         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
                         draw_pose(frame, track.last_keypoints, color)
-                        caption = f"ID {track_id}: {label}"
+                        caption = f"ID {track.track_id}: {label}"
                         if label != "Unknown":
                             caption += f" {confidence * 100:.1f}%"
                         cv2.putText(
@@ -1992,9 +2074,11 @@ async def startup_event() -> None:
 
 
 @app.get("/health")
-def healthcheck() -> dict[str, Any]:
+def healthcheck(response: Response) -> dict[str, Any]:
     pipeline = getattr(app.state, "pipeline", None)
     pipeline_loaded = pipeline is not None
+    if not pipeline_loaded:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
         "status": "ok" if pipeline_loaded else "starting",
         "pipeline_loaded": pipeline_loaded,
@@ -2110,9 +2194,13 @@ def run_history_reinference_job(
         )
 
         update_inference_job(job_id, progress_message="Preparing source video...")
-        if not preview_path.exists():
+        if is_browser_compatible_mp4(source_path):
             shutil.copy2(source_path, preview_path)
-        source_transcode_backend = "passthrough"
+            source_transcode_backend = "passthrough"
+        else:
+            source_transcode_backend = transcode_video_to_browser_mp4(
+                source_path, preview_path, target_fps=15.0
+            )
 
         def on_progress(frame_index: int, total_frames: int, phase: str) -> None:
             percent = 0.0
@@ -2219,14 +2307,26 @@ async def reinfer_from_history(entry_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="History entry metadata missing.")
 
     source_name = meta.get("sourceName")
-    if not source_name:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "This history entry has no stored source video. "
-                "Please upload the original video file to re-analyze it."
-            ),
+    if not source_name or not (entry_dir / source_name).exists():
+        source_name = meta.get("videoName") or meta.get("annotatedName")
+    if not source_name or not (entry_dir / source_name).exists():
+        video_files = (
+            list(entry_dir.glob("source.*"))
+            + list(entry_dir.glob("video.*"))
+            + list(entry_dir.glob("*.mp4"))
+            + list(entry_dir.glob("*.webm"))
+            + list(entry_dir.glob("*.avi"))
         )
+        if video_files:
+            source_name = video_files[0].name
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This history entry has no stored video file. "
+                    "Please upload a video file to re-analyze it."
+                ),
+            )
 
     source_path = entry_dir / source_name
     if not source_path.exists() or not source_path.is_file():
@@ -2421,7 +2521,7 @@ async def upload_realtime_session(
         if is_browser_compatible_mp4(annotated_tmp):
             shutil.move(annotated_tmp, annotated_path)
         else:
-            annotated_backend = transcode_video_to_browser_mp4(annotated_tmp, annotated_path)
+            annotated_backend = transcode_video_to_browser_mp4(annotated_tmp, annotated_path, target_fps=15.0)
             annotated_tmp.unlink(missing_ok=True)
 
         source_backend = None
@@ -2440,7 +2540,7 @@ async def upload_realtime_session(
                 shutil.move(source_tmp, source_path)
                 source_backend = "passthrough"
             else:
-                source_backend = transcode_video_to_browser_mp4(source_tmp, source_path)
+                source_backend = transcode_video_to_browser_mp4(source_tmp, source_path, target_fps=15.0)
                 source_tmp.unlink(missing_ok=True)
 
         return {
@@ -2829,12 +2929,18 @@ async def tello_stream_websocket(websocket: WebSocket) -> None:
             result["tello_telemetry"] = telemetry
 
             if result.get("type") == "inference":
+                # Encode the RAW frame JPEG *before* _annotate_frame mutates it
+                raw_jpeg = _encode_jpeg(frame, jpeg_quality)
                 annotated = _annotate_frame(frame, result)
-                packed = _pack_annotated_frame(result, annotated, jpeg_quality)
-                if packed is None:
-                    await websocket.send_json(result)
+                annotated_jpeg = _encode_jpeg(annotated, jpeg_quality)
+                if raw_jpeg and annotated_jpeg:
+                    packed = _pack_dual_frame(result, raw_jpeg, annotated_jpeg)
+                    if packed is not None:
+                        await websocket.send_bytes(packed)
+                    else:
+                        await websocket.send_json(result)
                 else:
-                    await websocket.send_bytes(packed)
+                    await websocket.send_json(result)
             else:
                 await websocket.send_json(result)
 
@@ -2890,7 +2996,7 @@ if os.path.isdir(FRONTEND_DIR):
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        if full_path.startswith(("api/", "ws/", "health", "outputs/", "analyze")):
+        if full_path.startswith(("api/", "ws/", "health", "outputs/", "history/", "analyze")):
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))

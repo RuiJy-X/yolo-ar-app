@@ -30,30 +30,41 @@ function checkBackendHealth() {
   return new Promise((resolve) => {
     http
       .get(BACKEND_HEALTH_URL, (res) => {
-        res.resume();
-        resolve(res.statusCode === 200);
+        let body = "";
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => {
+          if (res.statusCode === 200) {
+            try {
+              const data = JSON.parse(body);
+              resolve(data.pipeline_loaded === true && data.status === "ok");
+            } catch {
+              resolve(false);
+            }
+          } else {
+            resolve(false);
+          }
+        });
       })
       .on("error", () => resolve(false));
   });
 }
 
-function waitForBackend(retries = 40, delay = 500) {
+function waitForBackend(retries = 180, delay = 500) {
   return new Promise((resolve, reject) => {
     const attempt = (n) => {
-      http
-        .get(BACKEND_HEALTH_URL, (res) => {
-          if (res.statusCode === 200) {
-            resolve();
-          } else if (n > 0) {
-            setTimeout(() => attempt(n - 1), delay);
-          } else {
-            reject(new Error("Backend health check failed"));
-          }
-        })
-        .on("error", () => {
-          if (n > 0) setTimeout(() => attempt(n - 1), delay);
-          else reject(new Error("Backend not reachable after timeout"));
-        });
+      checkBackendHealth().then((isHealthy) => {
+        if (isHealthy) {
+          resolve();
+        } else if (n > 0) {
+          setTimeout(() => attempt(n - 1), delay);
+        } else {
+          reject(
+            new Error(
+              "Backend health check timed out. The model pipeline did not finish initializing in time."
+            )
+          );
+        }
+      });
     };
     attempt(retries);
   });
@@ -105,9 +116,9 @@ async function startBackend() {
 
   backendProcess.on("exit", (code) => {
     console.log("[backend] exited with code", code);
-    if (code !== 0 && mainWindow) {
+    if (code !== 0) {
       dialog.showErrorBox(
-        "Skysight backend stopped",
+        "Aerview backend stopped",
         `The backend process exited unexpectedly (code ${code}).\nPlease restart the app.`,
       );
     }
