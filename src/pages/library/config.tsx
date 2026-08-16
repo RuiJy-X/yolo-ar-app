@@ -52,7 +52,6 @@ type RuntimeConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
-  video_detection_stride?: number;
   use_sahi?: boolean;
   sahi_mode?: SahiMode;
   sahi_pipeline_mode?: "1-stage" | "2-stage";
@@ -72,7 +71,6 @@ type DraftConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
-  video_detection_stride: number;
   use_sahi: boolean;
   sahi_mode: SahiMode;
   sahi_pipeline_mode: "1-stage" | "2-stage";
@@ -221,7 +219,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
-        video_detection_stride: data.video_detection_stride ?? 2,
         use_sahi: data.use_sahi ?? false,
         sahi_mode: data.sahi_mode ?? (data.use_sahi ? "dense" : "disabled"),
         sahi_pipeline_mode: data.sahi_pipeline_mode ?? "2-stage",
@@ -248,7 +245,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
           yolo_iou: cached.yolo_iou,
           video_yolo_conf: cached.video_yolo_conf,
           video_yolo_iou: cached.video_yolo_iou,
-          video_detection_stride: cached.video_detection_stride ?? 2,
           use_sahi: cached.use_sahi ?? false,
           sahi_mode: cached.sahi_mode ?? (cached.use_sahi ? "dense" : "disabled"),
           sahi_pipeline_mode: cached.sahi_pipeline_mode ?? "2-stage",
@@ -283,7 +279,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       draft.yolo_iou !== config.yolo_iou ||
       draft.video_yolo_conf !== config.video_yolo_conf ||
       draft.video_yolo_iou !== config.video_yolo_iou ||
-      draft.video_detection_stride !== config.video_detection_stride ||
       draft.use_sahi !== config.use_sahi ||
       draft.sahi_mode !== config.sahi_mode ||
       draft.sahi_pipeline_mode !== config.sahi_pipeline_mode ||
@@ -364,7 +359,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
-        video_detection_stride: data.video_detection_stride ?? draft.video_detection_stride,
         use_sahi: data.use_sahi ?? draft.use_sahi,
         sahi_mode: data.sahi_mode ?? draft.sahi_mode,
         sahi_pipeline_mode: data.sahi_pipeline_mode ?? draft.sahi_pipeline_mode,
@@ -667,29 +661,6 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     value={draft.video_yolo_iou}
                     onChange={(v) => updateLibraryNumber("video_yolo_iou", v)}
                   />
-                  <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
-                    <label className="text-xs font-semibold text-slate-800">
-                      Detection Frame Stride: <span className="font-mono text-[#0052ff]">{draft.video_detection_stride === 1 ? "1 (Every Frame)" : `${draft.video_detection_stride} (Every ${draft.video_detection_stride} frames - ${draft.video_detection_stride}x Speed)`}</span>
-                    </label>
-                    <p className="text-[11px] text-slate-500">
-                      Runs YOLO/SAHI detection every Nth frame and smoothly tracks persons across intermediate frames for massive speedups.
-                    </p>
-                    <select
-                      value={draft.video_detection_stride}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          video_detection_stride: Number.parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer mt-1"
-                    >
-                      <option value={1}>Every Frame (1x Speed - Thorough)</option>
-                      <option value={2}>Every 2nd Frame (2x Speed - Recommended)</option>
-                      <option value={3}>Every 3rd Frame (3x Speed - Fast)</option>
-                      <option value={4}>Every 4th Frame (4x Speed - Ultra Fast)</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </div>
