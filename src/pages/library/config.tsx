@@ -13,6 +13,7 @@ type RuntimeConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  use_sahi?: boolean;
   realtime_disable_downscale?: boolean;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
@@ -26,6 +27,7 @@ type DraftConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  use_sahi: boolean;
   realtime_disable_downscale: boolean;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
@@ -294,6 +296,7 @@ const Config = ({ className, transparent = false, onMinimize }: ConfigProps) => 
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        use_sahi: data.use_sahi ?? false,
         realtime_disable_downscale:
           data.realtime_disable_downscale ?? storedDownscale ?? false,
         action_threshold_mode: data.action_threshold_mode,
@@ -385,6 +388,7 @@ const Config = ({ className, transparent = false, onMinimize }: ConfigProps) => 
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        use_sahi: data.use_sahi ?? draft.use_sahi,
         realtime_disable_downscale: nextDisableDownscale,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
@@ -598,28 +602,30 @@ const Config = ({ className, transparent = false, onMinimize }: ConfigProps) => 
           </div>
         </Section>
 
+
+
         <div className="h-px bg-[#f0f0f0]" />
 
         <Section
-          icon={<IconFrame />}
-          title="Realtime frame scaling"
-          description="Controls the resolution frames are sent at"
+          icon={<IconDetect />}
+          title="SAHI Sliced Inference"
+          description="Slices high-res frames into overlapping grid crops for small &amp; distant person detection"
         >
           <div className="flex items-center justify-between py-2.5 px-3.5 rounded-lg bg-[#f7f8fa] border border-[#ededed]">
             <div>
               <p className="text-[12px] font-medium text-[#1a1a1a]">
-                Disable downscaling
+                Enable SAHI Slicing
               </p>
               <p className="text-[11px] text-[#9a9a9a]">
-                Send frames at full camera resolution
+                Boosts detection recall for far-away people in aerial footage
               </p>
             </div>
             <Toggle
-              checked={draft.realtime_disable_downscale}
+              checked={draft.use_sahi}
               onChange={() =>
                 setDraft({
                   ...draft,
-                  realtime_disable_downscale: !draft.realtime_disable_downscale,
+                  use_sahi: !draft.use_sahi,
                 })
               }
             />

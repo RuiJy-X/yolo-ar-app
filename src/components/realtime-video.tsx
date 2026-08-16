@@ -651,10 +651,7 @@ const RealTimeVideo = ({
         ws.bufferedAmount > 1_000_000
       )
         return;
-      const maxWidth = 640;
-      const scale = disableDownscale
-        ? 1
-        : Math.min(1, maxWidth / video.videoWidth);
+      const scale = 1;
       const width = Math.max(2, Math.floor(video.videoWidth * scale));
       const height = Math.max(2, Math.floor(video.videoHeight * scale));
       const canvas = sendCanvasRef.current ?? document.createElement("canvas");

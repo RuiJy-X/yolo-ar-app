@@ -96,3 +96,5 @@ Thumbs.db
 desktop.ini
 
 training/
+/backend/act_reg_final_version/aerial_dataset/
+/backend/act_reg_final_version/*

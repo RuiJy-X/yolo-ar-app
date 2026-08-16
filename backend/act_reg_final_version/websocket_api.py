@@ -64,25 +64,37 @@ DEFAULT_COLOR = (255, 255, 255)  # White fallback for unexpected classes
 
 YOLO_FILENAME = "yolo-best.pt"
 VIDEO_POSE_MODEL_CANDIDATES = [
+    "yolo11s-pose.pt",
+    "yolo11m-pose.pt",
     "yolo11n-pose.pt",
     YOLO_FILENAME,
     "yolo.best.pt",
 ]
 YOLO_MODEL_CHOICES = {
+    "aerial-medium-tuned": "yolo11m-aerial-tuned.pt",
+    "small": "yolo11s-pose.pt",
+    "medium": "yolo11m-pose.pt",
     "base": "yolo11n-pose.pt",
     "aerial": YOLO_FILENAME,
+}
+YOLO_MODEL_LABELS = {
+    "aerial-medium-tuned": "Fine-Tuned Aerial Medium (yolo11m-aerial-tuned.pt)",
+    "small": "Small Pose (yolo11s-pose.pt)",
+    "medium": "Medium Pose (yolo11m-pose.pt)",
+    "base": "Base Nano (yolo11n-pose.pt)",
+    "aerial": "Aerial Legacy (yolo-best.pt)",
 }
 WINDOW_SIZE = 32
 MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
-VISIBILITY_THRESH = 0.20
+VISIBILITY_THRESH = 0.15
 MIN_FRAMES_FOR_INFERENCE = 16
 DISPLAY_CONF_THRESH = 0.25
-SCORE_EMA_ALPHA = 0.75
-YOLO_CONF = 0.30
-YOLO_IOU = 0.55
-VIDEO_YOLO_CONF = 0.30
-VIDEO_YOLO_IOU = 0.55
+SCORE_EMA_ALPHA = 0.50
+YOLO_CONF = 0.12
+YOLO_IOU = 0.60
+VIDEO_YOLO_CONF = 0.10
+VIDEO_YOLO_IOU = 0.60
 
 PRESETS: dict[str, dict[str, float | int | str]] = {
     "Frame_16": {
@@ -765,6 +777,32 @@ def pick_deployment_checkpoint(base_dir: Path) -> Path:
     raise FileNotFoundError("No model files found in results/")
 
 
+def cpu_nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.50) -> list[int]:
+    if len(boxes) == 0:
+        return []
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(int(i))
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        w = np.maximum(0.0, xx2 - xx1)
+        h = np.maximum(0.0, yy2 - yy1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
+        inds = np.where(ovr <= iou_threshold)[0]
+        order = order[inds + 1]
+    return keep
+
+
 def coco17_to_body12(coco_kpts: np.ndarray | None) -> np.ndarray:
     out = np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32)
     if coco_kpts is None or len(coco_kpts) < 17:
@@ -791,10 +829,17 @@ def build_model_input(window: np.ndarray) -> torch.Tensor:
     frame_count = window.shape[0]
     if frame_count >= WINDOW_SIZE:
         idx = np.linspace(0, frame_count - 1, WINDOW_SIZE).astype(int)
-        sampled = window[idx]
+        sampled = window[idx].copy()
     else:
-        sampled = np.zeros((WINDOW_SIZE, MODEL_NUM_POINTS, 3), dtype=np.float32)
-        sampled[-frame_count:] = window
+        # Edge-repeat pad prefix using the earliest frame instead of zero-filling
+        sampled = np.empty((WINDOW_SIZE, MODEL_NUM_POINTS, 3), dtype=np.float32)
+        pad_len = WINDOW_SIZE - frame_count
+        sampled[:pad_len] = window[0]
+        sampled[pad_len:] = window
+
+    # Align keypoint confidence channel (c) with UAV dataset training format (1.0 for valid joints)
+    vis_mask = sampled[:, :, 2] >= VISIBILITY_THRESH
+    sampled[:, :, 2] = np.where(vis_mask, 1.0, 0.0)
 
     data = sampled.transpose(2, 0, 1)
     data = np.expand_dims(data, axis=-1)
@@ -986,6 +1031,8 @@ class UpdateConfigRequest(BaseModel):
     yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
     video_yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
     video_yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
+    use_sahi: bool | None = None
+    sahi_slice_size: int | None = Field(default=None, ge=256, le=1280)
     action_threshold_mode: str | None = None
     action_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     action_thresholds: dict[str, float] | None = None
@@ -1224,15 +1271,20 @@ class ActionRecognitionPipeline:
         self._model_lock = threading.Lock()
         self._swap_lock = threading.Lock()
 
-        yolo_path = base_dir / YOLO_MODEL_CHOICES["base"]
+        yolo_path = base_dir / YOLO_MODEL_CHOICES["aerial-medium-tuned"]
+        if not yolo_path.exists():
+            yolo_path = base_dir / YOLO_MODEL_CHOICES["small"]
+        if not yolo_path.exists():
+            yolo_path = base_dir / YOLO_MODEL_CHOICES["base"]
         if not yolo_path.exists():
             yolo_path = base_dir / YOLO_FILENAME
-        if not yolo_path.exists():
-            raise FileNotFoundError(f"YOLO model not found: {yolo_path}")
 
         checkpoint_path = pick_deployment_checkpoint(base_dir)
 
-        self.yolo_model = YOLO(str(yolo_path)).to(self.device)
+        if yolo_path.exists():
+            self.yolo_model = YOLO(str(yolo_path)).to(self.device)
+        else:
+            self.yolo_model = YOLO("yolo11s-pose.pt").to(self.device)
         self.video_pose_model = self._load_video_pose_model()
         self.action_model = init_action_model(checkpoint_path, self.device)
 
@@ -1240,6 +1292,9 @@ class ActionRecognitionPipeline:
         self.yolo_iou = YOLO_IOU
         self.video_yolo_conf = VIDEO_YOLO_CONF
         self.video_yolo_iou = VIDEO_YOLO_IOU
+        self.use_sahi = True
+        self.sahi_slice_size = 640
+        self.sahi_overlap = 0.25
         self.action_threshold_mode = "uniform"
         self.action_threshold = DISPLAY_CONF_THRESH
         self.action_thresholds = {
@@ -1305,11 +1360,13 @@ class ActionRecognitionPipeline:
 
     def swap_yolo_model(self, model_choice: str) -> None:
         model_key, model_path = resolve_yolo_model_choice(model_choice)
-        if not model_path.exists():
-            raise FileNotFoundError(f"YOLO model not found at {model_path}")
+        filename = YOLO_MODEL_CHOICES.get(model_key, f"{model_key}.pt")
 
         with self._model_lock:
-            new_model = YOLO(str(model_path)).to(self.device)
+            if model_path.exists():
+                new_model = YOLO(str(model_path)).to(self.device)
+            else:
+                new_model = YOLO(filename).to(self.device)
             self.yolo_model = new_model
             self.video_pose_model = new_model
             self._yolo_model_name = model_key
@@ -1331,6 +1388,10 @@ class ActionRecognitionPipeline:
             self.video_yolo_conf = float(body.video_yolo_conf)
         if body.video_yolo_iou is not None:
             self.video_yolo_iou = float(body.video_yolo_iou)
+        if body.use_sahi is not None:
+            self.use_sahi = bool(body.use_sahi)
+        if body.sahi_slice_size is not None:
+            self.sahi_slice_size = int(body.sahi_slice_size)
 
         if body.action_threshold_mode is not None:
             if body.action_threshold_mode not in {"uniform", "per-action"}:
@@ -1467,7 +1528,110 @@ class ActionRecognitionPipeline:
             self._infer_actions_batch([track], use_tta=False)
         return track.last_action_label, track.last_action_conf, track.last_all_scores
 
-    def _extract_pose_detections(
+    def _extract_sahi_pose_detections(
+        self,
+        frame: np.ndarray,
+        model: YOLO,
+        conf: float,
+        iou: float,
+        slice_size: int = 640,
+        overlap_ratio: float = 0.20,
+    ) -> list[dict[str, Any]]:
+        h, w = frame.shape[:2]
+        if h <= slice_size and w <= slice_size:
+            return self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
+
+        step = int(slice_size * (1.0 - overlap_ratio))
+        x_slices = list(range(0, max(1, w - slice_size + 1), step))
+        if x_slices[-1] + slice_size < w:
+            x_slices.append(w - slice_size)
+
+        y_slices = list(range(0, max(1, h - slice_size + 1), step))
+        if y_slices[-1] + slice_size < h:
+            y_slices.append(h - slice_size)
+
+        all_boxes: list[np.ndarray] = []
+        all_confs: list[float] = []
+        all_keypoints_12: list[np.ndarray] = []
+
+        # Pass 0: Full frame pass @ 1024 to catch large/medium people
+        full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
+        for det in full_dets:
+            all_boxes.append(det["bbox"])
+            all_confs.append(float(det["confidence"]))
+            all_keypoints_12.append(det["keypoints_body12"])
+
+        # Pass 1: Grid slices @ 640 to boost recall for tiny/distant people
+        for y1 in y_slices:
+            y2 = min(h, y1 + slice_size)
+            for x1 in x_slices:
+                x2 = min(w, x1 + slice_size)
+                crop = frame[y1:y2, x1:x2]
+                if crop.size == 0:
+                    continue
+
+                with self._model_lock:
+                    results = model.predict(
+                        source=crop,
+                        conf=conf,
+                        iou=iou,
+                        classes=[0],
+                        imgsz=slice_size,
+                        device=self.device,
+                        verbose=False,
+                    )
+
+                if not results or results[0].boxes is None or results[0].keypoints is None:
+                    continue
+
+                res = results[0]
+                if len(res.boxes) == 0:
+                    continue
+
+                b_crop = res.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
+                k_crop = res.keypoints.data.detach().cpu().numpy().astype(np.float32)
+                c_crop = (
+                    res.boxes.conf.detach().cpu().numpy().astype(np.float32)
+                    if res.boxes.conf is not None
+                    else np.ones((b_crop.shape[0],), dtype=np.float32)
+                )
+
+                for idx in range(min(b_crop.shape[0], k_crop.shape[0])):
+                    box = b_crop[idx].copy()
+                    box[0] += x1
+                    box[2] += x1
+                    box[1] += y1
+                    box[3] += y1
+
+                    kpt17 = k_crop[idx].copy()
+                    kpt17[:, 0] += x1
+                    kpt17[:, 1] += y1
+
+                    all_boxes.append(box)
+                    all_confs.append(float(c_crop[idx]))
+                    all_keypoints_12.append(coco17_to_body12(kpt17))
+
+        if not all_boxes:
+            return []
+
+        boxes_arr = np.array(all_boxes, dtype=np.float32)
+        confs_arr = np.array(all_confs, dtype=np.float32)
+
+        keep_indices = cpu_nms(boxes_arr, confs_arr, iou_threshold=iou)
+        merged_dets: list[dict[str, Any]] = []
+        for idx in keep_indices:
+            merged_dets.append(
+                {
+                    "bbox": boxes_arr[idx],
+                    "confidence": float(confs_arr[idx]),
+                    "keypoints_body12": all_keypoints_12[idx],
+                }
+            )
+
+        merged_dets.sort(key=lambda item: item["confidence"], reverse=True)
+        return merged_dets
+
+    def _extract_standard_pose_detections(
         self,
         frame: np.ndarray,
         model: YOLO,
@@ -1475,13 +1639,17 @@ class ActionRecognitionPipeline:
         iou: float,
         imgsz: int = 1024,
     ) -> list[dict[str, Any]]:
+        # Auto-boost imgsz to 1280 for 1080p and 4K high-res frames to preserve distant person recall
+        h, w = frame.shape[:2]
+        effective_imgsz = max(imgsz, 1280) if (w >= 1920 or h >= 1080) else imgsz
+
         with self._model_lock:
             results = model.predict(
                 source=frame,
                 conf=conf,
                 iou=iou,
                 classes=[0],
-                imgsz=imgsz,
+                imgsz=effective_imgsz,
                 device=self.device,
                 verbose=False,
             )
@@ -1521,6 +1689,20 @@ class ActionRecognitionPipeline:
         detections.sort(key=lambda item: item["confidence"], reverse=True)
         return detections
 
+    def _extract_pose_detections(
+        self,
+        frame: np.ndarray,
+        model: YOLO,
+        conf: float,
+        iou: float,
+        imgsz: int = 1024,
+    ) -> list[dict[str, Any]]:
+        if self.use_sahi:
+            return self._extract_sahi_pose_detections(
+                frame, model, conf, iou, slice_size=self.sahi_slice_size, overlap_ratio=self.sahi_overlap
+            )
+        return self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=imgsz)
+
     async def infer_frame(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
         return await asyncio.to_thread(self._infer_frame_sync, frame, state)
 
@@ -1532,35 +1714,25 @@ class ActionRecognitionPipeline:
     ) -> dict[str, Any]:
         return await asyncio.to_thread(self._infer_video_file_sync, input_path, output_path, progress_callback)
 
-    def _infer_frame_sync(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
-        start = time.perf_counter()
-
-        # FIX: resize existing deque buffers if WINDOW_SIZE changed after a preset swap
-        self._sync_state_buffers(state)
-
-        detections = self._extract_pose_detections(
-            frame, self.yolo_model, self.yolo_conf, self.yolo_iou
-        )
-        if not detections:
-            return self._no_detection_result(state, start)
-
+    def _match_detections_to_tracks(
+        self,
+        detections: list[dict[str, Any]],
+        tracks: dict[int, TrackState],
+        active_track_ids: list[int],
+        iou_thresh: float = VIDEO_IOU_MATCH_THRESH,
+    ) -> tuple[list[tuple[TrackState, dict[str, Any]]], set[int], set[int]]:
+        matched_pairs: list[tuple[TrackState, dict[str, Any]]] = []
         matched_track_ids: set[int] = set()
         used_detection_ids: set[int] = set()
-        matched_pairs: list[tuple[TrackState, dict[str, Any]]] = []
-        persons_out = []
 
-        active_track_ids = [
-            tid for tid, t in state.tracks.items()
-            if t.missed_frames <= MAX_MISSED_FRAMES and t.last_bbox is not None
-        ]
-
+        # Pass 1: IoU Matching
         for det_idx, detection in enumerate(detections):
             best_track_id: int | None = None
             best_iou = 0.0
             for tid in active_track_ids:
                 if tid in matched_track_ids:
                     continue
-                t = state.tracks[tid]
+                t = tracks[tid]
                 if t.last_bbox is None:
                     continue
                 iou = compute_iou(detection["bbox"], t.last_bbox)
@@ -1568,11 +1740,70 @@ class ActionRecognitionPipeline:
                     best_iou = iou
                     best_track_id = tid
 
-            if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
-                track = state.tracks[best_track_id]
+            if best_track_id is not None and best_iou >= iou_thresh:
+                track = tracks[best_track_id]
                 matched_pairs.append((track, detection))
                 matched_track_ids.add(best_track_id)
                 used_detection_ids.add(det_idx)
+
+        # Pass 2: Centroid Proximity Matching for unmatched detections (essential for small far-away people)
+        for det_idx, detection in enumerate(detections):
+            if det_idx in used_detection_ids:
+                continue
+            det_box = detection["bbox"]
+            det_center = np.array([(det_box[0] + det_box[2]) * 0.5, (det_box[1] + det_box[3]) * 0.5])
+            det_diag = max(1.0, float(np.hypot(det_box[2] - det_box[0], det_box[3] - det_box[1])))
+
+            best_track_id: int | None = None
+            min_dist = float("inf")
+
+            for tid in active_track_ids:
+                if tid in matched_track_ids:
+                    continue
+                t = tracks[tid]
+                if t.last_bbox is None:
+                    continue
+                t_box = t.last_bbox
+                t_center = np.array([(t_box[0] + t_box[2]) * 0.5, (t_box[1] + t_box[3]) * 0.5])
+                t_diag = max(1.0, float(np.hypot(t_box[2] - t_box[0], t_box[3] - t_box[1])))
+                dist = float(np.linalg.norm(det_center - t_center))
+
+                # Allow centroid match up to 2.5x box diagonal distance
+                max_allowed = max(det_diag, t_diag) * 2.5
+                if dist <= max_allowed and dist < min_dist:
+                    min_dist = dist
+                    best_track_id = tid
+
+            if best_track_id is not None:
+                track = tracks[best_track_id]
+                matched_pairs.append((track, detection))
+                matched_track_ids.add(best_track_id)
+                used_detection_ids.add(det_idx)
+
+        return matched_pairs, matched_track_ids, used_detection_ids
+
+    def _infer_frame_sync(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
+        start = time.perf_counter()
+
+        # FIX: resize existing deque buffers if WINDOW_SIZE changed after a preset swap
+        self._sync_state_buffers(state)
+
+        detections = self._extract_pose_detections(
+            frame, self.yolo_model, self.yolo_conf, self.yolo_iou, imgsz=1024
+        )
+        if not detections:
+            return self._no_detection_result(state, start)
+
+        persons_out = []
+
+        active_track_ids = [
+            tid for tid, t in state.tracks.items()
+            if t.missed_frames <= MAX_MISSED_FRAMES and t.last_bbox is not None
+        ]
+
+        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
+            detections, state.tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
+        )
 
         for det_idx, detection in enumerate(detections):
             if det_idx in used_detection_ids:
@@ -1749,35 +1980,15 @@ class ActionRecognitionPipeline:
                         [float(d["confidence"]) for d in detections]
                     )
 
-                    matched_track_ids: set[int] = set()
-                    used_detection_ids: set[int] = set()
-                    matched_pairs: list[tuple[TrackState, dict[str, Any]]] = []
-
                     active_track_ids = [
                         tid
                         for tid, t in tracks.items()
                         if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
                     ]
 
-                    for det_idx, detection in enumerate(detections):
-                        best_track_id: int | None = None
-                        best_iou = 0.0
-                        for tid in active_track_ids:
-                            if tid in matched_track_ids:
-                                continue
-                            t = tracks[tid]
-                            if t.last_bbox is None:
-                                continue
-                            iou = compute_iou(detection["bbox"], t.last_bbox)
-                            if iou > best_iou:
-                                best_iou = iou
-                                best_track_id = tid
-
-                        if best_track_id is not None and best_iou >= VIDEO_IOU_MATCH_THRESH:
-                            track = tracks[best_track_id]
-                            matched_pairs.append((track, detection))
-                            matched_track_ids.add(best_track_id)
-                            used_detection_ids.add(det_idx)
+                    matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
+                        detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
+                    )
 
                     for det_idx, detection in enumerate(detections):
                         if det_idx in used_detection_ids:
@@ -2103,11 +2314,7 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
         "yolo_models": [
             {
                 "key": key,
-                "label": (
-                    "Base Model (yolo11n-pose.pt)"
-                    if key == "base"
-                    else "Aerial Pose Model (yolo-best.pt)"
-                ),
+                "label": YOLO_MODEL_LABELS.get(key, f"{key} ({filename})"),
                 "filename": filename,
             }
             for key, filename in YOLO_MODEL_CHOICES.items()
@@ -2116,6 +2323,8 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
         "yolo_iou": pipeline.yolo_iou,
         "video_yolo_conf": pipeline.video_yolo_conf,
         "video_yolo_iou": pipeline.video_yolo_iou,
+        "use_sahi": pipeline.use_sahi,
+        "sahi_slice_size": pipeline.sahi_slice_size,
         "action_threshold_mode": pipeline.action_threshold_mode,
         "action_threshold": pipeline.action_threshold,
         "action_thresholds": pipeline.action_thresholds,

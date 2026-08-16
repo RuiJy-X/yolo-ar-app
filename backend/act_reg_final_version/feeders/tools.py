@@ -9,7 +9,11 @@ def normalize_skeleton(data_numpy):
     # Fast path for real-time inference (single person).
     if M == 1:
         xy = out[0:2, :, :, 0]  # (2, T, V)
-        vis = (np.abs(xy[0]) + np.abs(xy[1])) > 1e-6  # (T, V)
+        if C >= 3:
+            conf = out[2, :, :, 0]  # (T, V)
+            vis = (conf >= 0.15) & ((np.abs(xy[0]) + np.abs(xy[1])) > 1e-6)
+        else:
+            vis = (np.abs(xy[0]) + np.abs(xy[1])) > 1e-6  # (T, V)
 
         l_hip_vis = vis[:, 6]
         r_hip_vis = vis[:, 7]
@@ -28,10 +32,10 @@ def normalize_skeleton(data_numpy):
         out[0:2, :, :, 0] -= roots.T[:, :, None]
 
         xy_centered = out[0:2, :, :, 0]
-        vis0 = (np.abs(xy_centered[0, :, 0]) + np.abs(xy_centered[1, :, 0])) > 1e-6
-        vis1 = (np.abs(xy_centered[0, :, 1]) + np.abs(xy_centered[1, :, 1])) > 1e-6
-        vis6 = (np.abs(xy_centered[0, :, 6]) + np.abs(xy_centered[1, :, 6])) > 1e-6
-        vis7 = (np.abs(xy_centered[0, :, 7]) + np.abs(xy_centered[1, :, 7])) > 1e-6
+        vis0 = vis[:, 0]
+        vis1 = vis[:, 1]
+        vis6 = vis[:, 6]
+        vis7 = vis[:, 7]
 
         sho = (xy_centered[:, :, 0] + xy_centered[:, :, 1]) * 0.5
         hip = (xy_centered[:, :, 6] + xy_centered[:, :, 7]) * 0.5
@@ -41,9 +45,8 @@ def normalize_skeleton(data_numpy):
         if np.any(d_valid):
             scale = float(np.median(d[d_valid]))
         else:
-            vis_all = (np.abs(out[0, :, :, 0]) + np.abs(out[1, :, :, 0])) > 1e-6
-            if np.any(vis_all):
-                vals = np.abs(out[0:2, :, :, 0][:, vis_all])
+            if np.any(vis):
+                vals = np.abs(xy_centered[:, vis])
                 scale = float(np.percentile(vals, 90)) if vals.size > 0 else 1.0
             else:
                 scale = 1.0
@@ -55,10 +58,15 @@ def normalize_skeleton(data_numpy):
     for t in range(T):
         for m in range(M):
             xy = out[0:2, t, :, m]
-            vis = (np.abs(xy[0]) + np.abs(xy[1])) > 1e-6
-
-            l_hip_vis = (np.abs(xy[0, 6]) + np.abs(xy[1, 6])) > 1e-6
-            r_hip_vis = (np.abs(xy[0, 7]) + np.abs(xy[1, 7])) > 1e-6
+            if C >= 3:
+                conf = out[2, t, :, m]
+                vis = (conf >= 0.15) & ((np.abs(xy[0]) + np.abs(xy[1])) > 1e-6)
+                l_hip_vis = vis[6]
+                r_hip_vis = vis[7]
+            else:
+                vis = (np.abs(xy[0]) + np.abs(xy[1])) > 1e-6
+                l_hip_vis = (np.abs(xy[0, 6]) + np.abs(xy[1, 6])) > 1e-6
+                r_hip_vis = (np.abs(xy[0, 7]) + np.abs(xy[1, 7])) > 1e-6
 
             if l_hip_vis and r_hip_vis:
                 root = (xy[:, 6] + xy[:, 7]) / 2.0
@@ -74,10 +82,18 @@ def normalize_skeleton(data_numpy):
     for t in range(T):
         for m in range(M):
             xy = out[0:2, t, :, m]
-            vis0 = (np.abs(xy[0, 0]) + np.abs(xy[1, 0])) > 1e-6
-            vis1 = (np.abs(xy[0, 1]) + np.abs(xy[1, 1])) > 1e-6
-            vis6 = (np.abs(xy[0, 6]) + np.abs(xy[1, 6])) > 1e-6
-            vis7 = (np.abs(xy[0, 7]) + np.abs(xy[1, 7])) > 1e-6
+            if C >= 3:
+                conf = out[2, t, :, m]
+                vis0 = conf[0] >= 0.15
+                vis1 = conf[1] >= 0.15
+                vis6 = conf[6] >= 0.15
+                vis7 = conf[7] >= 0.15
+            else:
+                vis0 = (np.abs(xy[0, 0]) + np.abs(xy[1, 0])) > 1e-6
+                vis1 = (np.abs(xy[0, 1]) + np.abs(xy[1, 1])) > 1e-6
+                vis6 = (np.abs(xy[0, 6]) + np.abs(xy[1, 6])) > 1e-6
+                vis7 = (np.abs(xy[0, 7]) + np.abs(xy[1, 7])) > 1e-6
+
             if vis0 and vis1 and vis6 and vis7:
                 sho = (xy[:, 0] + xy[:, 1]) / 2.0
                 hip = (xy[:, 6] + xy[:, 7]) / 2.0
@@ -89,7 +105,11 @@ def normalize_skeleton(data_numpy):
         scale = float(np.median(scales))
     else:
         # Fallback: robust spread of visible coordinates.
-        vis_all = (np.abs(out[0]) + np.abs(out[1])) > 1e-6
+        if C >= 3:
+            vis_all = out[2] >= 0.15
+        else:
+            vis_all = (np.abs(out[0]) + np.abs(out[1])) > 1e-6
+
         if np.any(vis_all):
             vals = np.abs(out[0:2][np.stack([vis_all, vis_all], axis=0)])
             scale = float(np.percentile(vals, 90)) if vals.size > 0 else 1.0

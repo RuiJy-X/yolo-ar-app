@@ -20,12 +20,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WINDOW_SIZE = 32
 MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
-VISIBILITY_THRESH = 0.20
+VISIBILITY_THRESH = 0.15
 MIN_FRAMES_FOR_INFERENCE = 16
-DISPLAY_CONF_THRESH = 0.55
-SCORE_EMA_ALPHA = 0.75
-YOLO_CONF = 0.60
-YOLO_IOU = 0.60
+DISPLAY_CONF_THRESH = 0.25
+SCORE_EMA_ALPHA = 0.50
+YOLO_CONF = 0.18
+YOLO_IOU = 0.55
 TEST_TTA_SHIFTS = [0, -3, -1, 1, 3]
 
 # Keep these in sync with feeder mirror logic.
@@ -114,11 +114,17 @@ def build_model_input(window):
     n = window.shape[0]
     if n >= WINDOW_SIZE:
         idx = np.linspace(0, n - 1, WINDOW_SIZE).astype(int)
-        sampled = window[idx]
+        sampled = window[idx].copy()
     else:
-        # For early frames, keep recent evidence at the tail, zero-pad the prefix.
-        sampled = np.zeros((WINDOW_SIZE, MODEL_NUM_POINTS, 3), dtype=np.float32)
-        sampled[-n:] = window
+        # Edge-repeat pad prefix using the earliest frame instead of zero-filling
+        sampled = np.empty((WINDOW_SIZE, MODEL_NUM_POINTS, 3), dtype=np.float32)
+        pad_len = WINDOW_SIZE - n
+        sampled[:pad_len] = window[0]
+        sampled[pad_len:] = window
+
+    # Align keypoint confidence channel (c) with UAV dataset training format (1.0 for valid joints)
+    vis_mask = sampled[:, :, 2] >= VISIBILITY_THRESH
+    sampled[:, :, 2] = np.where(vis_mask, 1.0, 0.0)
 
     data = sampled.transpose(2, 0, 1)  # (3, T, V)
     data = np.expand_dims(data, axis=-1)  # (3, T, V, 1)
