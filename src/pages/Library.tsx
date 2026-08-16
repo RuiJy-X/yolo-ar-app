@@ -4,7 +4,6 @@ import { useLibraryState } from "./library/useLibrary";
 import type { ActionTimelineTag } from "./library/useLibrary";
 import VideoPanel from "./library/video-panel";
 import TimelineFooter from "./library/timeline-footer";
-import Config from "./library/config";
 import ProjectNameDialog from "./library/project-name-dialog";
 import SaveToast from "./library/save-toast";
 import LeaveGuardDialog from "./library/leave-guard-dialog";
@@ -130,15 +129,10 @@ const Library = () => {
             </div>
           </div>
         )}
-        {/* Top Section: Config | Video | Logs */}
+        {/* Top Section: Video | Logs */}
         <div className="flex flex-1 min-h-0 w-full gap-1">
-          {/* 1. Config Panel (25%) */}
-          <div className="w-1/4 h-full border-r border-gray-200 overflow-auto">
-            <Config className="h-full" />
-          </div>
-
-          {/* 2. Video Panel (50%) */}
-          <div className="w-1/2 h-full flex flex-col overflow-hidden bg-black/5">
+          {/* 1. Video Panel (66%) */}
+          <div className="w-2/3 h-full flex flex-col overflow-hidden bg-black/5 rounded-lg">
             <VideoPanel
               fileInputRef={fileInputRef}
               videoPlayerRef={videoPlayerRef}
@@ -172,8 +166,8 @@ const Library = () => {
             />
           </div>
 
-          {/* 3. Logs Panel (25%) */}
-          <div className="w-1/4 h-full border-l border-gray-200 overflow-hidden">
+          {/* 2. Logs Panel (33%) */}
+          <div className="w-1/3 h-full border-l border-gray-200 overflow-hidden rounded-lg">
             <Logs
               analysis={analysis}
               onSeekToFrame={seekToFrame}

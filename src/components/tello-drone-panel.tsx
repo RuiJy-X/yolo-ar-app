@@ -374,14 +374,21 @@ export default function TelloDronePanel({
               createImageBitmap(parsed.blob)
                 .then((bitmap) => {
                   if (recordCanvasRef.current && isRecordingRef.current) {
+                    if (
+                      recordCanvasRef.current.width !== bitmap.width ||
+                      recordCanvasRef.current.height !== bitmap.height
+                    ) {
+                      recordCanvasRef.current.width = bitmap.width;
+                      recordCanvasRef.current.height = bitmap.height;
+                    }
                     const ctx = recordCanvasRef.current.getContext("2d");
                     if (ctx) {
                       ctx.drawImage(
                         bitmap,
                         0,
                         0,
-                        recordCanvasRef.current.width,
-                        recordCanvasRef.current.height,
+                        bitmap.width,
+                        bitmap.height,
                       );
                     }
                   }
@@ -395,14 +402,21 @@ export default function TelloDronePanel({
               createImageBitmap(rawBlobToDraw)
                 .then((bitmap) => {
                   if (sourceCanvasRef.current && isRecordingRef.current) {
+                    if (
+                      sourceCanvasRef.current.width !== bitmap.width ||
+                      sourceCanvasRef.current.height !== bitmap.height
+                    ) {
+                      sourceCanvasRef.current.width = bitmap.width;
+                      sourceCanvasRef.current.height = bitmap.height;
+                    }
                     const ctx = sourceCanvasRef.current.getContext("2d");
                     if (ctx) {
                       ctx.drawImage(
                         bitmap,
                         0,
                         0,
-                        sourceCanvasRef.current.width,
-                        sourceCanvasRef.current.height,
+                        bitmap.width,
+                        bitmap.height,
                       );
                     }
                   }

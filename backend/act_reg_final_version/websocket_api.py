@@ -91,10 +91,10 @@ VISIBILITY_THRESH = 0.15
 MIN_FRAMES_FOR_INFERENCE = 16
 DISPLAY_CONF_THRESH = 0.25
 SCORE_EMA_ALPHA = 0.50
-YOLO_CONF = 0.12
-YOLO_IOU = 0.60
-VIDEO_YOLO_CONF = 0.10
-VIDEO_YOLO_IOU = 0.60
+YOLO_CONF = 0.15
+YOLO_IOU = 0.45
+VIDEO_YOLO_CONF = 0.15
+VIDEO_YOLO_IOU = 0.45
 
 PRESETS: dict[str, dict[str, float | int | str]] = {
     "Frame_16": {
@@ -1303,6 +1303,55 @@ class ActionRecognitionPipeline:
         self._yolo_model_name = self._resolve_yolo_model_key(yolo_path)
         self._active_model_name: str = self._resolve_initial_model_name(checkpoint_path)
 
+        # Restore saved config from disk if exists
+        self._load_persisted_config()
+
+    def _save_persisted_config(self) -> None:
+        try:
+            config_file = Path(get_output_dir()) / "config.json"
+            config_data = build_runtime_config(self)
+            config_file.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            print(f"[config] Failed to persist config: {exc}")
+
+    def _load_persisted_config(self) -> None:
+        config_file = Path(get_output_dir()) / "config.json"
+        if not config_file.exists() or not config_file.is_file():
+            return
+        try:
+            raw = config_file.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                return
+            if "yolo_model" in data and data["yolo_model"] != self._yolo_model_name:
+                try:
+                    self.swap_yolo_model(str(data["yolo_model"]))
+                except Exception:
+                    pass
+            if "yolo_conf" in data:
+                self.yolo_conf = float(data["yolo_conf"])
+            if "yolo_iou" in data:
+                self.yolo_iou = float(data["yolo_iou"])
+            if "video_yolo_conf" in data:
+                self.video_yolo_conf = float(data["video_yolo_conf"])
+            if "video_yolo_iou" in data:
+                self.video_yolo_iou = float(data["video_yolo_iou"])
+            if "use_sahi" in data:
+                self.use_sahi = bool(data["use_sahi"])
+            if "sahi_slice_size" in data:
+                self.sahi_slice_size = int(data["sahi_slice_size"])
+            if "action_threshold_mode" in data and data["action_threshold_mode"] in {"uniform", "per-action"}:
+                self.action_threshold_mode = str(data["action_threshold_mode"])
+            if "action_threshold" in data:
+                self.action_threshold = float(data["action_threshold"])
+            if "action_thresholds" in data and isinstance(data["action_thresholds"], dict):
+                for k, v in data["action_thresholds"].items():
+                    if k in self.action_thresholds:
+                        self.action_thresholds[k] = float(v)
+            print(f"[config] Loaded saved config from {config_file}")
+        except Exception as exc:
+            print(f"[config] Failed to load saved config: {exc}")
+
     def _sync_state_buffers(self, state: ClientState) -> None:
         """Resize deque buffers on existing tracks after a WINDOW_SIZE change."""
         if state.buffer.maxlen != WINDOW_SIZE:
@@ -1357,6 +1406,7 @@ class ActionRecognitionPipeline:
             del old_model
             if self.device == "cuda":
                 torch.cuda.empty_cache()
+            self._save_persisted_config()
 
     def swap_yolo_model(self, model_choice: str) -> None:
         model_key, model_path = resolve_yolo_model_choice(model_choice)
@@ -1370,6 +1420,7 @@ class ActionRecognitionPipeline:
             self.yolo_model = new_model
             self.video_pose_model = new_model
             self._yolo_model_name = model_key
+            self._save_persisted_config()
 
     def _get_action_threshold(self, label: str) -> float:
         if self.action_threshold_mode == "per-action":
@@ -1411,6 +1462,8 @@ class ActionRecognitionPipeline:
                 if not 0.0 <= float(value) <= 1.0:
                     raise ValueError("Action thresholds must be between 0 and 1.")
                 self.action_thresholds[label] = float(value)
+
+        self._save_persisted_config()
 
     def _load_video_pose_model(self) -> YOLO:
         for candidate_name in VIDEO_POSE_MODEL_CANDIDATES:
@@ -1562,6 +1615,7 @@ class ActionRecognitionPipeline:
             all_keypoints_12.append(det["keypoints_body12"])
 
         # Pass 1: Grid slices @ 640 to boost recall for tiny/distant people
+        tile_conf = max(conf, 0.25)
         for y1 in y_slices:
             y2 = min(h, y1 + slice_size)
             for x1 in x_slices:
@@ -1573,7 +1627,7 @@ class ActionRecognitionPipeline:
                 with self._model_lock:
                     results = model.predict(
                         source=crop,
-                        conf=conf,
+                        conf=tile_conf,
                         iou=iou,
                         classes=[0],
                         imgsz=slice_size,
@@ -1598,6 +1652,11 @@ class ActionRecognitionPipeline:
 
                 for idx in range(min(b_crop.shape[0], k_crop.shape[0])):
                     box = b_crop[idx].copy()
+                    w_box = box[2] - box[0]
+                    h_box = box[3] - box[1]
+                    if w_box < 10.0 or h_box < 10.0:
+                        continue
+
                     box[0] += x1
                     box[2] += x1
                     box[1] += y1
@@ -1607,9 +1666,14 @@ class ActionRecognitionPipeline:
                     kpt17[:, 0] += x1
                     kpt17[:, 1] += y1
 
+                    kpt12 = coco17_to_body12(kpt17)
+                    mean_kpt_conf = float(np.mean(kpt12[:, 2]))
+                    if mean_kpt_conf < 0.15:
+                        continue
+
                     all_boxes.append(box)
                     all_confs.append(float(c_crop[idx]))
-                    all_keypoints_12.append(coco17_to_body12(kpt17))
+                    all_keypoints_12.append(kpt12)
 
         if not all_boxes:
             return []
@@ -1617,7 +1681,8 @@ class ActionRecognitionPipeline:
         boxes_arr = np.array(all_boxes, dtype=np.float32)
         confs_arr = np.array(all_confs, dtype=np.float32)
 
-        keep_indices = cpu_nms(boxes_arr, confs_arr, iou_threshold=iou)
+        sahi_nms_iou = min(iou, 0.35)
+        keep_indices = cpu_nms(boxes_arr, confs_arr, iou_threshold=sahi_nms_iou)
         merged_dets: list[dict[str, Any]] = []
         for idx in keep_indices:
             merged_dets.append(
@@ -1725,7 +1790,7 @@ class ActionRecognitionPipeline:
         matched_track_ids: set[int] = set()
         used_detection_ids: set[int] = set()
 
-        # Pass 1: IoU Matching
+        # Pass 1: Strict IoU Matching
         for det_idx, detection in enumerate(detections):
             best_track_id: int | None = None
             best_iou = 0.0
@@ -1741,40 +1806,6 @@ class ActionRecognitionPipeline:
                     best_track_id = tid
 
             if best_track_id is not None and best_iou >= iou_thresh:
-                track = tracks[best_track_id]
-                matched_pairs.append((track, detection))
-                matched_track_ids.add(best_track_id)
-                used_detection_ids.add(det_idx)
-
-        # Pass 2: Centroid Proximity Matching for unmatched detections (essential for small far-away people)
-        for det_idx, detection in enumerate(detections):
-            if det_idx in used_detection_ids:
-                continue
-            det_box = detection["bbox"]
-            det_center = np.array([(det_box[0] + det_box[2]) * 0.5, (det_box[1] + det_box[3]) * 0.5])
-            det_diag = max(1.0, float(np.hypot(det_box[2] - det_box[0], det_box[3] - det_box[1])))
-
-            best_track_id: int | None = None
-            min_dist = float("inf")
-
-            for tid in active_track_ids:
-                if tid in matched_track_ids:
-                    continue
-                t = tracks[tid]
-                if t.last_bbox is None:
-                    continue
-                t_box = t.last_bbox
-                t_center = np.array([(t_box[0] + t_box[2]) * 0.5, (t_box[1] + t_box[3]) * 0.5])
-                t_diag = max(1.0, float(np.hypot(t_box[2] - t_box[0], t_box[3] - t_box[1])))
-                dist = float(np.linalg.norm(det_center - t_center))
-
-                # Allow centroid match up to 2.5x box diagonal distance
-                max_allowed = max(det_diag, t_diag) * 2.5
-                if dist <= max_allowed and dist < min_dist:
-                    min_dist = dist
-                    best_track_id = tid
-
-            if best_track_id is not None:
                 track = tracks[best_track_id]
                 matched_pairs.append((track, detection))
                 matched_track_ids.add(best_track_id)

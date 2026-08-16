@@ -4,7 +4,6 @@ import RealTimeVideo, {
   type InferencePayload,
 } from "@/components/realtime-video";
 import TelloDronePanel from "@/components/tello-drone-panel";
-import Config from "./library/config";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -18,7 +17,6 @@ import {
   CheckCircle2,
   ExternalLink,
   PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
@@ -118,7 +116,6 @@ const RealTime = () => {
   const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
 
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(true);
   const [isLogsOpen, setIsLogsOpen] = useState(true);
   const [waveAlertLogs, setWaveAlertLogs] = useState<string[]>([]);
 
@@ -806,35 +803,8 @@ const RealTime = () => {
         </div>
         {renderSaveBanner()}
 
-        {/* Main Section: Config | Video | Logs */}
+        {/* Main Section: Video | Logs */}
         <div className="relative flex-1 min-h-0 w-full overflow-hidden rounded-xl bg-[#101215]">
-          {" "}
-          {/* Configuration overlay */}
-          <div
-            className={`absolute left-4 top-4 ${
-              isConfigOpen
-                ? "z-30 bottom-4 w-[min(22rem,calc(100%-2rem))]"
-                : "z-20 h-11 w-11"
-            } overflow-hidden transition-[width,height] duration-200`}
-          >
-            {isConfigOpen ? (
-              <Config
-                transparent
-                className="h-full"
-                onMinimize={() => setIsConfigOpen(false)}
-              />
-            ) : (
-              <button
-                type="button"
-                aria-label="Open configuration"
-                title="Open configuration"
-                onClick={() => setIsConfigOpen(true)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/50 bg-white/80 text-slate-700 shadow-lg backdrop-blur-xl transition-colors hover:bg-white"
-              >
-                <PanelLeftOpen size={18} />
-              </button>
-            )}
-          </div>{" "}
           {/* Video / Drone surface */}
           <div className="absolute inset-0 z-0 overflow-y-auto">
             {streamSource === "tello" ? (

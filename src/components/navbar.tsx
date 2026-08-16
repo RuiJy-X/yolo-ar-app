@@ -42,6 +42,9 @@ const NavBar = () => {
           <NavLink to="/realtime" className={getLinkStyle}>
             Realtime
           </NavLink>
+          <NavLink to="/settings" className={getLinkStyle}>
+            Settings
+          </NavLink>
           <NavLink to="/help" className={getLinkStyle}>
             Help
           </NavLink>

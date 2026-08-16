@@ -5,6 +5,7 @@ const Splash = lazy(() => import("./pages/Splash"));
 const Home = lazy(() => import("./pages/Home"));
 const RealTime = lazy(() => import("./pages/RealTime"));
 const Library = lazy(() => import("./pages/Library"));
+const Settings = lazy(() => import("./pages/Settings"));
 const Help = lazy(() => import("./pages/Help"));
 
 const LoadingFallback = () => (
@@ -35,6 +36,10 @@ export const router = createBrowserRouter([
   {
     path: "/library",
     element: withSuspense(Library),
+  },
+  {
+    path: "/settings",
+    element: withSuspense(Settings),
   },
   {
     path: "/help",

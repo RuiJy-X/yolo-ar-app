@@ -12,7 +12,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     >
       <NavBar />
       {/* Content area — fills remaining height, allows children to scroll/flex */}
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full p-3 gap-3">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden w-full p-2 gap-2">
         {children}
       </div>
     </div>

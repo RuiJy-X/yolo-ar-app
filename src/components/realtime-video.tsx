@@ -131,15 +131,10 @@ const RealTimeVideo = ({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isDeviceListLoading, setIsDeviceListLoading] = useState(false);
   const manualSelectionRef = useRef(false);
-  const [disableDownscale, setDisableDownscale] = useState(false);
 
   const wsUrl =
     (import.meta.env.VITE_ACTION_WS_URL ??
       "ws://localhost:8000/ws/action-recognition") + "?quality=72";
-
-  const apiBaseUrl =
-    import.meta.env.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
-
 
   const updateConnectionState = useCallback(
     (state: "disconnected" | "connecting" | "connected") => {
@@ -179,36 +174,6 @@ const RealTimeVideo = ({
       prevUrlRef.current = null;
     }
   }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadConfig = async () => {
-      try {
-        const res = await fetch(`${apiBaseUrl}/api/config`);
-        if (!res.ok) return;
-        const data = (await res.json()) as RuntimeConfig;
-        if (isMounted && typeof data.realtime_disable_downscale === "boolean") {
-          setDisableDownscale(data.realtime_disable_downscale);
-        }
-      } catch {
-        // Config fetch is optional; keep defaults on failure.
-      }
-    };
-    loadConfig();
-
-    const onConfigUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<RuntimeConfig>).detail;
-      if (typeof detail?.realtime_disable_downscale === "boolean") {
-        setDisableDownscale(detail.realtime_disable_downscale);
-      }
-    };
-
-    window.addEventListener("runtime-config-updated", onConfigUpdated);
-    return () => {
-      isMounted = false;
-      window.removeEventListener("runtime-config-updated", onConfigUpdated);
-    };
-  }, [apiBaseUrl]);
 
   const buildVideoConstraints = useCallback(
     (deviceId?: string): MediaTrackConstraints | boolean => {
@@ -687,12 +652,12 @@ const RealTimeVideo = ({
             });
         },
         "image/jpeg",
-        0.6,
+        0.92,
       );
     };
     sendIntervalRef.current = window.setInterval(sendFrame, 100);
     return () => stopFrameLoop();
-  }, [disableDownscale, isCameraActive, stopFrameLoop]);
+  }, [isCameraActive, stopFrameLoop]);
 
   // Cleanup on unmount
   useEffect(() => {
