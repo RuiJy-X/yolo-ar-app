@@ -888,7 +888,7 @@ def infer_probs_with_tta(
             out = out[0]
         return out
 
-    with torch.no_grad():
+    with torch.inference_mode():
         if not use_tta:
             return torch.softmax(logits(input_tensor), dim=1).detach().cpu().numpy()
 
@@ -1039,6 +1039,8 @@ class UpdateConfigRequest(BaseModel):
     sahi_kpt_conf: float | None = Field(default=None, ge=0.01, le=1.0)
     sahi_min_kpts: int | None = Field(default=None, ge=1, le=12)
     sahi_min_mean_kpt_conf: float | None = Field(default=None, ge=0.01, le=1.0)
+    enable_video_cadence: bool | None = None
+    video_cadence_interval: int | None = Field(default=None, ge=1, le=20)
     action_threshold_mode: str | None = None
     action_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     action_thresholds: dict[str, float] | None = None
@@ -1332,6 +1334,8 @@ class ActionRecognitionPipeline:
         self.sahi_kpt_conf = 0.10
         self.sahi_min_kpts = 3
         self.sahi_min_mean_kpt_conf = 0.15
+        self.enable_video_cadence = False
+        self.video_cadence_interval = 5
         self.action_threshold_mode = "uniform"
         self.action_threshold = DISPLAY_CONF_THRESH
         self.action_thresholds = {
@@ -1387,6 +1391,10 @@ class ActionRecognitionPipeline:
                 self.sahi_min_kpts = int(data["sahi_min_kpts"])
             if "sahi_min_mean_kpt_conf" in data:
                 self.sahi_min_mean_kpt_conf = float(data["sahi_min_mean_kpt_conf"])
+            if "enable_video_cadence" in data:
+                self.enable_video_cadence = bool(data["enable_video_cadence"])
+            if "video_cadence_interval" in data:
+                self.video_cadence_interval = int(data["video_cadence_interval"])
             if "action_threshold_mode" in data and data["action_threshold_mode"] in {"uniform", "per-action"}:
                 self.action_threshold_mode = str(data["action_threshold_mode"])
             if "action_threshold" in data:
@@ -1515,6 +1523,11 @@ class ActionRecognitionPipeline:
             self.sahi_min_kpts = int(body.sahi_min_kpts)
         if body.sahi_min_mean_kpt_conf is not None:
             self.sahi_min_mean_kpt_conf = float(body.sahi_min_mean_kpt_conf)
+
+        if body.enable_video_cadence is not None:
+            self.enable_video_cadence = bool(body.enable_video_cadence)
+        if body.video_cadence_interval is not None:
+            self.video_cadence_interval = int(body.video_cadence_interval)
 
         if body.action_threshold_mode is not None:
             if body.action_threshold_mode not in {"uniform", "per-action"}:
@@ -1682,7 +1695,7 @@ class ActionRecognitionPipeline:
         all_confs: list[float] = []
         all_keypoints_12: list[np.ndarray] = []
 
-        # Pass 0: Full frame pass @ 1024 to catch large/medium people
+        # Pass 0: Full frame pass @ 1024/1280 to catch large/medium people
         full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
         for det in full_dets:
             det_conf = float(det["confidence"])
@@ -1699,32 +1712,37 @@ class ActionRecognitionPipeline:
                 all_confs.append(det_conf)
                 all_keypoints_12.append(kpt12)
 
-        # Pass 1: Grid slices @ effective_slice_size to boost recall for 15px distant people
-        tile_conf = min(conf, self.sahi_tile_conf)
+        # Stage 1: Batched Slices @ full resolution
+        crops = []
+        tile_coords = []
         for y1 in y_slices:
             y2 = min(h, y1 + effective_slice_size)
             for x1 in x_slices:
                 x2 = min(w, x1 + effective_slice_size)
                 crop = frame[y1:y2, x1:x2]
-                if crop.size == 0:
-                    continue
+                if crop.size > 0:
+                    crops.append(crop)
+                    tile_coords.append((x1, y1, x2, y2))
 
-                with self._model_lock:
-                    results = model.predict(
-                        source=crop,
-                        conf=tile_conf,
-                        iou=iou,
-                        classes=[0],
-                        imgsz=effective_slice_size,
-                        device=self.device,
-                        verbose=False,
-                    )
+        tile_conf = min(conf, self.sahi_tile_conf)
+        tile_imgsz = max(1024, effective_slice_size * 2)
 
-                if not results or results[0].boxes is None or results[0].keypoints is None:
-                    continue
+        if crops:
+            with self._model_lock, torch.inference_mode():
+                batch_results = model.predict(
+                    source=crops,
+                    conf=tile_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=tile_imgsz,
+                    batch=len(crops),
+                    device=self.device,
+                    half=(self.device == "cuda"),
+                    verbose=False,
+                )
 
-                res = results[0]
-                if len(res.boxes) == 0:
+            for res, (x1, y1, x2, y2) in zip(batch_results, tile_coords):
+                if res.boxes is None or res.keypoints is None or len(res.boxes) == 0:
                     continue
 
                 b_crop = res.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
@@ -1818,39 +1836,43 @@ class ActionRecognitionPipeline:
         bbox_proposals: list[np.ndarray] = []
         conf_proposals: list[float] = []
 
-        # Pass 0: Full frame pass @ 1024 to catch large/medium people
+        # Pass 0: Full frame pass @ 1024/1280 to catch large/medium people
         full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
         for det in full_dets:
             bbox_proposals.append(det["bbox"])
             conf_proposals.append(float(det["confidence"]))
 
-        # Stage 1: Collect Bbox proposals from SAHI tiles @ 1024 imgsz
-        tile_conf = min(conf, self.sahi_tile_conf)
-        tile_imgsz = max(1024, effective_slice_size * 2)
+        # Stage 1: Batched Bbox proposals from SAHI tiles @ full imgsz
+        crops = []
+        tile_coords = []
         for y1 in y_slices:
             y2 = min(h, y1 + effective_slice_size)
             for x1 in x_slices:
                 x2 = min(w, x1 + effective_slice_size)
                 crop = frame[y1:y2, x1:x2]
-                if crop.size == 0:
-                    continue
+                if crop.size > 0:
+                    crops.append(crop)
+                    tile_coords.append((x1, y1, x2, y2))
 
-                with self._model_lock:
-                    results = model.predict(
-                        source=crop,
-                        conf=tile_conf,
-                        iou=iou,
-                        classes=[0],
-                        imgsz=tile_imgsz,
-                        device=self.device,
-                        verbose=False,
-                    )
+        tile_conf = min(conf, self.sahi_tile_conf)
+        tile_imgsz = max(1024, effective_slice_size * 2)
 
-                if not results or results[0].boxes is None:
-                    continue
+        if crops:
+            with self._model_lock, torch.inference_mode():
+                batch_results = model.predict(
+                    source=crops,
+                    conf=tile_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=tile_imgsz,
+                    batch=len(crops),
+                    device=self.device,
+                    half=(self.device == "cuda"),
+                    verbose=False,
+                )
 
-                res = results[0]
-                if len(res.boxes) == 0:
+            for res, (x1, y1, x2, y2) in zip(batch_results, tile_coords):
+                if res.boxes is None or len(res.boxes) == 0:
                     continue
 
                 b_crop = res.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
@@ -1886,8 +1908,11 @@ class ActionRecognitionPipeline:
         merged_boxes = boxes_arr[keep_indices]
         merged_confs = confs_arr[keep_indices]
 
-        # Stage 2: Padded Crop, Bicubic Upscaling (Target Height 256px) & Targeted Pose Estimation
-        final_dets: list[dict[str, Any]] = []
+        # Stage 2: Batched Padded Crop, Bicubic Upscaling (Target Height 256px) & Targeted Pose Estimation
+        person_crops = []
+        crop_meta = []
+        target_h = 256
+
         for i, box in enumerate(merged_boxes):
             bx1, by1, bx2, by2 = box
             bw = bx2 - bx1
@@ -1906,49 +1931,54 @@ class ActionRecognitionPipeline:
                 continue
 
             crop_h, crop_w = person_crop.shape[:2]
-            target_h = 256
             target_w = int(max(64, target_h * (crop_w / max(1, crop_h))))
             resized_crop = cv2.resize(person_crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            person_crops.append(resized_crop)
+            crop_meta.append((box, merged_confs[i], cx1, cy1, cx2, cy2, target_w, target_h))
 
-            with self._model_lock:
-                crop_results = model.predict(
-                    source=resized_crop,
+        final_dets: list[dict[str, Any]] = []
+        if person_crops:
+            with self._model_lock, torch.inference_mode():
+                crop_batch_res = model.predict(
+                    source=person_crops,
                     conf=self.sahi_kpt_conf,
                     iou=iou,
                     classes=[0],
                     imgsz=256,
+                    batch=len(person_crops),
                     device=self.device,
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
-            if not crop_results or crop_results[0].keypoints is None or len(crop_results[0].keypoints) == 0:
-                continue
+            for crop_res, (box, det_conf, cx1, cy1, cx2, cy2, target_w, target_h) in zip(crop_batch_res, crop_meta):
+                if crop_res.keypoints is None or len(crop_res.keypoints) == 0:
+                    continue
 
-            k17_crop = crop_results[0].keypoints.data[0].detach().cpu().numpy().astype(np.float32)
+                k17_crop = crop_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
 
-            # Map 17 COCO keypoints back to original full frame
-            k17_full = k17_crop.copy()
-            k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
-            k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(target_h)) * float(cy2 - cy1)
+                # Map 17 COCO keypoints back to original full frame
+                k17_full = k17_crop.copy()
+                k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
+                k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(target_h)) * float(cy2 - cy1)
 
-            k12_full = coco17_to_body12(k17_full)
-            det_conf = float(merged_confs[i])
+                k12_full = coco17_to_body12(k17_full)
 
-            if is_valid_human_pose(
-                det_conf,
-                k12_full,
-                min_det_conf=self.sahi_tile_conf,
-                min_kpt_conf=self.sahi_kpt_conf,
-                min_kpts_cnt=self.sahi_min_kpts,
-                min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
-            ):
-                final_dets.append(
-                    {
-                        "bbox": box,
-                        "confidence": det_conf,
-                        "keypoints_body12": k12_full,
-                    }
-                )
+                if is_valid_human_pose(
+                    float(det_conf),
+                    k12_full,
+                    min_det_conf=self.sahi_tile_conf,
+                    min_kpt_conf=self.sahi_kpt_conf,
+                    min_kpts_cnt=self.sahi_min_kpts,
+                    min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                ):
+                    final_dets.append(
+                        {
+                            "bbox": box,
+                            "confidence": float(det_conf),
+                            "keypoints_body12": k12_full,
+                        }
+                    )
 
         final_dets.sort(key=lambda item: item["confidence"], reverse=True)
         return final_dets
@@ -1965,7 +1995,7 @@ class ActionRecognitionPipeline:
         h, w = frame.shape[:2]
         effective_imgsz = max(imgsz, 1280) if (w >= 1920 or h >= 1080) else imgsz
 
-        with self._model_lock:
+        with self._model_lock, torch.inference_mode():
             results = model.predict(
                 source=frame,
                 conf=conf,
@@ -1973,6 +2003,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
+                half=(self.device == "cuda"),
                 verbose=False,
             )
 
@@ -2023,7 +2054,7 @@ class ActionRecognitionPipeline:
         effective_imgsz = max(imgsz, 1280) if (w >= 1920 or h >= 1080) else imgsz
 
         # Stage 1: Full-frame person bounding box detection
-        with self._model_lock:
+        with self._model_lock, torch.inference_mode():
             results = model.predict(
                 source=frame,
                 conf=conf,
@@ -2031,6 +2062,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
+                half=(self.device == "cuda"),
                 verbose=False,
             )
 
@@ -2044,7 +2076,10 @@ class ActionRecognitionPipeline:
             else np.ones((boxes.shape[0],), dtype=np.float32)
         )
 
-        final_dets: list[dict[str, Any]] = []
+        person_crops = []
+        crop_meta = []
+        target_h = 256
+
         for i, box in enumerate(boxes):
             bx1, by1, bx2, by2 = box
             bw = bx2 - bx1
@@ -2063,49 +2098,54 @@ class ActionRecognitionPipeline:
                 continue
 
             crop_h, crop_w = person_crop.shape[:2]
-            target_h = 256
             target_w = int(max(64, target_h * (crop_w / max(1, crop_h))))
             resized_crop = cv2.resize(person_crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            person_crops.append(resized_crop)
+            crop_meta.append((box, confs[i], cx1, cy1, cx2, cy2, target_w, target_h))
 
-            with self._model_lock:
-                crop_results = model.predict(
-                    source=resized_crop,
+        final_dets: list[dict[str, Any]] = []
+        if person_crops:
+            with self._model_lock, torch.inference_mode():
+                crop_results_batch = model.predict(
+                    source=person_crops,
                     conf=self.sahi_kpt_conf,
                     iou=iou,
                     classes=[0],
                     imgsz=256,
+                    batch=len(person_crops),
                     device=self.device,
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
-            if not crop_results or crop_results[0].keypoints is None or len(crop_results[0].keypoints) == 0:
-                continue
+            for crop_res, (box, det_conf, cx1, cy1, cx2, cy2, target_w, target_h) in zip(crop_results_batch, crop_meta):
+                if crop_res.keypoints is None or len(crop_res.keypoints) == 0:
+                    continue
 
-            k17_crop = crop_results[0].keypoints.data[0].detach().cpu().numpy().astype(np.float32)
+                k17_crop = crop_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
 
-            # Map 17 COCO keypoints back to original full frame
-            k17_full = k17_crop.copy()
-            k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
-            k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(target_h)) * float(cy2 - cy1)
+                # Map 17 COCO keypoints back to original full frame
+                k17_full = k17_crop.copy()
+                k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
+                k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(target_h)) * float(cy2 - cy1)
 
-            k12_full = coco17_to_body12(k17_full)
-            det_conf = float(confs[i])
+                k12_full = coco17_to_body12(k17_full)
 
-            if is_valid_human_pose(
-                det_conf,
-                k12_full,
-                min_det_conf=self.sahi_tile_conf,
-                min_kpt_conf=self.sahi_kpt_conf,
-                min_kpts_cnt=self.sahi_min_kpts,
-                min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
-            ):
-                final_dets.append(
-                    {
-                        "bbox": box,
-                        "confidence": det_conf,
-                        "keypoints_body12": k12_full,
-                    }
-                )
+                if is_valid_human_pose(
+                    float(det_conf),
+                    k12_full,
+                    min_det_conf=self.sahi_tile_conf,
+                    min_kpt_conf=self.sahi_kpt_conf,
+                    min_kpts_cnt=self.sahi_min_kpts,
+                    min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                ):
+                    final_dets.append(
+                        {
+                            "bbox": box,
+                            "confidence": float(det_conf),
+                            "keypoints_body12": k12_full,
+                        }
+                    )
 
         final_dets.sort(key=lambda item: item["confidence"], reverse=True)
         return final_dets
@@ -2362,37 +2402,150 @@ class ActionRecognitionPipeline:
                         break
 
                     frame_index, frame = item
-                    detections = self._extract_pose_detections(
-                        frame,
-                        self.video_pose_model,
-                        self.video_yolo_conf,
-                        self.video_yolo_iou,
-                        imgsz=1024,
-                    )
-                    counters["detected_people_total"] += len(detections)
-                    counters["yolo_confidences"].extend(
-                        [float(d["confidence"]) for d in detections]
-                    )
 
-                    active_track_ids = [
-                        tid
-                        for tid, t in tracks.items()
-                        if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
-                    ]
+                    cadence = max(1, getattr(self, "video_cadence_interval", 5))
+                    use_cadence = getattr(self, "enable_video_cadence", False) and self.use_sahi
+                    is_keyframe = (frame_index == 1) or (frame_index % cadence == 0) or (len(tracks) == 0)
 
-                    matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
-                        detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
-                    )
+                    if not use_cadence or is_keyframe:
+                        detections = self._extract_pose_detections(
+                            frame,
+                            self.video_pose_model,
+                            self.video_yolo_conf,
+                            self.video_yolo_iou,
+                            imgsz=1024,
+                        )
+                        counters["detected_people_total"] += len(detections)
+                        counters["yolo_confidences"].extend(
+                            [float(d["confidence"]) for d in detections]
+                        )
 
-                    for det_idx, detection in enumerate(detections):
-                        if det_idx in used_detection_ids:
-                            continue
+                        active_track_ids = [
+                            tid
+                            for tid, t in tracks.items()
+                            if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
+                        ]
 
-                        track_id = counters["next_track_id"]
-                        counters["next_track_id"] += 1
-                        track = TrackState(track_id=track_id)
-                        tracks[track_id] = track
-                        matched_pairs.append((track, detection))
+                        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
+                            detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
+                        )
+
+                        for det_idx, detection in enumerate(detections):
+                            if det_idx in used_detection_ids:
+                                continue
+
+                            track_id = counters["next_track_id"]
+                            counters["next_track_id"] += 1
+                            track = TrackState(track_id=track_id)
+                            tracks[track_id] = track
+                            matched_pairs.append((track, detection))
+                    else:
+                        detections = self._extract_standard_pose_detections(
+                            frame,
+                            self.video_pose_model,
+                            self.video_yolo_conf,
+                            self.video_yolo_iou,
+                            imgsz=1024,
+                        )
+                        counters["detected_people_total"] += len(detections)
+                        counters["yolo_confidences"].extend(
+                            [float(d["confidence"]) for d in detections]
+                        )
+
+                        active_track_ids = [
+                            tid
+                            for tid, t in tracks.items()
+                            if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
+                        ]
+
+                        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
+                            detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
+                        )
+
+                        # Targeted ROI refinement for active tracks missed in the standard pass
+                        unmatched_active_tids = [
+                            tid for tid in active_track_ids if tid not in matched_track_ids and tracks[tid].missed_frames <= 3
+                        ]
+                        if unmatched_active_tids:
+                            h, w = frame.shape[:2]
+                            roi_crops = []
+                            roi_meta = []
+                            for tid in unmatched_active_tids:
+                                t = tracks[tid]
+                                if t.last_bbox is not None:
+                                    bx1, by1, bx2, by2 = t.last_bbox
+                                    bw = bx2 - bx1
+                                    bh = by2 - by1
+                                    cx1 = max(0, int(bx1 - bw * 0.4))
+                                    cy1 = max(0, int(by1 - bh * 0.4))
+                                    cx2 = min(w, int(bx2 + bw * 0.4))
+                                    cy2 = min(h, int(by2 + bh * 0.4))
+                                    crop = frame[cy1:cy2, cx1:cx2]
+                                    if crop.size > 0:
+                                        target_h = 256
+                                        target_w = int(max(64, target_h * (crop.shape[1] / max(1, crop.shape[0]))))
+                                        roi_crops.append(cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC))
+                                        roi_meta.append((tid, cx1, cy1, cx2, cy2, target_w, target_h))
+
+                            if roi_crops:
+                                with self._model_lock, torch.inference_mode():
+                                    roi_results = self.video_pose_model.predict(
+                                        source=roi_crops,
+                                        conf=self.sahi_kpt_conf,
+                                        iou=self.video_yolo_iou,
+                                        classes=[0],
+                                        imgsz=256,
+                                        batch=len(roi_crops),
+                                        device=self.device,
+                                        half=(self.device == "cuda"),
+                                        verbose=False,
+                                    )
+                                for r_res, (tid, cx1, cy1, cx2, cy2, tw, th) in zip(roi_results, roi_meta):
+                                    if (
+                                        r_res.boxes is not None
+                                        and len(r_res.boxes) > 0
+                                        and r_res.keypoints is not None
+                                        and len(r_res.keypoints) > 0
+                                    ):
+                                        box_crop = r_res.boxes.xyxy[0].detach().cpu().numpy().astype(np.float32)
+                                        conf_crop = float(r_res.boxes.conf[0])
+                                        b_full = box_crop.copy()
+                                        b_full[0] = cx1 + (box_crop[0] / float(tw)) * float(cx2 - cx1)
+                                        b_full[2] = cx1 + (box_crop[2] / float(tw)) * float(cx2 - cx1)
+                                        b_full[1] = cy1 + (box_crop[1] / float(th)) * float(cy2 - cy1)
+                                        b_full[3] = cy1 + (box_crop[3] / float(th)) * float(cy2 - cy1)
+
+                                        k17 = r_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
+                                        k17[:, 0] = cx1 + (k17[:, 0] / float(tw)) * float(cx2 - cx1)
+                                        k17[:, 1] = cy1 + (k17[:, 1] / float(th)) * float(cy2 - cy1)
+                                        k12 = coco17_to_body12(k17)
+
+                                        if is_valid_human_pose(
+                                            conf_crop,
+                                            k12,
+                                            min_det_conf=self.sahi_tile_conf,
+                                            min_kpt_conf=self.sahi_kpt_conf,
+                                            min_kpts_cnt=self.sahi_min_kpts,
+                                            min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                                        ):
+                                            det_obj = {
+                                                "bbox": b_full,
+                                                "confidence": conf_crop,
+                                                "keypoints_body12": k12,
+                                            }
+                                            matched_pairs.append((tracks[tid], det_obj))
+                                            matched_track_ids.add(tid)
+
+                        # New track creation from standard pass detections
+                        for det_idx, detection in enumerate(detections):
+                            if det_idx in used_detection_ids:
+                                continue
+
+                            track_id = counters["next_track_id"]
+                            counters["next_track_id"] += 1
+                            track = TrackState(track_id=track_id)
+                            tracks[track_id] = track
+                            matched_pairs.append((track, detection))
                         matched_track_ids.add(track_id)
 
                     pending_inference: list[TrackState] = []
@@ -2734,6 +2887,8 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
         "sahi_kpt_conf": pipeline.sahi_kpt_conf,
         "sahi_min_kpts": pipeline.sahi_min_kpts,
         "sahi_min_mean_kpt_conf": pipeline.sahi_min_mean_kpt_conf,
+        "enable_video_cadence": getattr(pipeline, "enable_video_cadence", False),
+        "video_cadence_interval": getattr(pipeline, "video_cadence_interval", 5),
         "action_threshold_mode": pipeline.action_threshold_mode,
         "action_threshold": pipeline.action_threshold,
         "action_thresholds": pipeline.action_thresholds,

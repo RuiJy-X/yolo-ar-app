@@ -59,6 +59,8 @@ type RuntimeConfig = {
   sahi_kpt_conf?: number;
   sahi_min_kpts?: number;
   sahi_min_mean_kpt_conf?: number;
+  enable_video_cadence?: boolean;
+  video_cadence_interval?: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -78,6 +80,8 @@ type DraftConfig = {
   sahi_kpt_conf: number;
   sahi_min_kpts: number;
   sahi_min_mean_kpt_conf: number;
+  enable_video_cadence: boolean;
+  video_cadence_interval: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -226,6 +230,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         sahi_kpt_conf: data.sahi_kpt_conf ?? 0.10,
         sahi_min_kpts: data.sahi_min_kpts ?? 3,
         sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? 0.15,
+        enable_video_cadence: data.enable_video_cadence ?? false,
+        video_cadence_interval: data.video_cadence_interval ?? 5,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -252,6 +258,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
           sahi_kpt_conf: cached.sahi_kpt_conf ?? 0.10,
           sahi_min_kpts: cached.sahi_min_kpts ?? 3,
           sahi_min_mean_kpt_conf: cached.sahi_min_mean_kpt_conf ?? 0.15,
+          enable_video_cadence: cached.enable_video_cadence ?? false,
+          video_cadence_interval: cached.video_cadence_interval ?? 5,
           action_threshold_mode: cached.action_threshold_mode,
           action_threshold: cached.action_threshold,
           action_thresholds: { ...cached.action_thresholds },
@@ -286,6 +294,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       draft.sahi_kpt_conf !== config.sahi_kpt_conf ||
       draft.sahi_min_kpts !== config.sahi_min_kpts ||
       draft.sahi_min_mean_kpt_conf !== config.sahi_min_mean_kpt_conf ||
+      draft.enable_video_cadence !== (config.enable_video_cadence ?? false) ||
+      draft.video_cadence_interval !== (config.video_cadence_interval ?? 5) ||
       draft.action_threshold_mode !== config.action_threshold_mode ||
       draft.action_threshold !== config.action_threshold ||
       JSON.stringify(draft.action_thresholds) !==
@@ -366,6 +376,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         sahi_kpt_conf: data.sahi_kpt_conf ?? draft.sahi_kpt_conf,
         sahi_min_kpts: data.sahi_min_kpts ?? draft.sahi_min_kpts,
         sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? draft.sahi_min_mean_kpt_conf,
+        enable_video_cadence: data.enable_video_cadence ?? draft.enable_video_cadence,
+        video_cadence_interval: data.video_cadence_interval ?? draft.video_cadence_interval,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -802,6 +814,68 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     onChange={(v) => updateDraftNumber("sahi_min_mean_kpt_conf", v)}
                   />
                 </div>
+              </div>
+
+              {/* Adaptive Video Cadence Performance Accelerator Card */}
+              <div className="flex flex-col gap-4 p-5 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 mt-0.5">
+                      <Zap size={20} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        Adaptive Video Cadence Acceleration
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                        Scans the entire scene with full-resolution SAHI on keyframes to discover far-away subjects, and performs fast localized ROI tracking on intermediate frames. Accelerates video inference up to 10x (~50s for 300 frames).
+                      </p>
+                    </div>
+                  </div>
+                  <Toggle
+                    checked={draft.enable_video_cadence}
+                    onChange={() =>
+                      setDraft({
+                        ...draft,
+                        enable_video_cadence: !draft.enable_video_cadence,
+                      })
+                    }
+                  />
+                </div>
+
+                {draft.enable_video_cadence && (
+                  <div className="flex flex-col gap-2 pt-3 border-t border-slate-200/80">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-800">
+                        Full SAHI Scan Interval: Every{" "}
+                        <span className="font-mono text-[#0052ff] font-bold">
+                          {draft.video_cadence_interval}
+                        </span>{" "}
+                        frames (~{(draft.video_cadence_interval / 30).toFixed(2)}s @ 30 FPS)
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={draft.video_cadence_interval}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          video_cadence_interval:
+                            Number.parseInt(e.target.value, 10) || 1,
+                        })
+                      }
+                      className="w-full accent-[#0052ff] cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                      <span>1 (Continuous SAHI)</span>
+                      <span>5 (Recommended)</span>
+                      <span>12 (Maximum Speed)</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
