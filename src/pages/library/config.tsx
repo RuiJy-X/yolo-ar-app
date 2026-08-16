@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Cpu,
   Layers,
+  Maximize2,
   RefreshCw,
   RotateCcw,
   Save,
@@ -18,10 +19,13 @@ import { useEffect, useMemo, useState } from "react";
 const apiBaseUrl =
   import.meta.env?.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
 const SETTINGS_BACKUP_KEY = "skysight:settings_backup";
+const RUNTIME_CONFIG_KEY = "skysight:runtime-config";
 
 const saveSettingsToLocalStorage = (data: RuntimeConfig) => {
   try {
-    window.localStorage.setItem(SETTINGS_BACKUP_KEY, JSON.stringify(data));
+    const raw = JSON.stringify(data);
+    window.localStorage.setItem(SETTINGS_BACKUP_KEY, raw);
+    window.localStorage.setItem(RUNTIME_CONFIG_KEY, raw);
   } catch {
     // ignore
   }
@@ -29,13 +33,17 @@ const saveSettingsToLocalStorage = (data: RuntimeConfig) => {
 
 const loadSettingsFromLocalStorage = (): RuntimeConfig | null => {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_BACKUP_KEY);
+    const raw =
+      window.localStorage.getItem(SETTINGS_BACKUP_KEY) ||
+      window.localStorage.getItem(RUNTIME_CONFIG_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as RuntimeConfig;
   } catch {
     return null;
   }
 };
+
+type SahiMode = "disabled" | "standard" | "dense" | "ultra_dense";
 
 type RuntimeConfig = {
   yolo_model: string;
@@ -44,7 +52,14 @@ type RuntimeConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  video_detection_stride?: number;
   use_sahi?: boolean;
+  sahi_mode?: SahiMode;
+  sahi_pipeline_mode?: "1-stage" | "2-stage";
+  sahi_tile_conf?: number;
+  sahi_kpt_conf?: number;
+  sahi_min_kpts?: number;
+  sahi_min_mean_kpt_conf?: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -57,7 +72,14 @@ type DraftConfig = {
   yolo_iou: number;
   video_yolo_conf: number;
   video_yolo_iou: number;
+  video_detection_stride: number;
   use_sahi: boolean;
+  sahi_mode: SahiMode;
+  sahi_pipeline_mode: "1-stage" | "2-stage";
+  sahi_tile_conf: number;
+  sahi_kpt_conf: number;
+  sahi_min_kpts: number;
+  sahi_min_mean_kpt_conf: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -199,7 +221,14 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        video_detection_stride: data.video_detection_stride ?? 2,
         use_sahi: data.use_sahi ?? false,
+        sahi_mode: data.sahi_mode ?? (data.use_sahi ? "dense" : "disabled"),
+        sahi_pipeline_mode: data.sahi_pipeline_mode ?? "2-stage",
+        sahi_tile_conf: data.sahi_tile_conf ?? 0.15,
+        sahi_kpt_conf: data.sahi_kpt_conf ?? 0.10,
+        sahi_min_kpts: data.sahi_min_kpts ?? 3,
+        sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? 0.15,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -219,7 +248,14 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
           yolo_iou: cached.yolo_iou,
           video_yolo_conf: cached.video_yolo_conf,
           video_yolo_iou: cached.video_yolo_iou,
+          video_detection_stride: cached.video_detection_stride ?? 2,
           use_sahi: cached.use_sahi ?? false,
+          sahi_mode: cached.sahi_mode ?? (cached.use_sahi ? "dense" : "disabled"),
+          sahi_pipeline_mode: cached.sahi_pipeline_mode ?? "2-stage",
+          sahi_tile_conf: cached.sahi_tile_conf ?? 0.15,
+          sahi_kpt_conf: cached.sahi_kpt_conf ?? 0.10,
+          sahi_min_kpts: cached.sahi_min_kpts ?? 3,
+          sahi_min_mean_kpt_conf: cached.sahi_min_mean_kpt_conf ?? 0.15,
           action_threshold_mode: cached.action_threshold_mode,
           action_threshold: cached.action_threshold,
           action_thresholds: { ...cached.action_thresholds },
@@ -247,7 +283,14 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       draft.yolo_iou !== config.yolo_iou ||
       draft.video_yolo_conf !== config.video_yolo_conf ||
       draft.video_yolo_iou !== config.video_yolo_iou ||
+      draft.video_detection_stride !== config.video_detection_stride ||
       draft.use_sahi !== config.use_sahi ||
+      draft.sahi_mode !== config.sahi_mode ||
+      draft.sahi_pipeline_mode !== config.sahi_pipeline_mode ||
+      draft.sahi_tile_conf !== config.sahi_tile_conf ||
+      draft.sahi_kpt_conf !== config.sahi_kpt_conf ||
+      draft.sahi_min_kpts !== config.sahi_min_kpts ||
+      draft.sahi_min_mean_kpt_conf !== config.sahi_min_mean_kpt_conf ||
       draft.action_threshold_mode !== config.action_threshold_mode ||
       draft.action_threshold !== config.action_threshold ||
       JSON.stringify(draft.action_thresholds) !==
@@ -321,7 +364,14 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
         video_yolo_iou: data.video_yolo_iou,
+        video_detection_stride: data.video_detection_stride ?? draft.video_detection_stride,
         use_sahi: data.use_sahi ?? draft.use_sahi,
+        sahi_mode: data.sahi_mode ?? draft.sahi_mode,
+        sahi_pipeline_mode: data.sahi_pipeline_mode ?? draft.sahi_pipeline_mode,
+        sahi_tile_conf: data.sahi_tile_conf ?? draft.sahi_tile_conf,
+        sahi_kpt_conf: data.sahi_kpt_conf ?? draft.sahi_kpt_conf,
+        sahi_min_kpts: data.sahi_min_kpts ?? draft.sahi_min_kpts,
+        sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? draft.sahi_min_mean_kpt_conf,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -617,6 +667,29 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     value={draft.video_yolo_iou}
                     onChange={(v) => updateLibraryNumber("video_yolo_iou", v)}
                   />
+                  <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
+                    <label className="text-xs font-semibold text-slate-800">
+                      Detection Frame Stride: <span className="font-mono text-[#0052ff]">{draft.video_detection_stride === 1 ? "1 (Every Frame)" : `${draft.video_detection_stride} (Every ${draft.video_detection_stride} frames - ${draft.video_detection_stride}x Speed)`}</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Runs YOLO/SAHI detection every Nth frame and smoothly tracks persons across intermediate frames for massive speedups.
+                    </p>
+                    <select
+                      value={draft.video_detection_stride}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          video_detection_stride: Number.parseInt(e.target.value, 10) || 1,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer mt-1"
+                    >
+                      <option value={1}>Every Frame (1x Speed - Thorough)</option>
+                      <option value={2}>Every 2nd Frame (2x Speed - Recommended)</option>
+                      <option value={3}>Every 3rd Frame (3x Speed - Fast)</option>
+                      <option value={4}>Every 4th Frame (4x Speed - Ultra Fast)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
@@ -635,7 +708,37 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                 </p>
               </div>
 
-              {/* SAHI Toggle Card */}
+              {/* SAHI Pipeline Architecture Selector Card */}
+              <div className="flex items-center justify-between p-5 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 mt-0.5">
+                    <Maximize2 size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      SAHI Pipeline Architecture
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                      2-Stage Crop &amp; Upscale detects tiny person bboxes first, adds 25% contextual padding, upscales crops to 256px, and runs targeted pose estimation for maximum keypoint recall on far-away subjects.
+                    </p>
+                  </div>
+                </div>
+                <select
+                  value={draft.sahi_pipeline_mode}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      sahi_pipeline_mode: e.target.value as "1-stage" | "2-stage",
+                    })
+                  }
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer"
+                >
+                  <option value="2-stage">2-Stage Crop &amp; Upscale (Recommended)</option>
+                  <option value="1-stage">1-Stage Direct Tile Slicing</option>
+                </select>
+              </div>
+
+              {/* SAHI Slicing Mode Dropdown Card */}
               <div className="flex items-center justify-between p-5 rounded-xl border border-slate-200 bg-slate-50/50">
                 <div className="flex items-start gap-3">
                   <div className="p-2 rounded-lg bg-blue-50 text-[#0052ff] mt-0.5">
@@ -643,21 +746,91 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">
-                      Enable SAHI Slicing (Slicing Aided Hyper Inference)
+                      SAHI Slicing Mode
                     </p>
                     <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                      Splits large frames into 640x640 tile crops before
-                      inference. Significantly improves detection accuracy for
-                      far-away subjects in drone footage.
+                      Configures tile crop size for aerial and drone footage. Dense SAHI (384px) magnifies 15px distant people to 25px for maximum recall on 1080p video.
                     </p>
                   </div>
                 </div>
-                <Toggle
-                  checked={draft.use_sahi}
-                  onChange={() =>
-                    setDraft({ ...draft, use_sahi: !draft.use_sahi })
-                  }
-                />
+                <select
+                  value={draft.sahi_mode}
+                  onChange={(e) => {
+                    const mode = e.target.value as SahiMode;
+                    setDraft({
+                      ...draft,
+                      sahi_mode: mode,
+                      use_sahi: mode !== "disabled",
+                    });
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer"
+                >
+                  <option value="disabled">Disabled (Full Frame Pass)</option>
+                  <option value="standard">Standard SAHI (640px)</option>
+                  <option value="dense">Dense SAHI (384px) [Recommended]</option>
+                  <option value="ultra_dense">Ultra-Dense SAHI (320px)</option>
+                </select>
+              </div>
+
+              {/* SAHI Fine-Tuning & Anti-Hallucination Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-200 bg-white shadow-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Sub-Tile &amp; Keypoint Confidence
+                    </h4>
+                  </div>
+                  <RangeSliderInput
+                    label="Sub-Tile Detection Floor"
+                    description="Minimum score inside sub-tiles. Lowering to 0.15 boosts recall for 15px distant subjects"
+                    value={draft.sahi_tile_conf}
+                    onChange={(v) => updateDraftNumber("sahi_tile_conf", v)}
+                  />
+                  <RangeSliderInput
+                    label="Keypoint Confidence Floor"
+                    description="Minimum score for a COCO body keypoint to be counted"
+                    value={draft.sahi_kpt_conf}
+                    onChange={(v) => updateDraftNumber("sahi_kpt_conf", v)}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-200 bg-white shadow-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Anti-Hallucination Validation Filter
+                    </h4>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-slate-800">
+                      Minimum Valid Keypoints: <span className="font-mono text-[#0052ff]">{draft.sahi_min_kpts}</span>
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Minimum connected keypoints required per detection (filters out foliage, shadows, and rock cracks)
+                    </p>
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={draft.sahi_min_kpts}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          sahi_min_kpts: Number.parseInt(e.target.value, 10) || 1,
+                        })
+                      }
+                      className="w-full accent-[#0052ff] cursor-pointer mt-1"
+                    />
+                  </div>
+                  <RangeSliderInput
+                    label="Average Keypoint Confidence Floor"
+                    description="Minimum average confidence across valid keypoints for a candidate to be kept"
+                    value={draft.sahi_min_mean_kpt_conf}
+                    onChange={(v) => updateDraftNumber("sahi_min_mean_kpt_conf", v)}
+                  />
+                </div>
               </div>
             </div>
           )}

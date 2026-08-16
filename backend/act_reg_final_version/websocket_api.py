@@ -1031,8 +1031,15 @@ class UpdateConfigRequest(BaseModel):
     yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
     video_yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
     video_yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
+    video_detection_stride: int | None = Field(default=None, ge=1, le=10)
     use_sahi: bool | None = None
     sahi_slice_size: int | None = Field(default=None, ge=256, le=1280)
+    sahi_mode: str | None = None
+    sahi_pipeline_mode: str | None = None
+    sahi_tile_conf: float | None = Field(default=None, ge=0.01, le=1.0)
+    sahi_kpt_conf: float | None = Field(default=None, ge=0.01, le=1.0)
+    sahi_min_kpts: int | None = Field(default=None, ge=1, le=12)
+    sahi_min_mean_kpt_conf: float | None = Field(default=None, ge=0.01, le=1.0)
     action_threshold_mode: str | None = None
     action_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     action_thresholds: dict[str, float] | None = None
@@ -1261,7 +1268,33 @@ class TrackState:
         self.score_ema = np.ones(4, dtype=np.float32) / 4.0
         self.last_action_label = "Unknown"
         self.last_action_conf = 0.0
-        self.frames_since_inference = 0
+def is_valid_human_pose(
+    det_conf: float,
+    keypoints_body12: np.ndarray,
+    min_det_conf: float = 0.15,
+    min_kpt_conf: float = 0.10,
+    min_kpts_cnt: int = 3,
+    min_mean_kpt_conf: float = 0.15,
+) -> bool:
+    """
+    High-Recall Anti-Hallucination 3-Tier Validation Filter:
+    - Tier 1: Sub-tile confidence floor >= min_det_conf (default 0.15)
+    - Tier 2: Topology check: at least min_kpts_cnt connected keypoints with conf >= min_kpt_conf (default 0.10)
+              Average keypoint confidence >= min_mean_kpt_conf (default 0.15).
+    - Tier 3: Merges tile proposals with strict IoU NMS (0.35).
+    """
+    if det_conf < min_det_conf:
+        return False
+
+    valid_kpts = keypoints_body12[keypoints_body12[:, 2] >= min_kpt_conf]
+    if len(valid_kpts) < min_kpts_cnt:
+        return False
+
+    mean_conf = float(np.mean(valid_kpts[:, 2]))
+    if mean_conf < min_mean_kpt_conf:
+        return False
+
+    return True
 
 
 class ActionRecognitionPipeline:
@@ -1292,9 +1325,15 @@ class ActionRecognitionPipeline:
         self.yolo_iou = YOLO_IOU
         self.video_yolo_conf = VIDEO_YOLO_CONF
         self.video_yolo_iou = VIDEO_YOLO_IOU
+        self.video_detection_stride = 2
         self.use_sahi = True
-        self.sahi_slice_size = 640
+        self.sahi_slice_size = 384
         self.sahi_overlap = 0.25
+        self.sahi_pipeline_mode = "2-stage"
+        self.sahi_tile_conf = 0.15
+        self.sahi_kpt_conf = 0.10
+        self.sahi_min_kpts = 3
+        self.sahi_min_mean_kpt_conf = 0.15
         self.action_threshold_mode = "uniform"
         self.action_threshold = DISPLAY_CONF_THRESH
         self.action_thresholds = {
@@ -1336,10 +1375,22 @@ class ActionRecognitionPipeline:
                 self.video_yolo_conf = float(data["video_yolo_conf"])
             if "video_yolo_iou" in data:
                 self.video_yolo_iou = float(data["video_yolo_iou"])
+            if "video_detection_stride" in data:
+                self.video_detection_stride = max(1, int(data["video_detection_stride"]))
             if "use_sahi" in data:
                 self.use_sahi = bool(data["use_sahi"])
             if "sahi_slice_size" in data:
                 self.sahi_slice_size = int(data["sahi_slice_size"])
+            if "sahi_pipeline_mode" in data:
+                self.sahi_pipeline_mode = str(data["sahi_pipeline_mode"])
+            if "sahi_tile_conf" in data:
+                self.sahi_tile_conf = float(data["sahi_tile_conf"])
+            if "sahi_kpt_conf" in data:
+                self.sahi_kpt_conf = float(data["sahi_kpt_conf"])
+            if "sahi_min_kpts" in data:
+                self.sahi_min_kpts = int(data["sahi_min_kpts"])
+            if "sahi_min_mean_kpt_conf" in data:
+                self.sahi_min_mean_kpt_conf = float(data["sahi_min_mean_kpt_conf"])
             if "action_threshold_mode" in data and data["action_threshold_mode"] in {"uniform", "per-action"}:
                 self.action_threshold_mode = str(data["action_threshold_mode"])
             if "action_threshold" in data:
@@ -1439,10 +1490,37 @@ class ActionRecognitionPipeline:
             self.video_yolo_conf = float(body.video_yolo_conf)
         if body.video_yolo_iou is not None:
             self.video_yolo_iou = float(body.video_yolo_iou)
+        if body.video_detection_stride is not None:
+            self.video_detection_stride = max(1, int(body.video_detection_stride))
         if body.use_sahi is not None:
             self.use_sahi = bool(body.use_sahi)
         if body.sahi_slice_size is not None:
             self.sahi_slice_size = int(body.sahi_slice_size)
+        if body.sahi_mode:
+            mode = body.sahi_mode.lower().strip()
+            if mode == "disabled":
+                self.use_sahi = False
+            elif mode == "standard":
+                self.use_sahi = True
+                self.sahi_slice_size = 640
+            elif mode == "dense":
+                self.use_sahi = True
+                self.sahi_slice_size = 384
+            elif mode == "ultra_dense":
+                self.use_sahi = True
+                self.sahi_slice_size = 320
+
+        if body.sahi_pipeline_mode:
+            self.sahi_pipeline_mode = str(body.sahi_pipeline_mode).lower().strip()
+
+        if body.sahi_tile_conf is not None:
+            self.sahi_tile_conf = float(body.sahi_tile_conf)
+        if body.sahi_kpt_conf is not None:
+            self.sahi_kpt_conf = float(body.sahi_kpt_conf)
+        if body.sahi_min_kpts is not None:
+            self.sahi_min_kpts = int(body.sahi_min_kpts)
+        if body.sahi_min_mean_kpt_conf is not None:
+            self.sahi_min_mean_kpt_conf = float(body.sahi_min_mean_kpt_conf)
 
         if body.action_threshold_mode is not None:
             if body.action_threshold_mode not in {"uniform", "per-action"}:
@@ -1587,21 +1665,24 @@ class ActionRecognitionPipeline:
         model: YOLO,
         conf: float,
         iou: float,
-        slice_size: int = 640,
-        overlap_ratio: float = 0.20,
+        slice_size: int = 384,
+        overlap_ratio: float = 0.25,
     ) -> list[dict[str, Any]]:
         h, w = frame.shape[:2]
-        if h <= slice_size and w <= slice_size:
-            return self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
+        min_dim = min(h, w)
+        if min_dim < slice_size:
+            effective_slice_size = max(256, min_dim // 2)
+        else:
+            effective_slice_size = slice_size
 
-        step = int(slice_size * (1.0 - overlap_ratio))
-        x_slices = list(range(0, max(1, w - slice_size + 1), step))
-        if x_slices[-1] + slice_size < w:
-            x_slices.append(w - slice_size)
+        step = int(effective_slice_size * (1.0 - overlap_ratio))
+        x_slices = list(range(0, max(1, w - effective_slice_size + 1), step))
+        if x_slices[-1] + effective_slice_size < w:
+            x_slices.append(w - effective_slice_size)
 
-        y_slices = list(range(0, max(1, h - slice_size + 1), step))
-        if y_slices[-1] + slice_size < h:
-            y_slices.append(h - slice_size)
+        y_slices = list(range(0, max(1, h - effective_slice_size + 1), step))
+        if y_slices[-1] + effective_slice_size < h:
+            y_slices.append(h - effective_slice_size)
 
         all_boxes: list[np.ndarray] = []
         all_confs: list[float] = []
@@ -1610,36 +1691,48 @@ class ActionRecognitionPipeline:
         # Pass 0: Full frame pass @ 1024 to catch large/medium people
         full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
         for det in full_dets:
-            all_boxes.append(det["bbox"])
-            all_confs.append(float(det["confidence"]))
-            all_keypoints_12.append(det["keypoints_body12"])
+            det_conf = float(det["confidence"])
+            kpt12 = det["keypoints_body12"]
+            if is_valid_human_pose(
+                det_conf,
+                kpt12,
+                min_det_conf=self.sahi_tile_conf,
+                min_kpt_conf=self.sahi_kpt_conf,
+                min_kpts_cnt=self.sahi_min_kpts,
+                min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+            ):
+                all_boxes.append(det["bbox"])
+                all_confs.append(det_conf)
+                all_keypoints_12.append(kpt12)
 
-        # Pass 1: Grid slices @ 640 to boost recall for tiny/distant people
-        tile_conf = max(conf, 0.25)
+        # Pass 1: Batched grid slices
+        tile_conf = min(conf, self.sahi_tile_conf)
+        tile_crops: list[np.ndarray] = []
+        tile_offsets: list[tuple[int, int]] = []
         for y1 in y_slices:
-            y2 = min(h, y1 + slice_size)
+            y2 = min(h, y1 + effective_slice_size)
             for x1 in x_slices:
-                x2 = min(w, x1 + slice_size)
+                x2 = min(w, x1 + effective_slice_size)
                 crop = frame[y1:y2, x1:x2]
-                if crop.size == 0:
-                    continue
+                if crop.size > 0:
+                    tile_crops.append(crop)
+                    tile_offsets.append((x1, y1))
 
-                with self._model_lock:
-                    results = model.predict(
-                        source=crop,
-                        conf=tile_conf,
-                        iou=iou,
-                        classes=[0],
-                        imgsz=slice_size,
-                        device=self.device,
-                        verbose=False,
-                    )
+        if tile_crops:
+            with self._model_lock:
+                tile_results = model.predict(
+                    source=tile_crops,
+                    conf=tile_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=effective_slice_size,
+                    device=self.device,
+                    verbose=False,
+                    batch=len(tile_crops),
+                )
 
-                if not results or results[0].boxes is None or results[0].keypoints is None:
-                    continue
-
-                res = results[0]
-                if len(res.boxes) == 0:
+            for (x1, y1), res in zip(tile_offsets, tile_results):
+                if res.boxes is None or res.keypoints is None or len(res.boxes) == 0:
                     continue
 
                 b_crop = res.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
@@ -1654,7 +1747,7 @@ class ActionRecognitionPipeline:
                     box = b_crop[idx].copy()
                     w_box = box[2] - box[0]
                     h_box = box[3] - box[1]
-                    if w_box < 10.0 or h_box < 10.0:
+                    if w_box < 8.0 or h_box < 8.0:
                         continue
 
                     box[0] += x1
@@ -1667,12 +1760,20 @@ class ActionRecognitionPipeline:
                     kpt17[:, 1] += y1
 
                     kpt12 = coco17_to_body12(kpt17)
-                    mean_kpt_conf = float(np.mean(kpt12[:, 2]))
-                    if mean_kpt_conf < 0.15:
+                    det_conf = float(c_crop[idx])
+
+                    if not is_valid_human_pose(
+                        det_conf,
+                        kpt12,
+                        min_det_conf=self.sahi_tile_conf,
+                        min_kpt_conf=self.sahi_kpt_conf,
+                        min_kpts_cnt=self.sahi_min_kpts,
+                        min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                    ):
                         continue
 
                     all_boxes.append(box)
-                    all_confs.append(float(c_crop[idx]))
+                    all_confs.append(det_conf)
                     all_keypoints_12.append(kpt12)
 
         if not all_boxes:
@@ -1681,6 +1782,7 @@ class ActionRecognitionPipeline:
         boxes_arr = np.array(all_boxes, dtype=np.float32)
         confs_arr = np.array(all_confs, dtype=np.float32)
 
+        # Strict NMS merging across tile proposals
         sahi_nms_iou = min(iou, 0.35)
         keep_indices = cpu_nms(boxes_arr, confs_arr, iou_threshold=sahi_nms_iou)
         merged_dets: list[dict[str, Any]] = []
@@ -1695,6 +1797,177 @@ class ActionRecognitionPipeline:
 
         merged_dets.sort(key=lambda item: item["confidence"], reverse=True)
         return merged_dets
+
+    def _extract_2stage_sahi_pose_detections(
+        self,
+        frame: np.ndarray,
+        model: YOLO,
+        conf: float,
+        iou: float,
+        slice_size: int = 384,
+        overlap_ratio: float = 0.25,
+    ) -> list[dict[str, Any]]:
+        h, w = frame.shape[:2]
+        min_dim = min(h, w)
+        if min_dim < slice_size:
+            effective_slice_size = max(256, min_dim // 2)
+        else:
+            effective_slice_size = slice_size
+
+        step = int(effective_slice_size * (1.0 - overlap_ratio))
+        x_slices = list(range(0, max(1, w - effective_slice_size + 1), step))
+        if x_slices[-1] + effective_slice_size < w:
+            x_slices.append(w - effective_slice_size)
+
+        y_slices = list(range(0, max(1, h - effective_slice_size + 1), step))
+        if y_slices[-1] + effective_slice_size < h:
+            y_slices.append(h - effective_slice_size)
+
+        bbox_proposals: list[np.ndarray] = []
+        conf_proposals: list[float] = []
+
+        # Pass 0: Full frame pass @ 1024 to catch large/medium people
+        full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
+        for det in full_dets:
+            bbox_proposals.append(det["bbox"])
+            conf_proposals.append(float(det["confidence"]))
+
+        # Stage 1: Batched Bbox proposals from SAHI tiles @ 640 imgsz
+        tile_conf = min(conf, self.sahi_tile_conf)
+        tile_crops: list[np.ndarray] = []
+        tile_offsets: list[tuple[int, int]] = []
+        for y1 in y_slices:
+            y2 = min(h, y1 + effective_slice_size)
+            for x1 in x_slices:
+                x2 = min(w, x1 + effective_slice_size)
+                crop = frame[y1:y2, x1:x2]
+                if crop.size > 0:
+                    tile_crops.append(crop)
+                    tile_offsets.append((x1, y1))
+
+        if tile_crops:
+            with self._model_lock:
+                tile_results = model.predict(
+                    source=tile_crops,
+                    conf=tile_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=640,
+                    device=self.device,
+                    verbose=False,
+                    batch=len(tile_crops),
+                )
+
+            for (x1, y1), res in zip(tile_offsets, tile_results):
+                if res.boxes is None or len(res.boxes) == 0:
+                    continue
+
+                b_crop = res.boxes.xyxy.detach().cpu().numpy().astype(np.float32)
+                c_crop = (
+                    res.boxes.conf.detach().cpu().numpy().astype(np.float32)
+                    if res.boxes.conf is not None
+                    else np.ones((b_crop.shape[0],), dtype=np.float32)
+                )
+
+                for idx in range(b_crop.shape[0]):
+                    box = b_crop[idx].copy()
+                    w_box = box[2] - box[0]
+                    h_box = box[3] - box[1]
+                    if w_box < 8.0 or h_box < 8.0:
+                        continue
+
+                    box[0] += x1
+                    box[2] += x1
+                    box[1] += y1
+                    box[3] += y1
+
+                    bbox_proposals.append(box)
+                    conf_proposals.append(float(c_crop[idx]))
+
+        if not bbox_proposals:
+            return []
+
+        boxes_arr = np.array(bbox_proposals, dtype=np.float32)
+        confs_arr = np.array(conf_proposals, dtype=np.float32)
+
+        sahi_nms_iou = min(iou, 0.35)
+        keep_indices = cpu_nms(boxes_arr, confs_arr, iou_threshold=sahi_nms_iou)
+        merged_boxes = boxes_arr[keep_indices]
+        merged_confs = confs_arr[keep_indices]
+
+        # Stage 2: Batched Crop Pose Estimation (Target Height 256px)
+        person_crops: list[np.ndarray] = []
+        crop_meta: list[tuple[int, np.ndarray, int, int, int, int, int]] = []
+        for i, box in enumerate(merged_boxes):
+            bx1, by1, bx2, by2 = box
+            bw = bx2 - bx1
+            bh = by2 - by1
+
+            # 25% contextual padding
+            pad_x = bw * 0.25
+            pad_y = bh * 0.25
+            cx1 = max(0, int(bx1 - pad_x))
+            cy1 = max(0, int(by1 - pad_y))
+            cx2 = min(w, int(bx2 + pad_x))
+            cy2 = min(h, int(by2 + pad_y))
+
+            crop = frame[cy1:cy2, cx1:cx2]
+            if crop.size == 0:
+                continue
+
+            crop_h, crop_w = crop.shape[:2]
+            target_h = 256
+            target_w = int(max(64, target_h * (crop_w / max(1, crop_h))))
+            resized_crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            person_crops.append(resized_crop)
+            crop_meta.append((i, box, cx1, cy1, cx2, cy2, target_w))
+
+        final_dets: list[dict[str, Any]] = []
+        if person_crops:
+            with self._model_lock:
+                crop_results = model.predict(
+                    source=person_crops,
+                    conf=self.sahi_kpt_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=256,
+                    device=self.device,
+                    verbose=False,
+                    batch=len(person_crops),
+                )
+
+            for (i, box, cx1, cy1, cx2, cy2, target_w), c_res in zip(crop_meta, crop_results):
+                if c_res.keypoints is None or len(c_res.keypoints) == 0:
+                    continue
+
+                k17_crop = c_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
+
+                # Map 17 COCO keypoints back to original full frame
+                k17_full = k17_crop.copy()
+                k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
+                k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(256)) * float(cy2 - cy1)
+
+                k12_full = coco17_to_body12(k17_full)
+                det_conf = float(merged_confs[i])
+
+                if is_valid_human_pose(
+                    det_conf,
+                    k12_full,
+                    min_det_conf=self.sahi_tile_conf,
+                    min_kpt_conf=self.sahi_kpt_conf,
+                    min_kpts_cnt=self.sahi_min_kpts,
+                    min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                ):
+                    final_dets.append(
+                        {
+                            "bbox": box,
+                            "confidence": det_conf,
+                            "keypoints_body12": k12_full,
+                        }
+                    )
+
+        final_dets.sort(key=lambda item: item["confidence"], reverse=True)
+        return final_dets
 
     def _extract_standard_pose_detections(
         self,
@@ -1754,6 +2027,113 @@ class ActionRecognitionPipeline:
         detections.sort(key=lambda item: item["confidence"], reverse=True)
         return detections
 
+    def _extract_2stage_standard_pose_detections(
+        self,
+        frame: np.ndarray,
+        model: YOLO,
+        conf: float,
+        iou: float,
+        imgsz: int = 1024,
+    ) -> list[dict[str, Any]]:
+        h, w = frame.shape[:2]
+        effective_imgsz = max(imgsz, 1280) if (w >= 1920 or h >= 1080) else imgsz
+
+        # Stage 1: Full-frame person bounding box detection
+        with self._model_lock:
+            results = model.predict(
+                source=frame,
+                conf=conf,
+                iou=iou,
+                classes=[0],
+                imgsz=effective_imgsz,
+                device=self.device,
+                verbose=False,
+            )
+
+        if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+            return []
+
+        boxes = results[0].boxes.xyxy.detach().cpu().numpy().astype(np.float32)
+        confs = (
+            results[0].boxes.conf.detach().cpu().numpy().astype(np.float32)
+            if results[0].boxes.conf is not None
+            else np.ones((boxes.shape[0],), dtype=np.float32)
+        )
+
+        # Stage 2: Batched Crop Pose Estimation
+        person_crops: list[np.ndarray] = []
+        crop_meta: list[tuple[int, np.ndarray, int, int, int, int, int]] = []
+        for i, box in enumerate(boxes):
+            bx1, by1, bx2, by2 = box
+            bw = bx2 - bx1
+            bh = by2 - by1
+
+            # 25% contextual padding
+            pad_x = bw * 0.25
+            pad_y = bh * 0.25
+            cx1 = max(0, int(bx1 - pad_x))
+            cy1 = max(0, int(by1 - pad_y))
+            cx2 = min(w, int(bx2 + pad_x))
+            cy2 = min(h, int(by2 + pad_y))
+
+            crop = frame[cy1:cy2, cx1:cx2]
+            if crop.size == 0:
+                continue
+
+            crop_h, crop_w = crop.shape[:2]
+            target_h = 256
+            target_w = int(max(64, target_h * (crop_w / max(1, crop_h))))
+            resized_crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            person_crops.append(resized_crop)
+            crop_meta.append((i, box, cx1, cy1, cx2, cy2, target_w))
+
+        final_dets: list[dict[str, Any]] = []
+        if person_crops:
+            with self._model_lock:
+                crop_results = model.predict(
+                    source=person_crops,
+                    conf=self.sahi_kpt_conf,
+                    iou=iou,
+                    classes=[0],
+                    imgsz=256,
+                    device=self.device,
+                    verbose=False,
+                    batch=len(person_crops),
+                )
+
+            for (i, box, cx1, cy1, cx2, cy2, target_w), c_res in zip(crop_meta, crop_results):
+                if c_res.keypoints is None or len(c_res.keypoints) == 0:
+                    continue
+
+                k17_crop = c_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
+
+                # Map 17 COCO keypoints back to original full frame
+                k17_full = k17_crop.copy()
+                k17_full[:, 0] = cx1 + (k17_crop[:, 0] / float(target_w)) * float(cx2 - cx1)
+                k17_full[:, 1] = cy1 + (k17_crop[:, 1] / float(256)) * float(cy2 - cy1)
+
+                k12_full = coco17_to_body12(k17_full)
+                det_conf = float(confs[i])
+
+                if is_valid_human_pose(
+                    det_conf,
+                    k12_full,
+                    min_det_conf=self.sahi_tile_conf,
+                    min_kpt_conf=self.sahi_kpt_conf,
+                    min_kpts_cnt=self.sahi_min_kpts,
+                    min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
+                ):
+                    final_dets.append(
+                        {
+                            "bbox": box,
+                            "confidence": det_conf,
+                            "keypoints_body12": k12_full,
+                        }
+                    )
+
+        final_dets.sort(key=lambda item: item["confidence"], reverse=True)
+        return final_dets
+
     def _extract_pose_detections(
         self,
         frame: np.ndarray,
@@ -1762,10 +2142,17 @@ class ActionRecognitionPipeline:
         iou: float,
         imgsz: int = 1024,
     ) -> list[dict[str, Any]]:
+        use_2stage = getattr(self, "sahi_pipeline_mode", "2-stage") == "2-stage"
         if self.use_sahi:
+            if use_2stage:
+                return self._extract_2stage_sahi_pose_detections(
+                    frame, model, conf, iou, slice_size=self.sahi_slice_size, overlap_ratio=self.sahi_overlap
+                )
             return self._extract_sahi_pose_detections(
                 frame, model, conf, iou, slice_size=self.sahi_slice_size, overlap_ratio=self.sahi_overlap
             )
+        if use_2stage:
+            return self._extract_2stage_standard_pose_detections(frame, model, conf, iou, imgsz=imgsz)
         return self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=imgsz)
 
     async def infer_frame(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
@@ -1988,6 +2375,8 @@ class ActionRecognitionPipeline:
                 cap.release()
 
         def inferencer() -> None:
+            stride = max(1, getattr(self, "video_detection_stride", 2))
+            last_drawn_tracks: list[tuple[TrackState, np.ndarray]] = []
             try:
                 while True:
                     item = _get(decode_q)
@@ -1999,82 +2388,121 @@ class ActionRecognitionPipeline:
                         break
 
                     frame_index, frame = item
-                    detections = self._extract_pose_detections(
-                        frame,
-                        self.video_pose_model,
-                        self.video_yolo_conf,
-                        self.video_yolo_iou,
-                        imgsz=1024,
-                    )
-                    counters["detected_people_total"] += len(detections)
-                    counters["yolo_confidences"].extend(
-                        [float(d["confidence"]) for d in detections]
-                    )
+                    is_det_frame = ((frame_index - 1) % stride == 0) or len(tracks) == 0
 
-                    active_track_ids = [
-                        tid
-                        for tid, t in tracks.items()
-                        if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
-                    ]
-
-                    matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
-                        detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
-                    )
-
-                    for det_idx, detection in enumerate(detections):
-                        if det_idx in used_detection_ids:
-                            continue
-
-                        track_id = counters["next_track_id"]
-                        counters["next_track_id"] += 1
-                        track = TrackState(track_id=track_id)
-                        tracks[track_id] = track
-                        matched_pairs.append((track, detection))
-                        matched_track_ids.add(track_id)
-
-                    pending_inference: list[TrackState] = []
-                    for track, detection in matched_pairs:
-                        should_infer = self._update_track_buffer(
-                            track, detection["keypoints_body12"], detection["bbox"], frame_index
+                    if is_det_frame:
+                        detections = self._extract_pose_detections(
+                            frame,
+                            self.video_pose_model,
+                            self.video_yolo_conf,
+                            self.video_yolo_iou,
+                            imgsz=1024,
                         )
-                        if should_infer:
-                            pending_inference.append(track)
+                        counters["detected_people_total"] += len(detections)
+                        counters["yolo_confidences"].extend(
+                            [float(d["confidence"]) for d in detections]
+                        )
 
-                    if pending_inference:
-                        self._infer_actions_batch(pending_inference, use_tta=False)
+                        active_track_ids = [
+                            tid
+                            for tid, t in tracks.items()
+                            if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
+                        ]
 
-                    for track, detection in matched_pairs:
-                        label = track.last_action_label
-                        confidence = track.last_action_conf
-                        all_scores = track.last_all_scores
-                        counters["detections_log"].append(
-                            Detection(
-                                frame_number=frame_index,
-                                action_label=normalize_action_label(label),
-                                confidence=round(max(0.0, min(1.0, float(confidence))), 4),
-                                person_id=track.track_id,
-                                timestamp=frame_to_timestamp(frame_index, fps),
-                                all_scores=all_scores or None,
+                        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
+                            detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
+                        )
+
+                        for det_idx, detection in enumerate(detections):
+                            if det_idx in used_detection_ids:
+                                continue
+
+                            track_id = counters["next_track_id"]
+                            counters["next_track_id"] += 1
+                            track = TrackState(track_id=track_id)
+                            tracks[track_id] = track
+                            matched_pairs.append((track, detection))
+                            matched_track_ids.add(track_id)
+
+                        pending_inference: list[TrackState] = []
+                        for track, detection in matched_pairs:
+                            should_infer = self._update_track_buffer(
+                                track, detection["keypoints_body12"], detection["bbox"], frame_index
                             )
-                        )
-                        color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
-                        x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
-                        draw_pose(frame, track.last_keypoints, color)
-                        caption = f"ID {track.track_id}: {label}"
-                        if label != "Unknown":
-                            caption += f" {confidence * 100:.1f}%"
-                        cv2.putText(
-                            frame, caption, (x1, max(24, y1 - 8)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
-                        )
+                            if should_infer:
+                                pending_inference.append(track)
 
-                    for tid in list(tracks.keys()):
-                        if tid in matched_track_ids:
-                            continue
-                        tracks[tid].missed_frames += 1
-                        if tracks[tid].missed_frames > VIDEO_MAX_MISSED_FRAMES:
-                            del tracks[tid]
+                        if pending_inference:
+                            self._infer_actions_batch(pending_inference, use_tta=False)
+
+                        last_drawn_tracks = [(track, detection["bbox"]) for track, detection in matched_pairs]
+
+                        for track, detection in matched_pairs:
+                            label = track.last_action_label
+                            confidence = track.last_action_conf
+                            all_scores = track.last_all_scores
+                            counters["detections_log"].append(
+                                Detection(
+                                    frame_number=frame_index,
+                                    action_label=normalize_action_label(label),
+                                    confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+                                    person_id=track.track_id,
+                                    timestamp=frame_to_timestamp(frame_index, fps),
+                                    all_scores=all_scores or None,
+                                )
+                            )
+                            color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
+                            x1, y1, x2, y2 = [int(v) for v in detection["bbox"]]
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
+                            draw_pose(frame, track.last_keypoints, color)
+                            caption = f"ID {track.track_id}: {label}"
+                            if label != "Unknown":
+                                caption += f" {confidence * 100:.1f}%"
+                            cv2.putText(
+                                frame, caption, (x1, max(24, y1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                            )
+
+                        for tid in list(tracks.keys()):
+                            if tid in matched_track_ids:
+                                continue
+                            tracks[tid].missed_frames += 1
+                            if tracks[tid].missed_frames > VIDEO_MAX_MISSED_FRAMES:
+                                del tracks[tid]
+
+                    else:
+                        # Frame skipping pass: Smoothly carry forward active tracks with zero YOLO/SAHI overhead
+                        current_drawn: list[tuple[TrackState, np.ndarray]] = []
+                        for track, bbox in last_drawn_tracks:
+                            if track.track_id not in tracks:
+                                continue
+                            label = track.last_action_label
+                            confidence = track.last_action_conf
+                            all_scores = track.last_all_scores
+                            counters["detections_log"].append(
+                                Detection(
+                                    frame_number=frame_index,
+                                    action_label=normalize_action_label(label),
+                                    confidence=round(max(0.0, min(1.0, float(confidence))), 4),
+                                    person_id=track.track_id,
+                                    timestamp=frame_to_timestamp(frame_index, fps),
+                                    all_scores=all_scores or None,
+                                )
+                            )
+                            color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)
+                            x1, y1, x2, y2 = [int(v) for v in bbox]
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
+                            if track.last_keypoints is not None:
+                                draw_pose(frame, track.last_keypoints, color)
+                            caption = f"ID {track.track_id}: {label}"
+                            if label != "Unknown":
+                                caption += f" {confidence * 100:.1f}%"
+                            cv2.putText(
+                                frame, caption, (x1, max(24, y1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                            )
+                            current_drawn.append((track, bbox))
+                        last_drawn_tracks = current_drawn
 
                     if not _put(result_q, (frame_index, frame, None)):
                         return
@@ -2336,6 +2764,15 @@ def healthcheck(response: Response) -> dict[str, Any]:
 
 
 def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
+    sahi_mode = "disabled"
+    if pipeline.use_sahi:
+        if pipeline.sahi_slice_size <= 320:
+            sahi_mode = "ultra_dense"
+        elif pipeline.sahi_slice_size <= 384:
+            sahi_mode = "dense"
+        else:
+            sahi_mode = "standard"
+
     return {
         "window_size": WINDOW_SIZE,
         "min_frames": MIN_FRAMES_FOR_INFERENCE,
@@ -2354,8 +2791,15 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
         "yolo_iou": pipeline.yolo_iou,
         "video_yolo_conf": pipeline.video_yolo_conf,
         "video_yolo_iou": pipeline.video_yolo_iou,
+        "video_detection_stride": getattr(pipeline, "video_detection_stride", 2),
         "use_sahi": pipeline.use_sahi,
         "sahi_slice_size": pipeline.sahi_slice_size,
+        "sahi_mode": sahi_mode,
+        "sahi_pipeline_mode": getattr(pipeline, "sahi_pipeline_mode", "2-stage"),
+        "sahi_tile_conf": pipeline.sahi_tile_conf,
+        "sahi_kpt_conf": pipeline.sahi_kpt_conf,
+        "sahi_min_kpts": pipeline.sahi_min_kpts,
+        "sahi_min_mean_kpt_conf": pipeline.sahi_min_mean_kpt_conf,
         "action_threshold_mode": pipeline.action_threshold_mode,
         "action_threshold": pipeline.action_threshold,
         "action_thresholds": pipeline.action_thresholds,

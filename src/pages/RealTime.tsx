@@ -4,6 +4,7 @@ import RealTimeVideo, {
   type InferencePayload,
 } from "@/components/realtime-video";
 import TelloDronePanel from "@/components/tello-drone-panel";
+import { RealTimeLogs } from "@/components/RealTimeLogs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -803,272 +804,108 @@ const RealTime = () => {
         </div>
         {renderSaveBanner()}
 
-        {/* Main Section: Video | Logs */}
-        <div className="relative flex-1 min-h-0 w-full overflow-hidden rounded-xl bg-[#101215]">
+        {/* Main Section: Video (Left 70%) | Standalone Logs Sidebar (Right 30%) */}
+        <div className="flex flex-1 min-h-0 w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-900 shadow-sm">
           {/* Video / Drone surface */}
-          <div className="absolute inset-0 z-0 overflow-y-auto">
-            {streamSource === "tello" ? (
-              <div className="w-full h-full p-0">
-                <TelloDronePanel
-                  onInference={handleInference}
-                  onFlightStarted={handleTelloFlightStarted}
-                  onFlightFinished={handleTelloFlightFinished}
-                />
-              </div>
-            ) : (
-              <RealTimeVideo
-                isCameraActive={isCameraActive}
-                setIsCameraActive={handleSetCameraActive}
-                onInference={handleInference}
-                onConnectionStateChange={setConnectionState}
-                onCameraLabelChange={setCameraLabel}
-                onRecordingComplete={handleRecordingComplete}
-                onSourceRecordingComplete={handleSourceRecordingComplete}
-              />
-            )}
-          </div>
-          <div className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/70 px-3 py-2 shadow-lg backdrop-blur-xl">
-            <TitleMono text="Real-Time Inference" />
-
-            {/* Stream Mode Toggle (Webcam vs Tello Drone) */}
-            <div className="flex items-center bg-white/80 p-0.5 rounded-lg border border-slate-200 shadow-sm pointer-events-auto">
-              <button
-                type="button"
-                onClick={() => setStreamSource("webcam")}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  streamSource === "webcam"
-                    ? "bg-slate-900 text-white shadow"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Webcam</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStreamSource("tello")}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  streamSource === "tello"
-                    ? "bg-cyan-600 text-white shadow"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <Plane className="w-3.5 h-3.5" />
-                <span>Tello Drone</span>
-              </button>
-            </div>
-
-            {streamSource === "webcam" && !isCameraActive && (
-              <>
-                <div className="flex items-center gap-2 rounded-full bg-white/70 px-2.5 py-1 text-xs text-[#344054]">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      connectionState === "connected"
-                        ? "bg-emerald-500"
-                        : connectionState === "connecting"
-                          ? "bg-amber-500"
-                          : "bg-zinc-500"
-                    }`}
+          <div className="relative flex-1 min-w-0 h-full overflow-hidden bg-[#101215]">
+            <div className="absolute inset-0 z-0 overflow-y-auto">
+              {streamSource === "tello" ? (
+                <div className="w-full h-full p-0">
+                  <TelloDronePanel
+                    onInference={handleInference}
+                    onFlightStarted={handleTelloFlightStarted}
+                    onFlightFinished={handleTelloFlightFinished}
                   />
-                  {connectionState}
-                </div>
-                <div className="max-w-[160px] truncate text-xs text-[#344054]">
-                  {cameraLabel}
-                </div>
-              </>
-            )}
-          </div>{" "}
-          {/* Inference logs overlay */}
-          <div
-            className={`absolute right-4 top-4 ${
-              isLogsOpen
-                ? "z-30 bottom-4 w-[min(22rem,calc(100%-2rem))]"
-                : "z-20 h-11 w-11 [&>*:not(:first-child)]:hidden"
-            } flex flex-col overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-xl shadow-slate-950/10 backdrop-blur-xl transition-[width,height] duration-200`}
-          >
-            {" "}
-            {/* Panel header */}
-            <div className="flex items-center justify-between border-b border-white/40 bg-white/30 p-3 shrink-0">
-              {isLogsOpen && <TitleMono text="Inference Logs" />}
-              <button
-                type="button"
-                aria-label={
-                  isLogsOpen ? "Minimize inference logs" : "Open inference logs"
-                }
-                onClick={() => setIsLogsOpen((open) => !open)}
-                className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-white/70"
-              >
-                {isLogsOpen ? (
-                  <PanelRightClose size={16} />
-                ) : (
-                  <PanelRightOpen size={16} />
-                )}
-              </button>
-            </div>
-            {/* Live stats */}
-            <div className="border-b border-gray-200 bg-white p-3 shrink-0 grid grid-cols-2 gap-2">
-              <div>
-                <div className="text-[10px] font-semibold uppercase text-[#667085]">
-                  Latest Action
-                </div>
-                <div className="mt-0.5 text-xs font-bold text-[#334155] truncate">
-                  {latestAction ?? (
-                    <span className="text-[#94a3b8] font-normal">Waiting</span>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold uppercase text-[#667085]">
-                  Status
-                </div>
-                <div className="mt-0.5">
-                  {isCameraActive ? (
-                    <Badge
-                      variant={"link"}
-                      className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 px-1.5 py-0"
-                    >
-                      Live
-                    </Badge>
-                  ) : (
-                    <Badge
-                      variant={"destructive"}
-                      className="text-[10px] bg-red-500 text-white border-gray-200 px-1.5 py-0"
-                    >
-                      Idle
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold uppercase text-[#667085]">
-                  Frames
-                </div>
-                <div className="mt-0.5 text-xs font-bold text-[#334155]">
-                  {frameCount.toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold uppercase text-[#667085]">
-                  Detections
-                </div>
-                <div className="mt-0.5 text-xs font-bold text-[#334155]">
-                  {detectionCount.toLocaleString()}
-                </div>
-              </div>
-            </div>
-            {/* Save status (compact, inside logs panel) */}
-            {saveState.status === "pending_confirmation" && (
-              <div className="border-b border-gray-200 bg-amber-50 px-3 py-2 shrink-0 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-[10px] text-amber-800 font-semibold truncate">
-                  <Save className="h-3 w-3 text-amber-600 shrink-0" />
-                  <span className="truncate">Save video session?</span>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2 py-0.5 rounded shadow-sm"
-                    onClick={() =>
-                      saveRealtimeSession(saveState.annotated, saveState.source)
-                    }
-                  >
-                    Save
-                  </button>
-                  <button
-                    className="text-[10px] text-slate-600 hover:text-slate-900 px-1 py-0.5"
-                    onClick={() => setSaveState({ status: "idle" })}
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
-            )}
-            {(saveState.status === "uploading" ||
-              saveState.status === "saving") && (
-              <div className="border-b border-gray-200 bg-blue-50 px-3 py-2 shrink-0 flex items-center gap-2">
-                <Loader2 className="h-3 w-3 text-blue-500 animate-spin shrink-0" />
-                <span className="text-[10px] text-blue-700 truncate">
-                  {saveState.status === "uploading" ? "Uploading" : "Saving"}
-                </span>
-              </div>
-            )}
-            {saveState.status === "done" && (
-              <div className="border-b border-gray-200 bg-emerald-50 px-3 py-2 shrink-0 flex items-center gap-2">
-                <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
-                <span className="text-[10px] text-emerald-700 flex-1">
-                  Saved to history
-                </span>
-                <button
-                  className="text-[10px] text-emerald-600 underline"
-                  onClick={() =>
-                    navigate(`/library?history=${saveState.historyId}`)
-                  }
-                >
-                  Open
-                </button>
-              </div>
-            )}
-            {/* Waving Alerts Accordion */}
-            {waveAlertLogs.length > 0 && (
-              <div className="border-b border-gray-200 shrink-0">
-                <button
-                  onClick={() => setIsAlertsExpanded((v) => !v)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-amber-50 hover:bg-amber-100 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                    <span className="text-xs font-semibold text-amber-800">
-                      Waving Alerts
-                    </span>
-                    <span className="rounded-full bg-amber-200 px-2.5 py-0.5 text-[10px] font-bold text-amber-800">
-                      {waveAlertLogs.length}
-                    </span>
-                  </div>
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 text-amber-600 transition-transform ${isAlertsExpanded ? "rotate-180" : ""}`}
-                  />
-                </button>
-
-                {isAlertsExpanded && (
-                  <div className="max-h-36 overflow-y-auto bg-amber-50 px-3 pb-2 space-y-1">
-                    {waveAlertLogs.map((line, i) => (
-                      <div
-                        key={i}
-                        className="rounded border border-amber-200 bg-white px-2 py-1 font-mono text-[10px] text-amber-800"
-                      >
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Log scroll area */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-3">
-              {logs.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#CBD5E1] p-3 text-xs text-[#64748B]">
-                  Frame-level inference logs will appear here once the camera
-                  starts receiving responses.
                 </div>
               ) : (
-                <div className="space-y-1.5">
-                  {logs.map((line, index) => {
-                    const isAlert = line.includes("WAVING ALERT");
-                    return (
-                      <div
-                        key={`${line}-${index}`}
-                        className={`rounded-md border px-2 py-1.5 font-mono text-[10px] leading-relaxed ${
-                          isAlert
-                            ? "border-amber-300 bg-amber-50 text-amber-800 font-semibold"
-                            : "border-[#E2E8F0] bg-white text-[#334155]"
-                        }`}
-                      >
-                        {line}
-                      </div>
-                    );
-                  })}
-                </div>
+                <RealTimeVideo
+                  isCameraActive={isCameraActive}
+                  setIsCameraActive={handleSetCameraActive}
+                  onInference={handleInference}
+                  onConnectionStateChange={setConnectionState}
+                  onCameraLabelChange={setCameraLabel}
+                  onRecordingComplete={handleRecordingComplete}
+                  onSourceRecordingComplete={handleSourceRecordingComplete}
+                />
               )}
             </div>
+
+            {/* Top Stream Mode Controls Bar */}
+            <div className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/80 px-3.5 py-2 shadow-lg backdrop-blur-xl">
+              <TitleMono text="Real-Time Inference" />
+
+              {/* Stream Mode Toggle (Webcam vs Tello Drone) */}
+              <div className="flex items-center bg-white/90 p-0.5 rounded-lg border border-slate-200 shadow-sm pointer-events-auto">
+                <button
+                  type="button"
+                  onClick={() => setStreamSource("webcam")}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                    streamSource === "webcam"
+                      ? "bg-slate-900 text-white shadow"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Webcam</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setStreamSource("tello")}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                    streamSource === "tello"
+                      ? "bg-cyan-600 text-white shadow"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Plane className="w-3.5 h-3.5" />
+                  <span>Tello Drone</span>
+                </button>
+              </div>
+
+              {streamSource === "webcam" && !isCameraActive && (
+                <>
+                  <div className="flex items-center gap-2 rounded-full bg-white/80 px-2.5 py-1 text-xs text-slate-700">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        connectionState === "connected"
+                          ? "bg-emerald-500"
+                          : connectionState === "connecting"
+                            ? "bg-amber-500"
+                            : "bg-zinc-500"
+                      }`}
+                    />
+                    {connectionState}
+                  </div>
+                  <div className="max-w-[160px] truncate text-xs text-slate-700 font-medium">
+                    {cameraLabel}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Standalone Right-Hand RealTimeLogs Sidebar */}
+          <div
+            className={`${
+              isLogsOpen ? "w-80 lg:w-96" : "w-12"
+            } h-full transition-[width] duration-200 shrink-0 border-l border-slate-200`}
+          >
+            <RealTimeLogs
+              logs={logs}
+              latestAction={latestAction}
+              isCameraActive={isCameraActive}
+              frameCount={frameCount}
+              detectionCount={detectionCount}
+              saveState={saveState}
+              onSaveSession={saveRealtimeSession}
+              onDiscardSession={() => setSaveState({ status: "idle" })}
+              waveAlertLogs={waveAlertLogs}
+              isAlertsExpanded={isAlertsExpanded}
+              onToggleAlerts={() => setIsAlertsExpanded((v) => !v)}
+              isCollapsed={!isLogsOpen}
+              onToggleCollapse={() => setIsLogsOpen((open) => !open)}
+            />
           </div>
         </div>
       </div>
