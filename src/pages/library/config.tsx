@@ -48,6 +48,8 @@ type SahiMode = "disabled" | "standard" | "dense" | "ultra_dense";
 type RuntimeConfig = {
   yolo_model: string;
   yolo_models: Array<{ key: string; label: string; filename: string }>;
+  stage1_detector?: string;
+  stage1_detectors?: Array<{ key: string; label: string; filename: string }>;
   yolo_conf: number;
   yolo_iou: number;
   video_yolo_conf: number;
@@ -69,6 +71,7 @@ type RuntimeConfig = {
 
 type DraftConfig = {
   yolo_model: string;
+  stage1_detector: string;
   yolo_conf: number;
   yolo_iou: number;
   video_yolo_conf: number;
@@ -219,6 +222,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       setConfig(data);
       setDraft({
         yolo_model: data.yolo_model,
+        stage1_detector: data.stage1_detector ?? "same",
         yolo_conf: data.yolo_conf,
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
@@ -247,6 +251,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         setConfig(cached);
         setDraft({
           yolo_model: cached.yolo_model,
+          stage1_detector: cached.stage1_detector ?? "same",
           yolo_conf: cached.yolo_conf,
           yolo_iou: cached.yolo_iou,
           video_yolo_conf: cached.video_yolo_conf,
@@ -283,6 +288,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
     if (!config || !draft) return false;
     return (
       draft.yolo_model !== config.yolo_model ||
+      draft.stage1_detector !== (config.stage1_detector ?? "same") ||
       draft.yolo_conf !== config.yolo_conf ||
       draft.yolo_iou !== config.yolo_iou ||
       draft.video_yolo_conf !== config.video_yolo_conf ||
@@ -365,6 +371,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       setConfig(data);
       setDraft({
         yolo_model: data.yolo_model,
+        stage1_detector: data.stage1_detector ?? draft.stage1_detector,
         yolo_conf: data.yolo_conf,
         yolo_iou: data.yolo_iou,
         video_yolo_conf: data.video_yolo_conf,
@@ -699,10 +706,10 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-900">
-                      SAHI Pipeline Architecture
+                      Pipeline Architecture
                     </p>
                     <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                      2-Stage Crop &amp; Upscale detects tiny person bboxes first, adds 25% contextual padding, upscales crops to 256px, and runs targeted pose estimation for maximum keypoint recall on far-away subjects.
+                      2-Stage Crop &amp; Upscale detects tiny person bboxes first, adds 25% contextual padding, upscales crops to 256px, and runs targeted pose estimation for maximum keypoint recall on far-away subjects (works for both SAHI tiles and full frames).
                     </p>
                   </div>
                 </div>
@@ -717,7 +724,51 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer"
                 >
                   <option value="2-stage">2-Stage Crop &amp; Upscale (Recommended)</option>
-                  <option value="1-stage">1-Stage Direct Tile Slicing</option>
+                  <option value="1-stage">1-Stage Direct Pose Slicing</option>
+                </select>
+              </div>
+
+              {/* Stage 1 Object Detector Selector Card */}
+              <div className="flex items-center justify-between p-5 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 mt-0.5">
+                    <Box size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      Stage 1 Object Detector (Localization)
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                      Decouples bounding box localization from pose estimation. When set to a dedicated detector (e.g. YOLOv11 Medium/Nano), Stage 1 uses this model to propose candidate person boxes on full-frame or SAHI slices, and routes cropped subjects to the Pose Model in Stage 2.
+                    </p>
+                  </div>
+                </div>
+                <select
+                  value={draft.stage1_detector}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      stage1_detector: e.target.value,
+                    })
+                  }
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer max-w-[260px]"
+                >
+                  {config?.stage1_detectors && config.stage1_detectors.length > 0 ? (
+                    config.stage1_detectors.map((det) => (
+                      <option key={det.key} value={det.key}>
+                        {det.label}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="same">Unified (Same as Pose Model)</option>
+                      <option value="yolo11n">Dedicated YOLOv11 Nano Detector (yolo11n.pt)</option>
+                      <option value="yolo11s">Dedicated YOLOv11 Small Detector (yolo11s.pt)</option>
+                      <option value="yolo11m">Dedicated YOLOv11 Medium Detector (yolo11m.pt)</option>
+                      <option value="aerial-medium-tuned">Dedicated Fine-Tuned Aerial (yolo11m-aerial-tuned.pt)</option>
+                      <option value="aerial">Dedicated Aerial Legacy (yolo-best.pt)</option>
+                    </>
+                  )}
                 </select>
               </div>
 

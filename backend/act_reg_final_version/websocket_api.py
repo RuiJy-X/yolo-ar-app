@@ -84,6 +84,22 @@ YOLO_MODEL_LABELS = {
     "base": "Base Nano (yolo11n-pose.pt)",
     "aerial": "Aerial Legacy (yolo-best.pt)",
 }
+STAGE1_DETECTOR_CHOICES = {
+    "same": "Same as Pose Model",
+    "yolo11n": "yolo11n.pt",
+    "yolo11s": "yolo11s.pt",
+    "yolo11m": "yolo11m.pt",
+    "aerial-medium-tuned": "yolo11m-aerial-tuned.pt",
+    "aerial": YOLO_FILENAME,
+}
+STAGE1_DETECTOR_LABELS = {
+    "same": "Unified (Same as Pose Model)",
+    "yolo11n": "Dedicated YOLOv11 Nano Detector (yolo11n.pt)",
+    "yolo11s": "Dedicated YOLOv11 Small Detector (yolo11s.pt)",
+    "yolo11m": "Dedicated YOLOv11 Medium Detector (yolo11m.pt)",
+    "aerial-medium-tuned": "Dedicated Fine-Tuned Aerial Medium (yolo11m-aerial-tuned.pt)",
+    "aerial": "Dedicated Aerial Legacy (yolo-best.pt)",
+}
 WINDOW_SIZE = 32
 MODEL_NUM_POINTS = 12
 ACTION_MAP = {0: "sitting", 1: "standing", 2: "waving", 3: "walking"}
@@ -1027,6 +1043,7 @@ class SetActiveModelRequest(BaseModel):
 
 class UpdateConfigRequest(BaseModel):
     yolo_model: str | None = None
+    stage1_detector: str | None = None
     yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
     yolo_iou: float | None = Field(default=None, ge=0.0, le=1.0)
     video_yolo_conf: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -1341,6 +1358,8 @@ class ActionRecognitionPipeline:
         self.action_thresholds = {
             label: DISPLAY_CONF_THRESH for label in ACTION_MAP.values()
         }
+        self.stage1_detector_name = "same"
+        self.stage1_detector_model: YOLO | None = None
         self._yolo_model_name = self._resolve_yolo_model_key(yolo_path)
         self._active_model_name: str = self._resolve_initial_model_name(checkpoint_path)
 
@@ -1369,6 +1388,11 @@ class ActionRecognitionPipeline:
                     self.swap_yolo_model(str(data["yolo_model"]))
                 except Exception:
                     pass
+            if "stage1_detector" in data and data["stage1_detector"] != self.stage1_detector_name:
+                try:
+                    self.swap_stage1_detector(str(data["stage1_detector"]))
+                except Exception as exc:
+                    print(f"[config] Failed to swap stage1 detector from persistence: {exc}")
             if "yolo_conf" in data:
                 self.yolo_conf = float(data["yolo_conf"])
             if "yolo_iou" in data:
@@ -1477,6 +1501,35 @@ class ActionRecognitionPipeline:
             self._yolo_model_name = model_key
             self._save_persisted_config()
 
+    def swap_stage1_detector(self, model_choice: str) -> None:
+        cleaned = str(model_choice or "").strip().lower()
+        if cleaned in {"same", "unified", "none", ""}:
+            with self._model_lock:
+                self.stage1_detector_name = "same"
+                old_model = self.stage1_detector_model
+                self.stage1_detector_model = None
+                del old_model
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                self._save_persisted_config()
+            return
+
+        filename = STAGE1_DETECTOR_CHOICES.get(cleaned, f"{cleaned}.pt")
+        model_path = self.base_dir / filename
+
+        with self._model_lock:
+            if model_path.exists():
+                new_model = YOLO(str(model_path)).to(self.device)
+            else:
+                new_model = YOLO(filename).to(self.device)
+            old_model = self.stage1_detector_model
+            self.stage1_detector_model = new_model
+            self.stage1_detector_name = cleaned if cleaned in STAGE1_DETECTOR_CHOICES else filename
+            del old_model
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            self._save_persisted_config()
+
     def _get_action_threshold(self, label: str) -> float:
         if self.action_threshold_mode == "per-action":
             return float(self.action_thresholds.get(label, self.action_threshold))
@@ -1485,6 +1538,8 @@ class ActionRecognitionPipeline:
     def update_config(self, body: UpdateConfigRequest) -> None:
         if body.yolo_model:
             self.swap_yolo_model(body.yolo_model)
+        if body.stage1_detector is not None:
+            self.swap_stage1_detector(body.stage1_detector)
 
         if body.yolo_conf is not None:
             self.yolo_conf = float(body.yolo_conf)
@@ -1835,14 +1890,33 @@ class ActionRecognitionPipeline:
 
         bbox_proposals: list[np.ndarray] = []
         conf_proposals: list[float] = []
+        detector = self.stage1_detector_model if self.stage1_detector_model is not None else model
 
-        # Pass 0: Full frame pass @ 1024/1280 to catch large/medium people
-        full_dets = self._extract_standard_pose_detections(frame, model, conf, iou, imgsz=1024)
-        for det in full_dets:
-            bbox_proposals.append(det["bbox"])
-            conf_proposals.append(float(det["confidence"]))
+        # Pass 0: Full frame pass @ 1024/1280 to catch large/medium people using Stage 1 detector
+        effective_imgsz = max(1024, 1280 if (w >= 1920 or h >= 1080) else 1024)
+        with self._model_lock, torch.inference_mode():
+            full_results = detector.predict(
+                source=frame,
+                conf=conf,
+                iou=iou,
+                classes=[0],
+                imgsz=effective_imgsz,
+                device=self.device,
+                half=(self.device == "cuda"),
+                verbose=False,
+            )
+        if full_results and full_results[0].boxes is not None and len(full_results[0].boxes) > 0:
+            f_boxes = full_results[0].boxes.xyxy.detach().cpu().numpy().astype(np.float32)
+            f_confs = (
+                full_results[0].boxes.conf.detach().cpu().numpy().astype(np.float32)
+                if full_results[0].boxes.conf is not None
+                else np.ones((f_boxes.shape[0],), dtype=np.float32)
+            )
+            for idx in range(f_boxes.shape[0]):
+                bbox_proposals.append(f_boxes[idx])
+                conf_proposals.append(float(f_confs[idx]))
 
-        # Stage 1: Batched Bbox proposals from SAHI tiles @ full imgsz
+        # Stage 1: Batched Bbox proposals from SAHI tiles @ full imgsz using Stage 1 detector
         crops = []
         tile_coords = []
         for y1 in y_slices:
@@ -1859,7 +1933,7 @@ class ActionRecognitionPipeline:
 
         if crops:
             with self._model_lock, torch.inference_mode():
-                batch_results = model.predict(
+                batch_results = detector.predict(
                     source=crops,
                     conf=tile_conf,
                     iou=iou,
@@ -2052,10 +2126,11 @@ class ActionRecognitionPipeline:
     ) -> list[dict[str, Any]]:
         h, w = frame.shape[:2]
         effective_imgsz = max(imgsz, 1280) if (w >= 1920 or h >= 1080) else imgsz
+        detector = self.stage1_detector_model if self.stage1_detector_model is not None else model
 
-        # Stage 1: Full-frame person bounding box detection
+        # Stage 1: Full-frame person bounding box detection using detector
         with self._model_lock, torch.inference_mode():
-            results = model.predict(
+            results = detector.predict(
                 source=frame,
                 conf=conf,
                 iou=iou,
@@ -2874,6 +2949,15 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
                 "filename": filename,
             }
             for key, filename in YOLO_MODEL_CHOICES.items()
+        ],
+        "stage1_detector": getattr(pipeline, "stage1_detector_name", "same"),
+        "stage1_detectors": [
+            {
+                "key": key,
+                "label": STAGE1_DETECTOR_LABELS.get(key, f"{key} ({filename})"),
+                "filename": filename,
+            }
+            for key, filename in STAGE1_DETECTOR_CHOICES.items()
         ],
         "yolo_conf": pipeline.yolo_conf,
         "yolo_iou": pipeline.yolo_iou,
