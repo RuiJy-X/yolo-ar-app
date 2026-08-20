@@ -1,6 +1,8 @@
-import type { RefObject, ChangeEventHandler } from "react";
-import { Download, Save, Upload } from "lucide-react";
+import { useRef, type RefObject, type ChangeEventHandler } from "react";
+import { Download, Save, Upload, Eye, EyeOff, Layers } from "lucide-react";
 import TitleMono from "@/components/titile-mono";
+import type { Detection, AnalyzeVideoResponse } from "@/lib/types";
+import VideoFocusOverlay from "./video-focus-overlay";
 
 type VideoPanelProps = {
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -18,6 +20,18 @@ type VideoPanelProps = {
   progressTotalFrames: number | null;
   canSaveToHistory: boolean;
   historySavedAt: number | null;
+  currentFrameDetections?: Detection[];
+  focusedPersonId?: number | null;
+  analysis?: AnalyzeVideoResponse | null;
+  showVideoAnnotations?: boolean;
+  showAnnotations?: boolean;
+  showBrowserOverlay?: boolean;
+  onToggleVideoAnnotations?: () => void;
+  onToggleAnnotations?: () => void;
+  onToggleBrowserOverlay?: () => void;
+  onFocusPerson?: (personId: number) => void;
+  onClearFocus?: () => void;
+  onOpenPersonDetails?: (personId: number) => void;
   onFileChange: ChangeEventHandler<HTMLInputElement>;
   onRunInference: () => void;
   onDownload: () => void;
@@ -47,6 +61,18 @@ const VideoPanel = ({
   progressTotalFrames,
   canSaveToHistory,
   historySavedAt,
+  currentFrameDetections = [],
+  focusedPersonId = null,
+  analysis = null,
+  showVideoAnnotations,
+  showAnnotations = true,
+  showBrowserOverlay = true,
+  onToggleVideoAnnotations,
+  onToggleAnnotations,
+  onToggleBrowserOverlay = () => {},
+  onFocusPerson = () => {},
+  onClearFocus = () => {},
+  onOpenPersonDetails = () => {},
   onFileChange,
   onRunInference,
   onDownload,
@@ -59,6 +85,18 @@ const VideoPanel = ({
   onClearResult,
   onPlaybackStateChange,
 }: VideoPanelProps) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const isVideoAnnotated = showVideoAnnotations ?? showAnnotations;
+  const handleToggleVideo = onToggleVideoAnnotations ?? onToggleAnnotations ?? (() => {});
+
+  // Active video source: if annotated is ON, show annotated video (if available), else show raw source
+  const activeVideoUrl = isVideoAnnotated
+    ? (resultVideoUrl ?? sourceVideoUrl)
+    : (sourceVideoUrl ?? resultVideoUrl);
+
+  const canToggleVideoSource = Boolean(resultVideoUrl && sourceVideoUrl);
+
   return (
     <div
       className="flex flex-col h-full overflow-hidden rounded-lg bg-[#ffffff] border border-[#ededed]"
@@ -78,6 +116,48 @@ const VideoPanel = ({
         <TitleMono text="Video Analysis" />
 
         <div className="flex items-center gap-2">
+          {/* 1. Video Source Toggle: Annotated Video vs Raw Video */}
+          {canToggleVideoSource && (
+            <button
+              type="button"
+              onClick={handleToggleVideo}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] text-[13px] font-medium border transition-colors ${
+                isVideoAnnotated
+                  ? "border-blue-200 bg-blue-50 text-[#0052ff] hover:bg-blue-100"
+                  : "border-[#dfdfdf] bg-[#ffffff] text-[#707070] hover:bg-[#fafafa]"
+              }`}
+              title={
+                isVideoAnnotated
+                  ? "Switch to raw video without burnt-in annotations"
+                  : "Switch to video with burnt-in YOLO & InfoGCN annotations"
+              }
+            >
+              {isVideoAnnotated ? <Eye size={13} /> : <EyeOff size={13} />}
+              <span>{isVideoAnnotated ? "Annotations On" : "Annotations Off"}</span>
+            </button>
+          )}
+
+          {/* 2. Browser Overlay Toggle: turn off DOM/SVG drawn boxes */}
+          {analysis && (
+            <button
+              type="button"
+              onClick={onToggleBrowserOverlay}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] text-[13px] font-medium border transition-colors ${
+                showBrowserOverlay
+                  ? "border-blue-200 bg-blue-50 text-[#0052ff] hover:bg-blue-100"
+                  : "border-[#dfdfdf] bg-[#ffffff] text-[#707070] hover:bg-[#fafafa]"
+              }`}
+              title={
+                showBrowserOverlay
+                  ? "Turn off browser overlay (hide browser-drawn boxes)"
+                  : "Turn on browser overlay (interactive bounding boxes & focus)"
+              }
+            >
+              <Layers size={13} />
+              <span>Overlay {showBrowserOverlay ? "On" : "Off"}</span>
+            </button>
+          )}
+
           {(file || sourceVideoUrl || resultVideoUrl) && (
             <button
               type="button"
@@ -131,40 +211,53 @@ const VideoPanel = ({
       </div>
 
       {/* ── Video area ── */}
-      <div className="relative flex-1 min-h-0 bg-[#1c1c1c]">
+      <div ref={containerRef} className="relative flex-1 min-h-0 bg-[#1c1c1c] overflow-hidden">
         {sourceVideoUrl || resultVideoUrl ? (
-          <video
-            ref={videoPlayerRef}
-            key={resultVideoUrl ?? sourceVideoUrl ?? undefined}
-            controls
-            src={resultVideoUrl ?? sourceVideoUrl ?? undefined}
-            preload="metadata"
-            onLoadedMetadata={(e) => {
-              const duration = e.currentTarget.duration;
-              onVideoLoaded(
-                Number.isFinite(duration) && duration > 0 ? duration : 0,
-                e.currentTarget.currentTime || 0,
-              );
-            }}
-            onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime || 0)}
-            onLoadedData={() => {
-              onSourcePlaybackError(null);
-              onResultPlaybackError(null);
-            }}
-            onPlay={() => onPlaybackStateChange(true)}
-            onPause={() => onPlaybackStateChange(false)}
-            onError={() => {
-              if (resultVideoUrl && sourceVideoUrl) {
-                onResultPlaybackError(
-                  "Annotated video decoding failed. Switched to source.",
+          <>
+            <video
+              ref={videoPlayerRef}
+              key={activeVideoUrl ?? undefined}
+              controls
+              src={activeVideoUrl ?? undefined}
+              preload="metadata"
+              onLoadedMetadata={(e) => {
+                const duration = e.currentTarget.duration;
+                onVideoLoaded(
+                  Number.isFinite(duration) && duration > 0 ? duration : 0,
+                  e.currentTarget.currentTime || 0,
                 );
-                onClearResult();
-                return;
-              }
-              onSourcePlaybackError("Browser cannot decode this video.");
-            }}
-            className="h-full w-full object-contain"
-          />
+              }}
+              onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime || 0)}
+              onLoadedData={() => {
+                onSourcePlaybackError(null);
+                onResultPlaybackError(null);
+              }}
+              onPlay={() => onPlaybackStateChange(true)}
+              onPause={() => onPlaybackStateChange(false)}
+              onError={() => {
+                if (resultVideoUrl && sourceVideoUrl) {
+                  onResultPlaybackError(
+                    "Annotated video decoding failed. Switched to source.",
+                  );
+                  onClearResult();
+                  return;
+                }
+                onSourcePlaybackError("Browser cannot decode this video.");
+              }}
+              className="h-full w-full object-contain"
+            />
+            {/* Interactive Video Spotlight & Bounding Box Overlay */}
+            <VideoFocusOverlay
+              videoRef={videoPlayerRef}
+              containerRef={containerRef}
+              currentDetections={currentFrameDetections}
+              focusedPersonId={focusedPersonId}
+              showAnnotations={showBrowserOverlay}
+              onFocusPerson={onFocusPerson}
+              onClearFocus={onClearFocus}
+              onOpenPersonDetails={onOpenPersonDetails}
+            />
+          </>
         ) : (
           /* Empty state */
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">

@@ -11,69 +11,148 @@ import {
   BarChart3,
   Cpu,
   Layers,
-  History,
   Info,
   Wifi,
   ArrowRightLeft,
-  PackageOpen,
   Film,
+  PieChart,
+  Users,
+  Eye,
+  EyeOff,
+  Sparkles,
+  Zap,
+  Activity,
+  CheckCircle2,
+  AlertTriangle,
+  Radio,
+  Sliders,
+  Server,
+  Target,
+  ArrowRight,
+  Clock,
+  Keyboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ActionPieChart } from "@/components/Logs";
 
-type TabId = "home" | "realtime" | "library" | "config" | "websocket";
+type TabId = "overview" | "realtime" | "library" | "config" | "api";
 
 const HelpPage = () => {
-  const [activeTab, setActiveTab] = useState<TabId>("home");
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const sidebarItems = [
-    { id: "home", label: "Home Dashboard", icon: Home },
-    { id: "realtime", label: "Real-Time Inference", icon: Camera },
-    { id: "library", label: "Video Library", icon: PlayCircle },
-    { id: "config", label: "System Configuration", icon: Settings2 },
-    { id: "websocket", label: "Backend & API", icon: Wifi },
+    {
+      id: "overview",
+      label: "System Architecture & AI Pipeline",
+      icon: Cpu,
+      badge: "Core AI",
+      desc: "End-to-end YOLO + InfoGCN 2-stage pipeline",
+    },
+    {
+      id: "realtime",
+      label: "Real-Time Inference & Drone",
+      icon: Camera,
+      badge: "Live",
+      desc: "Webcam, Tello drone, & Waving SOS alerts",
+    },
+    {
+      id: "library",
+      label: "Video Library & Deep Analytics",
+      icon: PlayCircle,
+      badge: "Analytics",
+      desc: "Spotlight focus, pie charts, & frame timeline",
+    },
+    {
+      id: "config",
+      label: "Model Configuration & Tuning",
+      icon: Settings2,
+      badge: "Settings",
+      desc: "Aerial vs Base YOLO, temporal presets, & thresholds",
+    },
+    {
+      id: "api",
+      label: "Backend & Communication Protocols",
+      icon: Wifi,
+      badge: "FastAPI",
+      desc: "WebSocket binary packet & REST job workers",
+    },
   ];
 
   return (
     <AppLayout>
-      <div className="flex h-[calc(100vh-64px)]  overflow-hidden bg-slate-50 w-full h-full">
+      <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-slate-50 w-full">
         {/* Navigation Sidebar */}
-        <div className="w-72 border-r border-r-slate-300 bg-white p-4 space-y-2 flex-shrink-0">
-          <div className="px-4 py-2 text-xs font-semibold text-foreground/80 uppercase font-heading">
-            Documentation
+        <div className="w-80 border-r border-slate-200 bg-white p-4 space-y-2 shrink-0 flex flex-col justify-between overflow-y-auto">
+          <div className="space-y-1.5">
+            <div className="px-3 py-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono">
+              System Documentation & Guide
+            </div>
+
+            {sidebarItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as TabId)}
+                  className={cn(
+                    "w-full flex items-start gap-3 px-3.5 py-3 rounded-xl text-left transition-all",
+                    isActive
+                      ? "bg-blue-50/90 text-blue-900 shadow-xs border border-blue-200/80"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "p-2 rounded-lg shrink-0 mt-0.5 transition-colors",
+                      isActive
+                        ? "bg-blue-600 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-500",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-bold truncate">
+                        {item.label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                      {item.desc}
+                    </p>
+                  </div>
+                  {isActive && (
+                    <ChevronRight className="size-4 text-blue-600 shrink-0 self-center" />
+                  )}
+                </button>
+              );
+            })}
           </div>
-          {sidebarItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id as TabId)}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ",
-                activeTab === item.id
-                  ? "bg-blue-50 text-blue-700 shadow-sm"
-                  : "text-slate-600 hover:bg-slate-100",
-              )}
-            >
-              <item.icon
-                className={cn(
-                  "size-5",
-                  activeTab === item.id ? "text-blue-600" : "text-slate-400",
-                )}
-              />
-              {item.label}
-              {activeTab === item.id && (
-                <ChevronRight className="ml-auto size-4" />
-              )}
-            </button>
-          ))}
+
+          {/* Quick Specs Badge */}
+          <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[11px] font-bold text-slate-800">
+                Action Recognition v2.0
+              </span>
+            </div>
+            <div className="text-[10px] font-mono text-slate-500 space-y-1">
+              <div>• Stage 1: YOLOv11-Pose (17 Joints)</div>
+              <div>• Stage 2: InfoGCN Graph (12 Joints)</div>
+              <div>• Classes: Sit, Stand, Walk, Wave</div>
+            </div>
+          </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 bg-white">
-          <div className=" mx-auto space-y-10">
-            {activeTab === "home" && <HomeDoc />}
+        <div className="flex-1 overflow-y-auto px-8 py-8 bg-slate-50/50">
+          <div className="max-w-5xl mx-auto space-y-10">
+            {activeTab === "overview" && <OverviewDoc />}
             {activeTab === "realtime" && <RealTimeDoc />}
             {activeTab === "library" && <LibraryDoc />}
             {activeTab === "config" && <ConfigDoc />}
-            {activeTab === "websocket" && <WebSocketDoc />}
+            {activeTab === "api" && <WebSocketDoc />}
           </div>
         </div>
       </div>
@@ -81,614 +160,805 @@ const HelpPage = () => {
   );
 };
 
-/* --- Component: Home Documentation --- */
-const HomeDoc = () => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="flex items-center gap-3 ">
-      <h1 className="text-4xl font-semibold text-slate-900">Home Dashboard</h1>
-    </div>
-    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The Home Page serves as the primary gateway and administrative hub of the
-      application, designed to organize and manage your historical video data.
-      This page maintains a comprehensive record of all past sessions, where
-      analyzed videos are stored alongside their respective inference logs and
-      summaries. To facilitate efficient data retrieval, the interface includes
-      a robust Date Filter, allowing you to isolate recordings from specific
-      mission dates or events. From this dashboard, you can interact with your
-      data in several ways: you can open any entry directly in the Library View
-      to perform a deep-dive analysis of detected actions, or perform workspace
-      maintenance by deleting individual records or clearing the entire history.
-      Positioned prominently at the top of the page are two primary navigation
-      buttons, providing immediate access to the Library for new video uploads
-      or the Real-Time module for live camera monitoring.
-    </p>
-    <br />
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="p-6 border border-black/40 rounded-xl bg-slate-50">
-        <div className="flex gap-2">
-          <Database className="text-blue-500 mb-3" />
-          <h3 className="font-semibold mb-2">Data Management</h3>
-        </div>
-        <p className="text-sm text-slate-900">
-          Review all stored video sessions alongside their generated summaries.
-          You can open specific entries for deep-dive analysis or perform
-          maintenance by deleting individual or bulk items.
-        </p>
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ── TAB 1: SYSTEM ARCHITECTURE & AI PIPELINE ──                          */
+/* ══════════════════════════════════════════════════════════════════════════ */
+const OverviewDoc = () => (
+  <div className="space-y-8 animate-in fade-in duration-300">
+    {/* Page Header */}
+    <div className="space-y-2 border-b border-slate-200 pb-6">
+      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
+        <Cpu size={13} />
+        <span>Two-Stage AI Framework</span>
       </div>
-      <div className="p-6 border border-black/40 rounded-xl bg-slate-50">
-        <div className="flex gap-2">
-          <History className="text-blue-500 mb-3" />
-          <h3 className="font-semibold mb-2">Historical Filters</h3>
-        </div>
-        <p className="text-sm text-slate-900">
-          Locate specific recording sessions using the date filter. This is
-          essential for auditing actions recorded across different mission
-          dates.
-        </p>
-      </div>
-    </div>
-    <div></div>
-  </div>
-);
-
-/* --- Component: Real-Time Documentation --- */
-const RealTimeDoc = () => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="flex items-center gap-3 ">
-      <h1 className="text-4xl font-semibold text-slate-900">
-        Real Time Inference
+      <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        System Architecture & AI Pipeline
       </h1>
+      <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
+        The application employs a state-of-the-art dual-stage neural network architecture for human action recognition.
+        It decouples spatial person localization from temporal action classification, providing robust, real-time tracking across diverse surveillance, aerial UAV, and stationary camera feeds.
+      </p>
     </div>
-    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The Real-Time Inference page serves as the application's most dynamic
-      module, providing immediate situational awareness by bridging your
-      hardware's camera feed with a sophisticated two-stage AI pipeline. Upon
-      entering the page, the operational workflow begins with Initialization,
-      where you must verify and save your model settings in the Configuration
-      Panel to ensure the AI uses the correct weights such as the Aerial Model
-      for UAV perspectives or the Base Model for general detection before the
-      stream begins. Once you click Start Camera, the application activates a
-      Live Visualization overlay, rendering color-coded skeletal structures over
-      detected individuals to confirm that joints are being tracked accurately
-      in real-time. As the system processes the incoming video, per-frame
-      results stream into the Inference Logs on the right, detailing specific
-      action labels and mathematical confidence scores. A critical safety
-      feature of this module is the Waving Alert System, which acts as a
-      Distress Signal Protocol; it monitors for "Waving" actions and triggers a
-      high-visibility alert if the movement is sustained for 32 consecutive
-      frames (approximately 1 second). To ensure no data is lost, the
-      application utilizes an Auto-Archiving feature: when the camera is
-      stopped, the entire recording and its corresponding inference data are
-      automatically packaged and saved to your Home Dashboard, allowing you to
-      revisit the session later in the Library for a detailed post-incident
-      review.
-    </p>
-    <br />
 
-    <div className="space-y-6">
-      <div className="flex gap-4 p-5 border-l-4 border-orange-500 bg-orange-50/50">
-        <ShieldAlert className="text-orange-600 shrink-0" />
+    {/* Graphic: End-to-End Pipeline Flowchart */}
+    <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-5">
+      <div className="flex items-center justify-between">
         <div>
-          <h4 className="font-bold">Waving Alert Protocol</h4>
-          <p className="text-sm text-slate-700">
-            The system monitors for SOS or distress signals. If a "Waving"
-            action is sustained for{" "}
-            <strong>32 consecutive frames (WAVE_THRESHOLD = 32)</strong>, a
-            visual alert is triggered in the interface.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4">
-        <div className="p-6 border rounded-xl">
-          <h3 className="font-bold mb-3 flex items-center gap-2">
-            <BarChart3 className="size-5 text-orange-500" /> Operational
-            Workflow
+          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider font-mono flex items-center gap-2">
+            <Zap className="size-4 text-amber-500" />
+            End-to-End Inference Pipeline
           </h3>
-          <ul className="space-y-3 text-sm text-slate-600">
-            <li className="flex gap-2">
-              <strong>1. Preparation:</strong> Configure and save your model
-              settings via the Config panel within the page.
-            </li>
-            <li className="flex gap-2">
-              <strong>2. Execution:</strong> Start the camera stream; the
-              backend performs inference on the incoming frames.
-            </li>
-            <li className="flex gap-2">
-              <strong>3. Monitoring:</strong> View per-frame logs on the right
-              sidebar detailing action labels and confidence levels.
-            </li>
-            <li className="flex gap-2">
-              <strong>4. Finalization:</strong> Upon stopping the camera, the
-              recorded footage and inference results are automatically archived
-              to the Home page.
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
-/* --- Component: Library Documentation --- */
-const LibraryDoc = () => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="flex items-center gap-3 ">
-      <h1 className="text-4xl font-semibold text-slate-900">Video Library</h1>
-    </div>
-    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The Video Library page is a sophisticated analysis environment designed
-      for the detailed review and processing of recorded footage. This module
-      allows users to upload video files in MP4 or MOV formats and initiate the
-      inference process to extract precise action data using the system’s
-      dual-stage AI models. The interface is divided into four primary
-      functional areas: the Model Configuration panel for setting detection
-      parameters, the Video Panel for visual playback, the Logs Panel on the
-      right, and the Dynamic Timeline at the base. Once a video is processed,
-      the Logs Panel provides an organized summary of detections through
-      interactive accordions, including a dedicated section for alerts. Each
-      entry within these accordions details the specific time of detection, the
-      average confidence score, and the total frame duration of the action;
-      clicking on any entry instantly synchronizes the video player to that
-      exact moment for verification.
-      <br />
-      <br />
-      Navigational precision is further enhanced by the Timeline Footer, which
-      serves as a visual map of all detected activities. The timeline features
-      color-coded action tags that allow you to jump to specific events with a
-      single click. To facilitate micro-analysis, the timeline includes a Zoom
-      tool that stretches the frame view, making even the shortest bursts of
-      movement easy to identify and select. Additionally, the Stack/Layer Toggle
-      offers two viewing modes: a consolidated "Stacked" view for a high-level
-      overview or a "Layered" view that separates the four action categories
-      into distinct horizontal tracks. Users can also utilize the Action Filter
-      to declutter the timeline by toggling the visibility of specific labels.
-      After completing an analysis, the library provides flexible output
-      options, enabling you to download the processed video, upload a new file,
-      or save the results directly to your Home Dashboard for long-term
-      archival.
-    </p>
-    <br />
-
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 border rounded-lg shadow-sm">
-          <h4 className="font-bold text-slate-800 mb-2">Intelligent Logs</h4>
-          <p className="text-xs text-slate-600">
-            Logs are grouped into action accordions. Each entry lists the start
-            time, average confidence, and total frame count.{" "}
-            <strong>Clicking an entry</strong> instantly seeks the video to that
-            moment.
+          <p className="text-xs text-slate-500 mt-0.5">
+            How raw camera frames are transformed into action classifications in milliseconds.
           </p>
         </div>
-        <div className="p-4 border rounded-lg shadow-sm">
-          <h4 className="font-bold text-slate-800 mb-2">Dynamic Timeline</h4>
-          <p className="text-xs text-slate-600">
-            Visualize action occurrences over time. Use the{" "}
-            <strong>Zoom</strong> tool for micro-analysis or the{" "}
-            <strong>Stack/Layer</strong> toggle to visualize multiple action
-            tracks simultaneously.
-          </p>
-        </div>
+        <span className="text-[11px] font-mono font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+          ~30 FPS Low-Latency Execution
+        </span>
       </div>
-    </div>
-  </div>
-);
 
-/* --- Component: Config Documentation --- */
-const ConfigDoc = () => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="flex items-center gap-3 ">
-      <h1 className="text-4xl font-semibold text-slate-900">
-        System Configuration
-      </h1>
-    </div>
-    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The System Configuration section serves as the technical brain of the
-      application, providing granular control over the two-stage AI pipeline to
-      ensure the model performs optimally for your specific environment. Within
-      this module, you can manage the YOLO Model Selection, choosing between the
-      Base Model (pre-trained on the COCO-Pose dataset for general human
-      detection) and the specialized Aerial Model, which has been fine-tuned
-      using the VisDrone dataset specifically for UAV-mounted cameras and
-      high-altitude perspectives. For action classification, the InfoGCN Model
-      can be toggled between three temporal window settings—16, 32, or 64
-      frames—allowing you to prioritize either rapid detection speed or higher
-      accuracy for complex movements. Furthermore, the Checkpoint selector
-      enables you to switch between different training folds to find the most
-      stable performance for your use case.
-      <br />
-      <br />
-      Precision tuning is managed through the Threshold Settings, where you can
-      adjust the sensitivity of the action classifier to prevent false positives
-      or capture subtle movements. Users can choose between a Global Confidence
-      Threshold for uniform detection or a Per-Action Threshold, which allows
-      for customized sensitivity levels; for instance, you might set a higher
-      sensitivity for critical actions like "Falling" while maintaining a
-      stricter threshold for "Waving." Once adjustments are finalized, clicking
-      Save on the top right persists these settings across the entire platform,
-      ensuring that whether you are analyzing a video in the Library or
-      streaming live in the Real-Time module, the AI operates with your exact
-      performance specifications.
-    </p>
-    <br />
-
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <section className="space-y-3">
-          <h3 className="font-bold flex items-center gap-2">
-            <Cpu className="size-4 text-emerald-500" /> YOLO Model Types
-          </h3>
-          <div className="p-4 bg-white border rounded-lg space-y-3">
-            <div>
-              <span className="text-xs font-bold text-foreground uppercase">
-                Base Model
-              </span>
-              <p className="text-sm text-slate-600">
-                Ultralytics COCO-Pose model. Standard for general human
-                detection.
-              </p>
-            </div>
-            <div className="pt-2 border-t">
-              <span className="text-xs font-bold text-primary uppercase">
-                Aerial Model
-              </span>
-              <p className="text-sm text-slate-600">
-                Fine-tuned on the VisDrone dataset. Optimized for UAV and
-                high-altitude perspectives.
-              </p>
-            </div>
+      {/* Visual Pipeline Nodes */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
+        {/* Node 1 */}
+        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/80 flex flex-col justify-between space-y-3 relative group hover:border-blue-300 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="w-6 h-6 rounded-full bg-slate-700 text-white font-mono font-bold text-[11px] flex items-center justify-center">
+              1
+            </span>
+            <Film className="size-4 text-slate-400" />
           </div>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="font-bold flex items-center gap-2">
-            <Layers className="size-4 text-emerald-500" /> InfoGCN Configuration
-          </h3>
-          <div className="p-4 bg-white border rounded-lg">
-            <p className="text-sm text-slate-600 mb-2">
-              Temporal windows for action recognition:
+          <div>
+            <h4 className="text-xs font-bold text-slate-900">Input Frame</h4>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Live Webcam, Tello Drone, or Uploaded MP4 video.
             </p>
-            <div className="flex flex-1 gap-2 my-5 items-center w-full justify-around">
-              <span className="flex-1 px-2 py-1 bg-primary rounded text-lg text-white text-center">
-                16 Frames
-              </span>
-              <span className="flex-1 px-2 py-1 bg-primary rounded text-lg text-white text-center ">
-                32 Frames
-              </span>
-              <span className="flex-1 px-2 py-1 bg-primary rounded text-lg text-white text-center">
-                64 Frames
-              </span>
-            </div>
           </div>
-        </section>
+          <div className="text-[10px] font-mono text-slate-400 bg-white p-1.5 rounded border border-slate-200">
+            RGB (1920×1080)
+          </div>
+        </div>
+
+        {/* Node 2 */}
+        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col justify-between space-y-3 relative group hover:border-blue-400 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-mono font-bold text-[11px] flex items-center justify-center">
+              2
+            </span>
+            <Target className="size-4 text-blue-600" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-blue-950">YOLOv11-Pose</h4>
+            <p className="text-[11px] text-blue-800 mt-1">
+              Detects human bounding boxes & 17 COCO body keypoints.
+            </p>
+          </div>
+          <div className="text-[10px] font-mono text-blue-700 bg-white p-1.5 rounded border border-blue-200">
+            Stage 1: Spatial Pose
+          </div>
+        </div>
+
+        {/* Node 3 */}
+        <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 flex flex-col justify-between space-y-3 relative group hover:border-indigo-400 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-mono font-bold text-[11px] flex items-center justify-center">
+              3
+            </span>
+            <Activity className="size-4 text-indigo-600" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-indigo-950">BODY12 Remap</h4>
+            <p className="text-[11px] text-indigo-800 mt-1">
+              Converts 17 COCO keypoints into 12-joint graph topology + IoU Track ID.
+            </p>
+          </div>
+          <div className="text-[10px] font-mono text-indigo-700 bg-white p-1.5 rounded border border-indigo-200">
+            Topology Remapping
+          </div>
+        </div>
+
+        {/* Node 4 */}
+        <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/50 flex flex-col justify-between space-y-3 relative group hover:border-purple-400 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="w-6 h-6 rounded-full bg-purple-600 text-white font-mono font-bold text-[11px] flex items-center justify-center">
+              4
+            </span>
+            <Layers className="size-4 text-purple-600" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-purple-950">InfoGCN GCN</h4>
+            <p className="text-[11px] text-purple-800 mt-1">
+              Temporal graph convolution over rolling window (16/32/64 frames).
+            </p>
+          </div>
+          <div className="text-[10px] font-mono text-purple-700 bg-white p-1.5 rounded border border-purple-200">
+            Stage 2: Spatial-Temporal
+          </div>
+        </div>
+
+        {/* Node 5 */}
+        <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 flex flex-col justify-between space-y-3 relative group hover:border-emerald-400 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-mono font-bold text-[11px] flex items-center justify-center">
+              5
+            </span>
+            <CheckCircle2 className="size-4 text-emerald-600" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-emerald-950">Action Output</h4>
+            <p className="text-[11px] text-emerald-800 mt-1">
+              EMA-smoothed labels, distress alert triggers, & pie chart stats.
+            </p>
+          </div>
+          <div className="text-[10px] font-mono text-emerald-700 bg-white p-1.5 rounded border border-emerald-200">
+            Sit, Stand, Walk, Wave
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Section 2: Deep Dive into Stage 1 & Stage 2 with Graphics */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Left: Stage 1 YOLOv11 & BODY12 Skeleton */}
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
+            <Target size={16} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Stage 1: YOLOv11-Pose & BODY12 Skeleton
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              Spatial Keypoint Extraction & Skeletal Topology
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-600 leading-relaxed text-justify">
+          The first stage uses an Ultralytics YOLOv11-Pose network. For every individual in the camera's field of view, YOLO predicts an object bounding box and 17 COCO-format 2D keypoints (x, y, confidence).
+          To eliminate facial noise and match the graph architecture of InfoGCN, these are converted into a standardized <strong>12-Joint Skeletal Graph (BODY12)</strong>.
+        </p>
+
+        {/* Graphic: BODY12 Skeleton Diagram */}
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 flex flex-col items-center justify-center space-y-3 shadow-2xs">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500">
+            12-Joint Graph Node Topology (BODY12)
+          </span>
+
+          <svg width="200" height="210" viewBox="0 0 200 210" className="overflow-visible">
+            {/* Bones (Lines) */}
+            {/* Shoulders */}
+            <line x1="80" y1="50" x2="120" y2="50" stroke="#3b82f6" strokeWidth="3" />
+            {/* Spine / Torso to Mid Hips */}
+            <line x1="100" y1="35" x2="100" y2="50" stroke="#93c5fd" strokeWidth="2" strokeDasharray="3 3" />
+            <line x1="100" y1="50" x2="100" y2="105" stroke="#3b82f6" strokeWidth="3" />
+            {/* Left Arm */}
+            <line x1="80" y1="50" x2="55" y2="85" stroke="#3b82f6" strokeWidth="3" />
+            <line x1="55" y1="85" x2="40" y2="120" stroke="#3b82f6" strokeWidth="3" />
+            {/* Right Arm */}
+            <line x1="120" y1="50" x2="145" y2="85" stroke="#3b82f6" strokeWidth="3" />
+            <line x1="145" y1="85" x2="160" y2="120" stroke="#3b82f6" strokeWidth="3" />
+            {/* Hips */}
+            <line x1="85" y1="105" x2="115" y2="105" stroke="#3b82f6" strokeWidth="3" />
+            {/* Left Leg */}
+            <line x1="85" y1="105" x2="80" y2="150" stroke="#3b82f6" strokeWidth="3" />
+            <line x1="80" y1="150" x2="75" y2="195" stroke="#3b82f6" strokeWidth="3" />
+            {/* Right Leg */}
+            <line x1="115" y1="105" x2="120" y2="150" stroke="#3b82f6" strokeWidth="3" />
+            <line x1="120" y1="150" x2="125" y2="195" stroke="#3b82f6" strokeWidth="3" />
+
+            {/* Joints (Circles) */}
+            {/* 0: Nose */}
+            <circle cx="100" cy="35" r="5" fill="#d97706" />
+            <text x="110" y="38" fill="#b45309" fontSize="9" fontWeight="bold" fontFamily="monospace">0:Nose</text>
+
+            {/* 1,2: Shoulders */}
+            <circle cx="80" cy="50" r="4.5" fill="#2563eb" />
+            <circle cx="120" cy="50" r="4.5" fill="#2563eb" />
+
+            {/* 3,4: Elbows */}
+            <circle cx="55" cy="85" r="4" fill="#2563eb" />
+            <circle cx="145" cy="85" r="4" fill="#2563eb" />
+
+            {/* 5,6: Wrists */}
+            <circle cx="40" cy="120" r="4" fill="#059669" />
+            <circle cx="160" cy="120" r="4" fill="#059669" />
+            <text x="168" y="123" fill="#047857" fontSize="8" fontWeight="bold" fontFamily="monospace">Wrists</text>
+
+            {/* 7,8: Hips */}
+            <circle cx="85" cy="105" r="4.5" fill="#2563eb" />
+            <circle cx="115" cy="105" r="4.5" fill="#2563eb" />
+
+            {/* 9,10: Knees */}
+            <circle cx="80" cy="150" r="4" fill="#2563eb" />
+            <circle cx="120" cy="150" r="4" fill="#2563eb" />
+
+            {/* 11,12: Ankles */}
+            <circle cx="75" cy="195" r="4" fill="#7c3aed" />
+            <circle cx="125" cy="195" r="4" fill="#7c3aed" />
+            <text x="133" y="198" fill="#6d28d9" fontSize="8" fontWeight="bold" fontFamily="monospace">Ankles</text>
+          </svg>
+
+          <div className="text-[10px] text-slate-500 text-center font-mono font-medium">
+            12 × 12 Spatial Adjacency Matrix maps bone connectivity
+          </div>
+        </div>
       </div>
 
-      <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-xl">
-        <h3 className="font-bold text-emerald-900 mb-2 flex items-center gap-2">
-          <Info className="size-4" /> Threshold Tuning
-        </h3>
-        <p className="text-sm text-emerald-800 leading-relaxed">
-          The threshold dictates the sensitivity of the action classifier.
-          <strong> Global Confidence</strong> applies a flat requirement across
-          all actions, while
-          <strong> Per-Action Threshold</strong> allows you to make specific
-          detections (like "Falling") more sensitive than others.
-          <em>
-            {" "}
-            Remember to click Save to apply changes to both Real-Time and
-            Library modules.
-          </em>
+      {/* Right: Stage 2 InfoGCN & Temporal Graph Convolution */}
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+            <Layers size={16} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Stage 2: InfoGCN Action Classifier
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              Spatial-Temporal Graph Convolutional Network
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-600 leading-relaxed text-justify">
+          Instead of analyzing isolated snapshots, human action is fundamentally temporal.
+          InfoGCN maintains a rolling sliding buffer of T consecutive skeletal frames (16, 32, or 64 frames).
+          It applies graph convolutions across spatial joints while computing temporal convolutions along the time axis to model complex body kinematics.
         </p>
+
+        {/* Graphic: Sliding Window Temporal Buffer */}
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+            <span>Sliding Window Temporal Buffer (T frames)</span>
+            <span className="font-mono text-purple-600 font-semibold">Stride = 2 frames</span>
+          </div>
+
+          {/* Graphical Frame Boxes */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-2">
+            {[
+              { label: "t-15", opacity: "opacity-40" },
+              { label: "t-12", opacity: "opacity-50" },
+              { label: "t-8", opacity: "opacity-60" },
+              { label: "t-4", opacity: "opacity-75" },
+              { label: "t-2", opacity: "opacity-90" },
+              { label: "t (now)", opacity: "opacity-100 ring-2 ring-purple-500 bg-purple-50" },
+            ].map((f, i) => (
+              <div
+                key={i}
+                className={`flex-1 min-w-[50px] p-2 rounded-lg border border-slate-200 bg-white text-center text-[10px] font-mono font-semibold ${f.opacity}`}
+              >
+                <div className="text-slate-400">f</div>
+                <div className="text-slate-800">{f.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-1.5 pt-2 border-t border-slate-200 text-xs">
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-slate-600 font-medium">1. Spatial Graph Convolution:</span>
+              <span className="font-mono font-bold text-slate-800">Bone Adjacency</span>
+            </div>
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-slate-600 font-medium">2. Temporal Convolution:</span>
+              <span className="font-mono font-bold text-slate-800">Motion Velocity</span>
+            </div>
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-slate-600 font-medium">3. Exponential Smoothing (EMA):</span>
+              <span className="font-mono font-bold text-purple-600">α = 0.75</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 );
 
-/* --- Component: WebSocket & Backend API Documentation --- */
-const WebSocketDoc = () => (
-  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <div className="flex items-center gap-3">
-      <h1 className="text-4xl font-semibold text-slate-900">
-        Backend &amp; API Architecture
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ── TAB 2: REAL-TIME INFERENCE & DRONE ──                                */
+/* ══════════════════════════════════════════════════════════════════════════ */
+const RealTimeDoc = () => (
+  <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-2 border-b border-slate-200 pb-6">
+      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
+        <Radio size={13} />
+        <span>Live Video Stream & Drone Control</span>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        Real-Time Inference & Distress Detection
       </h1>
-    </div>
-    <p className="text-slate-900 tracking-tight leading-relaxed text-md m-8 text-justify">
-      The backend is a FastAPI server (<code>websocket_api.py</code>) that runs
-      locally alongside the frontend. It owns the AI models, manages all
-      inference work, and exposes its capabilities through two complementary
-      communication channels: a persistent WebSocket connection for real-time
-      frame-by-frame analysis, and a conventional HTTP REST API for everything
-      else — uploading videos, polling job progress, managing history, and
-      adjusting configuration. On startup, the server initializes the full{" "}
-      <strong>ActionRecognitionPipeline</strong>, which loads both the YOLO
-      pose-detection model and the InfoGCN action-classification model into
-      memory (on GPU if available, otherwise CPU) so they are ready to serve
-      requests immediately.
-    </p>
-
-    <br />
-
-    {/* Section 1: WebSocket */}
-    <div className="space-y-4 mb-10">
-      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
-        <Wifi className="size-6 text-blue-500" /> Real-Time WebSocket Channel
-      </h2>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        The Real-Time Inference page communicates with the backend exclusively
-        over a WebSocket connection established at{" "}
-        <code className="bg-black px-1 rounded">
-          ws://…/ws/action-recognition
-        </code>
-        . Unlike a regular HTTP request that opens, sends data, and closes, a
-        WebSocket keeps a single persistent two-way tunnel open for the entire
-        duration of the camera session. This means the frontend can push camera
-        frames to the server continuously and receive annotated responses back
-        without the overhead of repeatedly opening new connections.
+      <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
+        The Real-Time module provides live, continuous situational awareness by streaming browser webcam feeds or Ryze Tello drone video directly into the backend AI pipeline with automated distress signal alerting.
       </p>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        Each frame captured from the browser's camera is sent to the server
-        either as raw binary JPEG bytes or as a JSON text message containing a
-        Base64-encoded image (
-        <code>{`{"type":"frame","image":"<base64>"}`}</code>). The server also
-        accepts a lightweight <code>{`{"type":"ping"}`}</code> message to keep
-        the connection alive during idle moments, responding with a
-        corresponding <code>{`{"type":"pong"}`}</code>. An optional{" "}
-        <code>?quality=72</code> query parameter on the connection URL lets the
-        frontend control the JPEG compression level of annotated frames sent
-        back, balancing image fidelity against bandwidth.
-      </p>
-
-      <div className="p-5 border-l-4 border-blue-500 bg-blue-50/50 space-y-2">
-        <h4 className="font-bold text-blue-900 flex items-center gap-2">
-          <ArrowRightLeft className="size-4" /> Per-Frame Inference Flow
-        </h4>
-        <p className="text-sm text-slate-700 leading-relaxed">
-          Once a frame arrives, the backend runs it through the two-stage
-          pipeline synchronously in a background thread so the async server loop
-          is never blocked. First, the YOLO pose model detects every visible
-          person and extracts 17 body keypoints in COCO format. Those 17
-          keypoints are then remapped to the 12-joint skeleton format (
-          <strong>BODY12</strong>) that the InfoGCN model was trained on. Each
-          detected person is assigned a persistent <strong>track ID</strong>{" "}
-          using Intersection-over-Union (IoU) bounding-box matching across
-          frames, so the same individual keeps the same ID even as they move
-          around the scene.
-        </p>
-        <p className="text-sm text-slate-700 leading-relaxed">
-          For each tracked person, their keypoints are appended to a rolling
-          sliding window (16, 32, or 64 frames depending on the active model
-          preset). The InfoGCN model reads this entire window on every inference
-          stride and outputs a probability distribution across the four action
-          classes: <strong>sitting</strong>, <strong>standing</strong>,{" "}
-          <strong>waving</strong>, and <strong>walking</strong>. To reduce
-          jitter between frames, the raw probabilities are smoothed using an
-          exponential moving average (EMA) before the highest-scoring class is
-          selected as the final prediction. If the winning confidence is below
-          the configured threshold, the label is reported as "Unknown" rather
-          than making a low-quality guess.
-        </p>
-        <p className="text-sm text-slate-700 leading-relaxed">
-          After inference, the server draws color-coded bounding boxes, skeletal
-          overlays, and label captions directly onto the frame using OpenCV. The
-          annotated image is then JPEG-encoded and packed into a binary
-          response: a 4-byte big-endian header carries the byte-length of a JSON
-          metadata block, followed by the JSON itself (containing person IDs,
-          action labels, confidence scores, bounding boxes, and per-joint
-          keypoint coordinates), and finally the raw JPEG bytes of the annotated
-          frame. The frontend unpacks this binary envelope, displays the
-          annotated image in the video canvas, and routes the JSON metadata to
-          the inference log panel.
-        </p>
-      </div>
     </div>
 
-    {/* Section 2: Video Inference REST */}
-    <div className="space-y-4 mb-10">
-      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
-        <Film className="size-6 text-purple-500" /> Video Inference via HTTP
-        (Library Mode)
-      </h2>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        When processing a pre-recorded video in the Library, the frontend uses
-        standard HTTP rather than a WebSocket. The workflow is deliberately
-        asynchronous: the video file is first uploaded to{" "}
-        <code className="bg-black px-1 rounded">POST /api/infer-video</code>,
-        which immediately returns a unique <strong>job ID</strong> and queues
-        the work in a background thread. The frontend then polls{" "}
-        <code className="bg-black px-1 rounded">
-          GET /api/infer-video/{"{job_id}"}/status
-        </code>{" "}
-        at regular intervals to track progress, receiving incremental updates
-        such as the current frame index, total frame count, and a human-readable
-        phase message like "Running pose + action inference…". This
-        polling-based design keeps the UI responsive and the progress bar
-        accurate without tying up a WebSocket for what may be a minutes-long
-        operation.
-      </p>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        Internally the video pipeline runs two parallel background threads: one
-        thread reads and decodes frames from the uploaded file, and a second
-        thread immediately consumes those decoded frames to run YOLO detection
-        and InfoGCN inference. The same track-ID assignment and EMA smoothing
-        logic used in real-time mode is applied here, but with slightly more
-        permissive confidence thresholds to accommodate the wider variety of
-        camera angles found in recorded footage. Annotated frames are written to
-        an output video file as they are produced. Once the job completes, the
-        output video is transcoded to a browser-compatible H.264 MP4 (using
-        FFmpeg if available, falling back to an OpenCV writer), and the status
-        payload is updated with download and streaming URLs that the frontend
-        can present directly in the video player.
-      </p>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 border rounded-lg shadow-sm">
-          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
-            <PackageOpen className="size-4 text-purple-500" /> Job Status Fields
-          </h4>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Each status response includes <strong>status</strong> (queued /
-            processing / completed / failed), <strong>progress_percent</strong>{" "}
-            (0–100), <strong>progress_message</strong> (a plain-English phase
-            description), <strong>frame_index</strong>, and{" "}
-            <strong>total_frames</strong>. On completion it also contains a{" "}
-            <strong>result</strong> object with the annotated video URL,
-            download URL, source preview URL, and full analysis summary.
+    {/* Graphic: Distress Alert Protocol (Waving SOS) */}
+    <div className="p-6 rounded-2xl border border-amber-200 bg-amber-50/50 shadow-xs space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="p-2.5 rounded-xl bg-amber-500 text-white shadow-xs">
+          <ShieldAlert size={20} />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-amber-950">
+            Waving Distress Alert Protocol (SOS Trigger)
+          </h3>
+          <p className="text-xs text-amber-800 mt-0.5">
+            Automated detection of sustained emergency waving gestures.
           </p>
         </div>
-        <div className="p-4 border rounded-lg shadow-sm">
-          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
-            <Database className="size-4 text-purple-500" /> Analysis Summary
-          </h4>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            After all frames are processed, the backend automatically computes a{" "}
-            <strong>grouped_detections</strong> map (detections organized by
-            action label), an <strong>action_confidence_scores</strong> dict,
-            summary metrics (YOLO precision/recall, InfoGCN accuracy, mAP), and
-            an <strong>alert_events</strong> list marking any sustained waving
-            sequences that crossed the distress threshold.
+      </div>
+
+      <p className="text-xs text-amber-900 leading-relaxed text-justify">
+        In search and rescue operations or surveillance, continuous waving is recognized as an active distress call.
+        The system maintains a dedicated frame counter for each tracked individual (Person P#ID).
+        When a person continuously waves for <strong>32 consecutive frames (~1.0 second at 30 FPS)</strong>, the alert engine instantly triggers high-priority visual alarms, flashes the bounding box, and creates an audit record.
+      </p>
+
+      {/* Visual State Machine Diagram */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+        <div className="p-3.5 rounded-xl bg-white border border-amber-200 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+            <span>Stage A: Initial Waving</span>
+            <span className="font-mono text-slate-400">Frame 1–15</span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Action labeled as "Waving". Sliding window accumulates confidence scores.
           </p>
+          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-amber-400 w-1/3" />
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-xl bg-white border border-amber-200 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-bold text-amber-800">
+            <span>Stage B: Sustained Action</span>
+            <span className="font-mono text-amber-600">Frame 16–31</span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Counter approaches threshold. Temporary noise or drops are filtered by EMA.
+          </p>
+          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-amber-500 w-2/3" />
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-bold text-red-800">
+            <span>Stage C: SOS Alert Fired</span>
+            <span className="font-mono text-red-600 font-bold">Frame 32+</span>
+          </div>
+          <p className="text-[11px] text-red-700 font-medium">
+            Threshold met! Red alert card logged, sound notification, and session marked.
+          </p>
+          <div className="h-1.5 w-full bg-red-200 rounded-full overflow-hidden">
+            <div className="h-full bg-red-600 w-full" />
+          </div>
         </div>
       </div>
     </div>
 
-    {/* Section 3: REST API Reference */}
-    <div className="space-y-4 mb-10">
-      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
-        <ArrowRightLeft className="size-6 text-emerald-500" /> REST API
-        Reference
-      </h2>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        Beyond the WebSocket and video-inference endpoints, the backend exposes
-        a set of REST endpoints that the frontend calls for configuration and
-        data management. These calls are ordinary fetch/JSON requests and
-        require no persistent connection.
+    {/* Section 2: Ryze Tello Drone & WebRTC Stream */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
+            <Radio size={16} />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">
+            Ryze Tello Drone Integration
+          </h3>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed text-justify">
+          The system directly integrates with Ryze Tello mini UAVs via local Wi-Fi UDP sockets.
+          The backend connects to the drone's 720p H.264 video feed over port <code>11111</code>, forwarding decoded frames through the Aerial-tuned YOLOv11 and InfoGCN models in real-time.
+        </p>
+        <ul className="text-xs text-slate-600 space-y-2">
+          <li className="flex items-center gap-2">
+            <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+            <span>Auto-connect to Tello Wi-Fi access point</span>
+          </li>
+          <li className="flex items-center gap-2">
+            <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+            <span>High-angle aerial pose detection with VisDrone weights</span>
+          </li>
+          <li className="flex items-center gap-2">
+            <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+            <span>Live battery, temperature, and height telemetry readouts</span>
+          </li>
+        </ul>
+      </div>
+
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+            <Database size={16} />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">
+            Auto-Archiving & History Packaging
+          </h3>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed text-justify">
+          When a live monitoring session is stopped, the application automatically aggregates all per-frame detections, bounding boxes, skeleton keypoints, action classifications, and distress alert events into a single structured session artifact stored in the Home Dashboard for post-incident review.
+        </p>
+        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 font-mono text-[11px]">
+          <div className="text-slate-500">Saved Artifact Includes:</div>
+          <div className="text-blue-700">• Clean Source Video & Annotated MP4</div>
+          <div className="text-purple-700">• Chronological Bounding Box & Pose Logs</div>
+          <div className="text-emerald-700">• Action Distribution Donut Charts & Alerts</div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ── TAB 3: VIDEO LIBRARY & DEEP ANALYTICS ──                             */
+/* ══════════════════════════════════════════════════════════════════════════ */
+const LibraryDoc = () => (
+  <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-2 border-b border-slate-200 pb-6">
+      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold">
+        <PlayCircle size={13} />
+        <span>Post-Analysis & Deep Inspection</span>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        Video Library & Multi-Tab Analytics
+      </h1>
+      <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
+        The Video Library allows operators to upload pre-recorded MP4/MOV footage, execute the full AI pipeline asynchronously, and inspect granular frame metadata, person action histories, and interactive pie charts.
       </p>
+    </div>
+
+    {/* Graphic: Spotlight Mode & Video Overlay Toggles */}
+    <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider font-mono flex items-center gap-2">
+            <Eye className="size-4 text-blue-600" />
+            Interactive Spotlight Focus & Overlay Controls
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Isolate specific individuals or toggle between raw video and backend annotations.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Spotlight Focus */}
+        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2.5">
+          <div className="flex items-center gap-2 text-blue-900 font-bold text-xs">
+            <Target size={14} className="text-blue-600" />
+            <span>1. Person Spotlight Mask</span>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed text-justify">
+            Click any person's bounding box directly on the video. The surroundings smoothly dim to 78% black while the focused person remains brightly illuminated through an SVG cutout mask.
+          </p>
+        </div>
+
+        {/* Card 2: Annotations On/Off */}
+        <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5">
+          <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+            <Eye size={14} className="text-slate-600" />
+            <span>2. Annotations: On / Off</span>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed text-justify">
+            Seamlessly switches the video stream between the backend-rendered annotated video and the raw source video without resetting the playback timestamp or pause state.
+          </p>
+        </div>
+
+        {/* Card 3: Browser Overlay On/Off */}
+        <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2.5">
+          <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+            <Layers size={14} className="text-slate-600" />
+            <span>3. Browser Overlay: On / Off</span>
+          </div>
+          <p className="text-xs text-slate-600 leading-relaxed text-justify">
+            Hides the frontend-drawn HTML/SVG bounding boxes and tags so operators can watch the video cleanly with only the model's burnt-in visualizations.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Section 2: Tabbed Sidebar Overview & Sample Action Pie Chart */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Tab Navigation Breakdown */}
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-indigo-100 text-indigo-700">
+            <Activity size={16} />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">
+            4-Tab Analytics Sidebar
+          </h3>
+        </div>
+
+        <div className="space-y-3 text-xs">
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <Activity size={12} className="text-blue-600" />
+              <span>Tab 1: Action Logs</span>
+            </div>
+            <p className="text-slate-500">
+              Collapsible action accordions and emergency alerts. Click any instance to jump to that timestamp.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <Film size={12} className="text-purple-600" />
+              <span>Tab 2: Frame Inspector</span>
+            </div>
+            <p className="text-slate-500">
+              Step through individual frames, check waving distress alerts, and view the frame's action pie chart.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <Users size={12} className="text-emerald-600" />
+              <span>Tab 3: Person Inspector (P#ID)</span>
+            </div>
+            <p className="text-slate-500">
+              Full lifetime action distribution pie chart, current frame confidence scores, and clickable chronological history timeline.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <PieChart size={12} className="text-amber-600" />
+              <span>Tab 4: Whole Video Overview</span>
+            </div>
+            <p className="text-slate-500">
+              Session-wide action distribution donut chart and list of all tracked individuals.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Visual Live Interactive Pie Chart Preview */}
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-amber-100 text-amber-700">
+              <PieChart size={16} />
+            </div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Interactive Action Pie Charts
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400">Interactive Preview</span>
+        </div>
+
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Hover over the chart slices below to inspect action proportions and frame counts:
+        </p>
+
+        {/* Live Pie Chart Sample */}
+        <ActionPieChart
+          data={[
+            { action: "Walking", count: 85, avgConfidence: 0.92 },
+            { action: "Standing", count: 45, avgConfidence: 0.88 },
+            { action: "Sitting", count: 30, avgConfidence: 0.95 },
+            { action: "Waving", count: 18, avgConfidence: 0.91 },
+          ]}
+          size={140}
+          donut={true}
+        />
+
+        {/* Keyboard Shortcut Note */}
+        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs">
+            <Keyboard size={14} className="text-blue-600" />
+            <span className="font-bold text-slate-900">Precision Frame Stepping</span>
+          </div>
+          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+            <kbd className="px-2 py-0.5 rounded bg-white border border-slate-300 shadow-2xs font-bold text-slate-800">←</kbd>
+            <kbd className="px-2 py-0.5 rounded bg-white border border-slate-300 shadow-2xs font-bold text-slate-800">→</kbd>
+            <span className="text-slate-500 font-medium ml-1">1 Frame</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ── TAB 4: MODEL CONFIGURATION & TUNING ──                               */
+/* ══════════════════════════════════════════════════════════════════════════ */
+const ConfigDoc = () => (
+  <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-2 border-b border-slate-200 pb-6">
+      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold">
+        <Settings2 size={13} />
+        <span>Pipeline Customization & Weights</span>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        System Configuration & Model Tuning
+      </h1>
+      <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
+        Fine-tune YOLO spatial weights, InfoGCN temporal frame presets, and per-action sensitivity thresholds to optimize inference accuracy for specific camera environments.
+      </p>
+    </div>
+
+    {/* Section 1: YOLO Model Comparison */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+            Preset A
+          </span>
+          <Cpu className="size-4 text-slate-400" />
+        </div>
+        <h3 className="text-base font-bold text-slate-900">
+          YOLO Base Pose (COCO-Pose)
+        </h3>
+        <p className="text-xs text-slate-600 leading-relaxed text-justify">
+          Standard pre-trained YOLOv11-Pose weights optimized for horizontal, eye-level, and indoor camera angles.
+          Best for standard security cameras, webcams, and ground-level monitoring where individuals occupy a large portion of the frame.
+        </p>
+      </div>
+
+      <div className="p-6 rounded-2xl border border-blue-200 bg-blue-50/50 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold font-mono text-blue-700 bg-blue-200/60 px-2 py-0.5 rounded">
+            Preset B (Recommended for Drones)
+          </span>
+          <Radio className="size-4 text-blue-600" />
+        </div>
+        <h3 className="text-base font-bold text-blue-950">
+          YOLO Aerial Pose (VisDrone Fine-Tuned)
+        </h3>
+        <p className="text-xs text-blue-900 leading-relaxed text-justify">
+          Fine-tuned specifically on high-altitude UAV datasets (VisDrone).
+          Robust against extreme top-down angles, small human scale, motion blur, and perspective distortion typical in drone operations.
+        </p>
+      </div>
+    </div>
+
+    {/* Section 2: InfoGCN Temporal Depth Presets */}
+    <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+          <Layers size={16} />
+        </div>
+        <h3 className="text-sm font-bold text-slate-900">
+          InfoGCN Temporal Window Presets
+        </h3>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-xs text-slate-900">Frame_16</span>
+            <span className="text-[10px] font-mono text-slate-500">~0.5 sec</span>
+          </div>
+          <p className="text-[11px] text-slate-600 leading-relaxed">
+            Ultra-fast responsiveness with minimum frame latency. Ideal for rapid reaction detection.
+          </p>
+          <div className="text-[10px] font-mono text-purple-700 bg-purple-50 p-1.5 rounded">
+            EMA α = 0.65
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/50 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-xs text-purple-950">Frame_32 (Balanced)</span>
+            <span className="text-[10px] font-mono text-purple-700">~1.0 sec</span>
+          </div>
+          <p className="text-[11px] text-purple-900 leading-relaxed">
+            Standard balance between temporal stability and response speed. Recommended default.
+          </p>
+          <div className="text-[10px] font-mono text-purple-800 bg-white p-1.5 rounded border border-purple-200">
+            EMA α = 0.75
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-xs text-slate-900">Frame_64</span>
+            <span className="text-[10px] font-mono text-slate-500">~2.1 sec</span>
+          </div>
+          <p className="text-[11px] text-slate-600 leading-relaxed">
+            Maximum temporal context. Highest noise resistance against single-frame jitter.
+          </p>
+          <div className="text-[10px] font-mono text-purple-700 bg-purple-50 p-1.5 rounded">
+            EMA α = 0.82
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ── TAB 5: BACKEND & API ARCHITECTURE ──                                 */
+/* ══════════════════════════════════════════════════════════════════════════ */
+const WebSocketDoc = () => (
+  <div className="space-y-8 animate-in fade-in duration-300">
+    <div className="space-y-2 border-b border-slate-200 pb-6">
+      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
+        <Server size={13} />
+        <span>FastAPI & Real-Time Engine</span>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        Backend & Communication Architecture
+      </h1>
+      <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
+        The application is powered by a high-performance Python FastAPI backend (<code>websocket_api.py</code>) that bridges WebSocket streaming for live cameras with background asynchronous REST workers for video file processing.
+      </p>
+    </div>
+
+    {/* Graphic: WebSocket Binary Protocol */}
+    <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
+          <Wifi size={16} />
+        </div>
+        <h3 className="text-sm font-bold text-slate-900">
+          Real-Time WebSocket Binary Envelope Protocol
+        </h3>
+      </div>
+
+      <p className="text-xs text-slate-600 leading-relaxed text-justify">
+        To minimize JSON string serialization overhead and achieve sub-35ms latencies, real-time responses over <code>/ws/action-recognition</code> utilize a custom binary packet layout:
+      </p>
+
+      {/* Packet Layout Diagram */}
+      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 font-mono text-xs space-y-3 shadow-2xs">
+        <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold font-mono">
+          Binary Response Structure (Endian: Big-Endian)
+        </span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-center">
+          <div className="p-3 rounded-xl bg-blue-50/90 border border-blue-200 text-blue-950 shadow-2xs">
+            <div className="text-[10px] text-blue-600 font-bold">Bytes 0–3 (4 Bytes)</div>
+            <div className="font-bold mt-1 text-xs text-blue-900">JSON Length (N)</div>
+          </div>
+          <div className="p-3 rounded-xl bg-purple-50/90 border border-purple-200 text-purple-950 shadow-2xs">
+            <div className="text-[10px] text-purple-600 font-bold">Bytes 4 → (4 + N)</div>
+            <div className="font-bold mt-1 text-xs text-purple-900">Detections JSON Block</div>
+          </div>
+          <div className="p-3 rounded-xl bg-emerald-50/90 border border-emerald-200 text-emerald-950 shadow-2xs">
+            <div className="text-[10px] text-emerald-600 font-bold">Bytes (4 + N) → End</div>
+            <div className="font-bold mt-1 text-xs text-emerald-900">Annotated JPEG Frame</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Section 2: REST Endpoints Table */}
+    <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+          <ArrowRightLeft className="size-4 text-emerald-600" />
+          Primary REST API Endpoints
+        </h3>
+      </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full text-sm text-left">
+        <table className="w-full text-xs text-left">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 font-semibold text-slate-700">
-                Method &amp; Path
-              </th>
-              <th className="px-4 py-3 font-semibold text-slate-700">
-                Purpose
-              </th>
+              <th className="px-4 py-3 font-bold text-slate-700 font-mono">Method & Endpoint</th>
+              <th className="px-4 py-3 font-bold text-slate-700">Protocol & Purpose</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {[
-              [
-                "GET /health",
-                "Confirms the server is running and returns the active device (CPU/GPU) and loaded model name.",
-              ],
-              [
-                "GET /api/config",
-                "Returns all current pipeline settings: window size, EMA alpha, YOLO model choice, confidence thresholds, and the full list of available actions.",
-              ],
-              [
-                "POST /api/config",
-                "Applies updated settings to the live pipeline. Changes take effect immediately for both real-time and library inference without restarting.",
-              ],
-              [
-                "GET /api/models",
-                "Lists all InfoGCN checkpoint files found in the results/ directory alongside the currently active model name.",
-              ],
-              [
-                "POST /api/models/active",
-                "Hot-swaps the active InfoGCN model. The server applies the matching frame-window preset (16/32/64) before loading the new weights so inference remains consistent.",
-              ],
-              [
-                "POST /api/infer-video",
-                "Accepts an uploaded video file and starts a background inference job. Returns a job_id immediately.",
-              ],
-              [
-                "GET /api/infer-video/{job_id}/status",
-                "Polls the progress of a running video job. Returns status, percent complete, current frame, and — when done — result URLs.",
-              ],
-              [
-                "POST /analyze-video",
-                "Accepts a pre-built detections log and summary metrics and returns a structured analysis response (grouped detections, alert events, confidence scores).",
-              ],
-              [
-                "GET /api/history",
-                "Returns a list of all saved history entries sorted by creation date (newest first).",
-              ],
-              [
-                "POST /api/history",
-                "Saves a completed analysis — copying the annotated video and source preview into a permanent history directory with associated metadata and analysis JSON.",
-              ],
-              [
-                "GET /api/history/{entry_id}",
-                "Returns full detail for a single history entry including the complete analysis JSON.",
-              ],
-              [
-                "DELETE /api/history/{entry_id}",
-                "Permanently deletes a single history entry and its associated files.",
-              ],
-              ["DELETE /api/history", "Clears all history entries at once."],
-            ].map(([method, desc]) => (
-              <tr key={method} className="hover:bg-slate-50/50">
-                <td className="px-4 py-3 font-mono text-xs text-blue-700 whitespace-nowrap align-top">
-                  {method}
-                </td>
-                <td className="px-4 py-3 text-slate-600 align-top">{desc}</td>
+              ["WS /ws/action-recognition", "Persistent two-way binary stream for camera frames & real-time inference."],
+              ["POST /api/infer-video", "Uploads MP4/MOV and spawns background video processing worker. Returns job_id."],
+              ["GET /api/infer-video/{id}/status", "Polls progress percent (0–100%), frame index, and annotated video URL."],
+              ["GET /api/config", "Fetches current model parameters, thresholds, and temporal window sizes."],
+              ["POST /api/config", "Hot-updates inference settings without server restart."],
+              ["GET /api/history", "Lists all saved sessions with timestamp, alerts, and action summaries."],
+              ["POST /api/history", "Persists completed video analysis and JSON metadata to local storage."],
+            ].map(([endpoint, desc], idx) => (
+              <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                <td className="px-4 py-2.5 font-mono font-bold text-blue-700 whitespace-nowrap">{endpoint}</td>
+                <td className="px-4 py-2.5 text-slate-600">{desc}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
-
-    {/* Section 4: Model presets */}
-    <div className="space-y-4 mb-4">
-      <h2 className="text-2xl font-semibold text-slate-800 flex items-center gap-2">
-        <Layers className="size-6 text-orange-500" /> Frame-Window Presets &amp;
-        EMA Smoothing
-      </h2>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        The backend ships with three named presets — Frame_16, Frame_32, and
-        Frame_64 — that control the temporal depth of every inference pass.
-        Selecting a preset via the model selector does more than just swap
-        weights: it simultaneously updates the sliding-window size, the minimum
-        number of frames required before a prediction is attempted, the
-        inference stride (how often the model runs relative to the frame rate),
-        the EMA smoothing alpha, and both the real-time and video YOLO
-        confidence thresholds. All these values are applied atomically to the
-        live pipeline before the new model weights are loaded, ensuring the
-        checkpoint's training configuration and the runtime configuration always
-        stay in sync.
-      </p>
-      <p className="text-slate-700 leading-relaxed text-justify">
-        The EMA alpha value deserves special mention because it directly shapes
-        how "sticky" the displayed action label feels to the end user. A higher
-        alpha (like Frame_64's 0.82) gives more weight to the historical
-        average, producing very stable labels that resist single-frame noise at
-        the cost of slightly slower reaction to a genuine action change. A lower
-        alpha (Frame_16's 0.65) reacts more quickly to new detections but may
-        flicker more noticeably between classes. Tuning this alongside the
-        action confidence threshold gives operators precise control over the
-        trade-off between responsiveness and stability for their specific
-        operational environment.
-      </p>
-
-      <div className="p-5 bg-orange-50 border border-orange-100 rounded-xl">
-        <h4 className="font-bold text-orange-900 mb-2 flex items-center gap-2">
-          <Info className="size-4" /> Track Identity &amp; Missed-Frame
-          Tolerance
-        </h4>
-        <p className="text-sm text-orange-800 leading-relaxed">
-          Each detected person is tracked across frames using IoU bounding-box
-          matching. If a person temporarily disappears from the frame — due to
-          occlusion, motion blur, or a low-confidence detection — the track is
-          kept alive for up to <strong>15 frames</strong> in real-time mode and{" "}
-          <strong>24 frames</strong> in video mode before being discarded. This
-          tolerance prevents spurious track splits when someone briefly passes
-          behind an obstacle, ensuring that action labels accumulated before the
-          disappearance are not thrown away and the track ID remains consistent
-          when the person reappears.
-        </p>
       </div>
     </div>
   </div>

@@ -8,8 +8,10 @@ import ProjectNameDialog from "./library/project-name-dialog";
 import SaveToast from "./library/save-toast";
 import LeaveGuardDialog from "./library/leave-guard-dialog";
 import LeaveProgressDialog from "./library/leave-progress-dialog";
+import PersonDetailDialog from "./library/person-detail-dialog";
+import InDepthAnalysisDialog from "./library/in-depth-analysis-dialog";
 import { useBlocker, useSearchParams } from "react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 const Library = () => {
   const [searchParams] = useSearchParams();
@@ -41,6 +43,28 @@ const Library = () => {
     actionTimelineTags,
     timelineDurationSeconds,
     isPlaying,
+    focusedPersonId,
+    showPersonDetailDialog,
+    inspectedPersonId,
+    showInDepthDialog,
+    sidebarTab,
+    setSidebarTab,
+    showVideoAnnotations,
+    toggleVideoAnnotations,
+    showBrowserOverlay,
+    toggleBrowserOverlay,
+    allDetections,
+    detectionsByFrame,
+    detectionsByPerson,
+    currentFrameNumber,
+    currentFrameDetections,
+    seekFps,
+    focusPerson,
+    clearFocus,
+    openPersonDetails,
+    closePersonDetails,
+    openInDepthDetails,
+    closeInDepthDetails,
     setCurrentTimeSeconds,
     setVideoDurationSeconds,
     setResultVideoUrl,
@@ -58,6 +82,11 @@ const Library = () => {
     togglePlayPause,
     handlePlaybackStateChange,
   } = useLibraryState(historyId);
+
+  const inspectedPersonDetections = useMemo(() => {
+    if (inspectedPersonId === null) return [];
+    return detectionsByPerson.get(inspectedPersonId) ?? [];
+  }, [detectionsByPerson, inspectedPersonId]);
 
   const canSaveToHistory =
     Boolean(analysis) && Boolean(resultDownloadUrl ?? resultVideoUrl);
@@ -149,6 +178,16 @@ const Library = () => {
               progressTotalFrames={progressTotalFrames}
               canSaveToHistory={canSaveToHistory}
               historySavedAt={historySavedAt}
+              currentFrameDetections={currentFrameDetections}
+              focusedPersonId={focusedPersonId}
+              analysis={analysis}
+              showVideoAnnotations={showVideoAnnotations}
+              onToggleVideoAnnotations={toggleVideoAnnotations}
+              showBrowserOverlay={showBrowserOverlay}
+              onToggleBrowserOverlay={toggleBrowserOverlay}
+              onFocusPerson={focusPerson}
+              onClearFocus={clearFocus}
+              onOpenPersonDetails={openPersonDetails}
               onRequestUpload={handleRequestUpload}
               onFileChange={handleFileChange}
               onRunInference={handleRunInference}
@@ -166,12 +205,26 @@ const Library = () => {
             />
           </div>
 
-          {/* 2. Logs Panel (33%) */}
+          {/* 2. Logs & Details Panel (33%) */}
           <div className="w-1/3 h-full border-l border-gray-200 overflow-hidden rounded-lg">
             <Logs
               analysis={analysis}
               onSeekToFrame={seekToFrame}
               selectedTag={selectedTag}
+              focusedPersonId={focusedPersonId}
+              onFocusPerson={focusPerson}
+              onClearFocus={clearFocus}
+              onOpenPersonDetails={openPersonDetails}
+              currentFrameNumber={currentFrameNumber}
+              totalFrames={Math.max(
+                progressTotalFrames || 0,
+                Math.round(timelineDurationSeconds * seekFps),
+              )}
+              seekFps={seekFps}
+              detectionsByFrame={detectionsByFrame}
+              detectionsByPerson={detectionsByPerson}
+              sidebarTab={sidebarTab}
+              onTabChange={setSidebarTab}
             />
           </div>
         </div>
@@ -193,6 +246,31 @@ const Library = () => {
           />
         </div>
       </div>
+
+      {/* Person Detail Inspector Dialog */}
+      <PersonDetailDialog
+        isOpen={showPersonDetailDialog}
+        personId={inspectedPersonId}
+        currentFrameNumber={currentFrameNumber}
+        personDetections={inspectedPersonDetections}
+        onClose={closePersonDetails}
+        onSeekToFrame={seekToFrame}
+      />
+
+      {/* In-Depth Video & Frame Analysis Dialog */}
+      <InDepthAnalysisDialog
+        isOpen={showInDepthDialog}
+        onClose={closeInDepthDetails}
+        analysis={analysis}
+        currentFrameNumber={currentFrameNumber}
+        totalFrames={Math.max(progressTotalFrames || 0, Math.round(timelineDurationSeconds * seekFps))}
+        seekFps={seekFps}
+        onSeekToFrame={seekToFrame}
+        onFocusPerson={focusPerson}
+        onOpenPersonDetails={openPersonDetails}
+        detectionsByFrame={detectionsByFrame}
+        detectionsByPerson={detectionsByPerson}
+      />
 
       {/* Project Name Dialog */}
       <ProjectNameDialog

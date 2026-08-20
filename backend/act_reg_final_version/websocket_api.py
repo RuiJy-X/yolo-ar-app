@@ -1008,6 +1008,8 @@ class Detection(BaseModel):
     person_id: int = Field(..., ge=0)
     timestamp: str
     all_scores: dict[str, float] | None = None
+    bbox: list[float] | None = None
+    keypoints: list[dict[str, Any]] | None = None
 
 
 class SummaryMetrics(BaseModel):
@@ -2638,6 +2640,11 @@ class ActionRecognitionPipeline:
                         label = track.last_action_label
                         confidence = track.last_action_conf
                         all_scores = track.last_all_scores
+                        bbox_list = [float(v) for v in detection["bbox"].tolist()] if hasattr(detection["bbox"], "tolist") else [float(v) for v in detection["bbox"]]
+                        kpts_list = [
+                            {"id": i, "x": float(kpt[0]), "y": float(kpt[1]), "confidence": float(kpt[2])}
+                            for i, kpt in enumerate(track.last_keypoints)
+                        ] if track.last_keypoints is not None and len(track.last_keypoints) > 0 else None
                         counters["detections_log"].append(
                             Detection(
                                 frame_number=frame_index,
@@ -2646,6 +2653,8 @@ class ActionRecognitionPipeline:
                                 person_id=track.track_id,
                                 timestamp=frame_to_timestamp(frame_index, fps),
                                 all_scores=all_scores or None,
+                                bbox=bbox_list,
+                                keypoints=kpts_list,
                             )
                         )
                         color = CLASS_COLOR_MAP.get(label.lower(), DEFAULT_COLOR)

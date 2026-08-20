@@ -1,3 +1,10 @@
+export type Keypoint = {
+  id: number;
+  x: number;
+  y: number;
+  confidence: number;
+};
+
 export type Detection = {
   frame_number: number;
   action_label: string;
@@ -5,6 +12,8 @@ export type Detection = {
   person_id: number;
   timestamp: string;
   all_scores?: Record<string, number>;
+  bbox?: [number, number, number, number] | number[];
+  keypoints?: Keypoint[] | number[][];
 };
 
 export type SummaryMetrics = {

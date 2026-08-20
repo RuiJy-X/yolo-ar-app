@@ -349,6 +349,8 @@ const RealTime = () => {
             person_id: person.person_id ?? 0,
             timestamp,
             all_scores: person.all_scores ?? undefined,
+            bbox: person.bbox ?? undefined,
+            keypoints: person.keypoints ?? undefined,
           });
         });
       }

@@ -216,6 +216,55 @@ export const useLibraryState = (historyId?: string | null) => {
     string | null
   >(null);
 
+  // Focus & metadata inspector states
+  const [focusedPersonId, setFocusedPersonId] = useState<number | null>(null);
+  const [showPersonDetailDialog, setShowPersonDetailDialog] = useState(false);
+  const [inspectedPersonId, setInspectedPersonId] = useState<number | null>(null);
+  const [showInDepthDialog, setShowInDepthDialog] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"detections" | "frame" | "person" | "overview">("detections");
+  const [showVideoAnnotations, setShowVideoAnnotations] = useState(true);
+  const [showBrowserOverlay, setShowBrowserOverlay] = useState(true);
+
+  const allDetections = useMemo<Detection[]>(() => {
+    if (!analysis?.grouped_detections) return [];
+    const list: Detection[] = [];
+    Object.values(analysis.grouped_detections).forEach((group) => {
+      if (Array.isArray(group)) {
+        list.push(...group);
+      }
+    });
+    return list.sort((a, b) => a.frame_number - b.frame_number);
+  }, [analysis]);
+
+  const detectionsByFrame = useMemo<Map<number, Detection[]>>(() => {
+    const map = new Map<number, Detection[]>();
+    for (const d of allDetections) {
+      const arr = map.get(d.frame_number) ?? [];
+      arr.push(d);
+      map.set(d.frame_number, arr);
+    }
+    return map;
+  }, [allDetections]);
+
+  const detectionsByPerson = useMemo<Map<number, Detection[]>>(() => {
+    const map = new Map<number, Detection[]>();
+    for (const d of allDetections) {
+      const arr = map.get(d.person_id) ?? [];
+      arr.push(d);
+      map.set(d.person_id, arr);
+    }
+    return map;
+  }, [allDetections]);
+
+  const currentFrameNumber = useMemo(() => {
+    const safeFps = seekFps > 0 ? seekFps : 30;
+    return Math.max(1, Math.round(currentTimeSeconds * safeFps));
+  }, [currentTimeSeconds, seekFps]);
+
+  const currentFrameDetections = useMemo(() => {
+    return detectionsByFrame.get(currentFrameNumber) ?? [];
+  }, [detectionsByFrame, currentFrameNumber]);
+
   const replaceSourceVideoUrl = (nextUrl: string | null) => {
     setSourceVideoUrl((previous) => {
       if (previous?.startsWith("blob:")) URL.revokeObjectURL(previous);
@@ -656,6 +705,10 @@ export const useLibraryState = (historyId?: string | null) => {
     setSaveToastMessage(null);
     setCurrentTimeSeconds(0);
     setVideoDurationSeconds(0);
+    setFocusedPersonId(null);
+    setShowPersonDetailDialog(false);
+    setInspectedPersonId(null);
+    setShowInDepthDialog(false);
   };
 
   const restoreRecentVideo = (entry: SessionVideoEntry) => {
@@ -873,8 +926,91 @@ export const useLibraryState = (historyId?: string | null) => {
     }
   };
 
+  const stepFrameBackward = () => {
+    if (!videoPlayerRef.current) return;
+    const safeFps = seekFps > 0 ? seekFps : 30;
+    const currentFrame = Math.round(
+      (videoPlayerRef.current.currentTime || 0) * safeFps,
+    );
+    const targetFrame = Math.max(0, currentFrame - 1);
+    seekToFrame(targetFrame);
+  };
+
+  const stepFrameForward = () => {
+    if (!videoPlayerRef.current) return;
+    const safeFps = seekFps > 0 ? seekFps : 30;
+    const maxFrame = Math.max(
+      progressTotalFrames || 0,
+      Math.round(timelineDurationSeconds * safeFps),
+    );
+    const currentFrame = Math.round(
+      (videoPlayerRef.current.currentTime || 0) * safeFps,
+    );
+    const targetFrame = Math.min(maxFrame, currentFrame + 1);
+    seekToFrame(targetFrame);
+  };
+
+  // Keyboard navigation: ArrowLeft steps 1 frame back, ArrowRight steps 1 frame forward
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't intercept when user is typing in form inputs or editable areas
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Only handle when a video is loaded
+      if (!videoPlayerRef.current || (!sourceVideoUrl && !resultVideoUrl)) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        stepFrameBackward();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        stepFrameForward();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    sourceVideoUrl,
+    resultVideoUrl,
+    seekFps,
+    timelineDurationSeconds,
+    progressTotalFrames,
+  ]);
+
   const handlePlaybackStateChange = (playing: boolean) => {
     setIsPlaying(playing);
+  };
+
+  const toggleVideoAnnotations = () => {
+    const video = videoPlayerRef.current;
+    const currentTime = video ? video.currentTime : 0;
+    const isPlayingNow = video ? !video.paused : false;
+
+    setShowVideoAnnotations((prev) => !prev);
+
+    setTimeout(() => {
+      if (videoPlayerRef.current) {
+        videoPlayerRef.current.currentTime = currentTime;
+        if (isPlayingNow) {
+          videoPlayerRef.current.play().catch(() => {});
+        }
+      }
+    }, 50);
+  };
+
+  const toggleBrowserOverlay = () => {
+    setShowBrowserOverlay((prev) => !prev);
   };
 
   return {
@@ -929,7 +1065,50 @@ export const useLibraryState = (historyId?: string | null) => {
     restoreRecentVideo,
     resetCurrentSession,
 
+    // Focus & metadata inspector
+    focusedPersonId,
+    showPersonDetailDialog,
+    inspectedPersonId,
+    showInDepthDialog,
+    sidebarTab,
+    setSidebarTab,
+    showAnnotations: showVideoAnnotations,
+    setShowAnnotations: setShowVideoAnnotations,
+    toggleAnnotations: toggleVideoAnnotations,
+    showVideoAnnotations,
+    setShowVideoAnnotations,
+    toggleVideoAnnotations,
+    showBrowserOverlay,
+    setShowBrowserOverlay,
+    toggleBrowserOverlay,
+    allDetections,
+    detectionsByFrame,
+    detectionsByPerson,
+    currentFrameNumber,
+    currentFrameDetections,
+    seekFps,
+    focusPerson: (personId: number) => {
+      setFocusedPersonId(personId);
+      setInspectedPersonId(personId);
+      setSidebarTab("person");
+    },
+    clearFocus: () => {
+      setFocusedPersonId(null);
+    },
+    openPersonDetails: (personId: number) => {
+      setInspectedPersonId(personId);
+      setFocusedPersonId(personId);
+      setSidebarTab("person");
+    },
+    closePersonDetails: () => setShowPersonDetailDialog(false),
+    openInDepthDetails: (tab: "detections" | "frame" | "person" | "overview" = "frame") => {
+      setSidebarTab(tab);
+    },
+    closeInDepthDetails: () => setShowInDepthDialog(false),
+
     togglePlayPause,
     handlePlaybackStateChange,
+    stepFrameBackward,
+    stepFrameForward,
   };
 };
