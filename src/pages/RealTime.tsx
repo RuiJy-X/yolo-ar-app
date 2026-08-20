@@ -638,7 +638,11 @@ const RealTime = () => {
                   : "bg-blue-50 text-blue-600 border-blue-100/80"
               }`}
             >
-              {isTello ? <Plane className="h-5 w-5" /> : <Save className="h-5 w-5" />}
+              {isTello ? (
+                <Plane className="h-5 w-5" />
+              ) : (
+                <Save className="h-5 w-5" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-semibold text-slate-900">
@@ -664,7 +668,9 @@ const RealTime = () => {
             <Button
               size="sm"
               className={`${
-                isTello ? "bg-cyan-600 hover:bg-cyan-700" : "bg-blue-600 hover:bg-blue-700"
+                isTello
+                  ? "bg-cyan-600 hover:bg-cyan-700"
+                  : "bg-blue-600 hover:bg-blue-700"
               } text-white text-xs h-8 px-4 rounded-lg shadow-sm font-medium gap-1.5`}
               onClick={() => saveRealtimeSession(annotated, source)}
             >

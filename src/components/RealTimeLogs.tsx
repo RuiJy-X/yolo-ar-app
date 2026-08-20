@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Loader2,
-  PanelRightClose,
   PanelRightOpen,
   Save,
 } from "lucide-react";
@@ -11,12 +11,18 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "./ui/badge";
 
-export type RealTimeSaveState = {
-  status: "idle" | "pending_confirmation" | "uploading" | "saving" | "done";
-  annotated?: any;
-  source?: any;
-  historyId?: string;
-};
+export type RealTimeSaveState =
+  | { status: "idle" }
+  | {
+      status: "pending_confirmation";
+      annotated?: any;
+      source?: any;
+      isTello?: boolean;
+    }
+  | { status: "uploading"; message?: string }
+  | { status: "saving" }
+  | { status: "done"; historyId?: string }
+  | { status: "error"; message?: string };
 
 export type RealTimeLogsProps = {
   logs: string[];
@@ -84,7 +90,7 @@ export const RealTimeLogs: React.FC<RealTimeLogsProps> = ({
             Inference Logs
           </h3>
         </div>
-        {onToggleCollapse && (
+        {/* {onToggleCollapse && (
           <button
             type="button"
             aria-label="Collapse inference logs"
@@ -93,7 +99,7 @@ export const RealTimeLogs: React.FC<RealTimeLogsProps> = ({
           >
             <PanelRightClose size={16} />
           </button>
-        )}
+        )} */}
       </div>
 
       {/* Live stats grid */}
@@ -156,7 +162,9 @@ export const RealTimeLogs: React.FC<RealTimeLogsProps> = ({
             <button
               type="button"
               className="text-xs bg-[#0052ff] hover:bg-[#0043d1] text-white font-medium px-2.5 py-1 rounded shadow-sm transition-colors"
-              onClick={() => onSaveSession(saveState.annotated, saveState.source)}
+              onClick={() =>
+                onSaveSession(saveState.annotated, saveState.source)
+              }
             >
               Save
             </button>
@@ -175,7 +183,9 @@ export const RealTimeLogs: React.FC<RealTimeLogsProps> = ({
         <div className="border-b border-blue-100 bg-blue-50 px-3.5 py-2.5 shrink-0 flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 text-[#0052ff] animate-spin shrink-0" />
           <span className="text-xs font-medium text-blue-900 truncate">
-            {saveState.status === "uploading" ? "Uploading video session..." : "Saving analysis to history..."}
+            {saveState.status === "uploading"
+              ? "Uploading video session..."
+              : "Saving analysis to history..."}
           </span>
         </div>
       )}
@@ -192,6 +202,22 @@ export const RealTimeLogs: React.FC<RealTimeLogsProps> = ({
             onClick={() => navigate(`/library?history=${saveState.historyId}`)}
           >
             View in Library
+          </button>
+        </div>
+      )}
+
+      {saveState.status === "error" && (
+        <div className="border-b border-red-200 bg-red-50 px-3.5 py-2.5 shrink-0 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-red-800 font-semibold truncate">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0" />
+            <span className="truncate">{saveState.message || "Save failed"}</span>
+          </div>
+          <button
+            type="button"
+            className="text-xs text-red-600 hover:text-red-900 px-2 py-1 font-medium shrink-0"
+            onClick={onDiscardSession}
+          >
+            Dismiss
           </button>
         </div>
       )}
