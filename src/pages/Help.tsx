@@ -246,13 +246,13 @@ const OverviewDoc = () => (
             <Activity className="size-4 text-indigo-600" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-indigo-950">BODY12 Remap</h4>
+            <h4 className="text-xs font-bold text-indigo-950">BODY12 & Re-ID</h4>
             <p className="text-[11px] text-indigo-800 mt-1">
-              Converts 17 COCO keypoints into 12-joint graph topology + IoU Track ID.
+              Converts keypoints into 12-joint graph topology + ByteTrack Kalman Re-ID.
             </p>
           </div>
           <div className="text-[10px] font-mono text-indigo-700 bg-white p-1.5 rounded border border-indigo-200">
-            Topology Remapping
+            Tracking & Re-ID
           </div>
         </div>
 

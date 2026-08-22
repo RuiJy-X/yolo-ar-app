@@ -42,6 +42,7 @@ from feeders import tools  # noqa: E402
 from model.sode import SODE  # noqa: E402
 from utils import import_class  # noqa: E402
 from tello_manager import tello_manager  # noqa: E402
+from tracker import ByteReIDTracker, TrackletMerger, ByteReIDTrack  # noqa: E402
 
 def get_output_dir() -> str:
     if getattr(sys, 'frozen', False):
@@ -244,20 +245,34 @@ def _make_person_payload(
     label: str,
     confidence: float,
     detection: dict,
-    track: "TrackState",
+    track: Any,
 ) -> dict:
     all_scores = {
-        str(key): float(value) for key, value in (track.last_all_scores or {}).items()
+        str(key): float(value) for key, value in (getattr(track, "last_all_scores", None) or {}).items()
     }
+    raw_bbox = detection.get("bbox")
+    if hasattr(raw_bbox, "tolist"):
+        bbox_list = [float(v) for v in raw_bbox.tolist()]
+    elif isinstance(raw_bbox, (list, tuple, np.ndarray)):
+        bbox_list = [float(v) for v in raw_bbox]
+    else:
+        bbox_list = []
+
+    last_kpts = getattr(track, "last_keypoints", None)
+    if last_kpts is not None and len(last_kpts) > 0:
+        kpts_list = [
+            {"id": i, "x": float(kpt[0]), "y": float(kpt[1]), "confidence": float(kpt[2])}
+            for i, kpt in enumerate(last_kpts)
+        ]
+    else:
+        kpts_list = []
+
     return {
         "person_id": track_id,
         "action": {"label": label, "confidence": confidence},
         "all_scores": all_scores or None,
-        "bbox": [float(v) for v in detection["bbox"].tolist()],
-        "keypoints": [
-            {"id": i, "x": float(kpt[0]), "y": float(kpt[1]), "confidence": float(kpt[2])}
-            for i, kpt in enumerate(track.last_keypoints)
-        ],
+        "bbox": bbox_list,
+        "keypoints": kpts_list,
     }
 
 
@@ -1255,12 +1270,15 @@ class ClientState:
     missed_frames: int = 0
     next_track_id: int = 1
     tracks: dict = field(default_factory=dict)
+    tracker: ByteReIDTracker = field(default_factory=lambda: ByteReIDTracker(confirm_hits=1))
     buffer: deque = field(default_factory=lambda: deque(maxlen=WINDOW_SIZE))
     last_valid_keypoints: np.ndarray = field(default_factory=lambda: np.zeros((MODEL_NUM_POINTS, 3), dtype=np.float32))
     score_ema: np.ndarray = field(default_factory=lambda: np.ones(4, dtype=np.float32) / 4.0)
 
     def reset_temporal_state(self) -> None:
         self.tracks.clear()
+        if hasattr(self, "tracker") and self.tracker is not None:
+            self.tracker.reset()
         self.buffer.clear()
         self.last_valid_keypoints.fill(0.0)
         self.score_ema = np.ones(4, dtype=np.float32) / 4.0
@@ -1440,6 +1458,13 @@ class ActionRecognitionPipeline:
         for track in state.tracks.values():
             if track.buffer.maxlen != WINDOW_SIZE:
                 track.buffer = deque(track.buffer, maxlen=WINDOW_SIZE)
+        if hasattr(state, "tracker") and state.tracker is not None:
+            for track in state.tracker.tracks.values():
+                if track.buffer.maxlen != WINDOW_SIZE:
+                    track.buffer = deque(track.buffer, maxlen=WINDOW_SIZE)
+            for track in state.tracker.lost_tracks.values():
+                if track.buffer.maxlen != WINDOW_SIZE:
+                    track.buffer = deque(track.buffer, maxlen=WINDOW_SIZE)
 
     def _resolve_initial_model_name(self, checkpoint_path: Path) -> str:
         flat = flat_model_registry()
@@ -2303,31 +2328,21 @@ class ActionRecognitionPipeline:
             frame, self.yolo_model, self.yolo_conf, self.yolo_iou, imgsz=1024
         )
         if not detections:
+            if hasattr(state, "tracker") and state.tracker is not None:
+                state.tracker.update([], frame, state.frame_index)
             return self._no_detection_result(state, start)
 
-        persons_out = []
+        if hasattr(state, "tracker") and state.tracker is not None:
+            matched_pairs = state.tracker.update(detections, frame, state.frame_index)
+        else:
+            state.tracker = ByteReIDTracker(confirm_hits=1)
+            matched_pairs = state.tracker.update(detections, frame, state.frame_index)
 
-        active_track_ids = [
-            tid for tid, t in state.tracks.items()
-            if t.missed_frames <= MAX_MISSED_FRAMES and t.last_bbox is not None
-        ]
-
-        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
-            detections, state.tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
-        )
-
-        for det_idx, detection in enumerate(detections):
-            if det_idx in used_detection_ids:
-                continue
-            track_id = state.next_track_id
-            state.next_track_id += 1
-            track = TrackState(track_id=track_id)
-            state.tracks[track_id] = track
-            matched_pairs.append((track, detection))
-            matched_track_ids.add(track_id)
+        if not matched_pairs:
+            return self._no_detection_result(state, start)
 
         # Batch update keypoint buffers and collect tracks needing inference
-        pending_inference: list[TrackState] = []
+        pending_inference: list[Any] = []
         for track, detection in matched_pairs:
             should_infer = self._update_track_buffer(
                 track, detection["keypoints_body12"], detection["bbox"], state.frame_index
@@ -2339,6 +2354,7 @@ class ActionRecognitionPipeline:
         if pending_inference:
             self._infer_actions_batch(pending_inference, use_tta=False)
 
+        persons_out = []
         for track, detection in matched_pairs:
             persons_out.append(
                 _make_person_payload(
@@ -2349,12 +2365,6 @@ class ActionRecognitionPipeline:
                     track,
                 )
             )
-
-        for tid in list(state.tracks.keys()):
-            if tid not in matched_track_ids:
-                state.tracks[tid].missed_frames += 1
-                if state.tracks[tid].missed_frames > MAX_MISSED_FRAMES:
-                    del state.tracks[tid]
 
         state.missed_frames = 0
         elapsed_ms = (time.perf_counter() - start) * 1000.0
@@ -2422,9 +2432,15 @@ class ActionRecognitionPipeline:
             "detected_people_total": 0,
             "yolo_confidences": [],
             "detections_log": [],
-            "next_track_id": 1,
         }
-        tracks: dict[int, TrackState] = {}
+        tracker = ByteReIDTracker(
+            high_conf_thresh=self.video_yolo_conf,
+            low_conf_thresh=max(0.08, self.video_yolo_conf * 0.5),
+            match_iou_thresh=0.25,
+            reid_sim_thresh=0.68,
+            max_lost_frames=VIDEO_MAX_MISSED_FRAMES * 3,
+            confirm_hits=1,
+        )
         thread_errors: list[Exception] = []
 
         _Q_TIMEOUT = 0.1
@@ -2482,7 +2498,7 @@ class ActionRecognitionPipeline:
 
                     cadence = max(1, getattr(self, "video_cadence_interval", 5))
                     use_cadence = getattr(self, "enable_video_cadence", False) and self.use_sahi
-                    is_keyframe = (frame_index == 1) or (frame_index % cadence == 0) or (len(tracks) == 0)
+                    is_keyframe = (frame_index == 1) or (frame_index % cadence == 0) or (len(tracker.tracks) == 0)
 
                     if not use_cadence or is_keyframe:
                         detections = self._extract_pose_detections(
@@ -2492,30 +2508,6 @@ class ActionRecognitionPipeline:
                             self.video_yolo_iou,
                             imgsz=1024,
                         )
-                        counters["detected_people_total"] += len(detections)
-                        counters["yolo_confidences"].extend(
-                            [float(d["confidence"]) for d in detections]
-                        )
-
-                        active_track_ids = [
-                            tid
-                            for tid, t in tracks.items()
-                            if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
-                        ]
-
-                        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
-                            detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
-                        )
-
-                        for det_idx, detection in enumerate(detections):
-                            if det_idx in used_detection_ids:
-                                continue
-
-                            track_id = counters["next_track_id"]
-                            counters["next_track_id"] += 1
-                            track = TrackState(track_id=track_id)
-                            tracks[track_id] = track
-                            matched_pairs.append((track, detection))
                     else:
                         detections = self._extract_standard_pose_detections(
                             frame,
@@ -2524,108 +2516,15 @@ class ActionRecognitionPipeline:
                             self.video_yolo_iou,
                             imgsz=1024,
                         )
-                        counters["detected_people_total"] += len(detections)
-                        counters["yolo_confidences"].extend(
-                            [float(d["confidence"]) for d in detections]
-                        )
 
-                        active_track_ids = [
-                            tid
-                            for tid, t in tracks.items()
-                            if t.missed_frames <= VIDEO_MAX_MISSED_FRAMES and t.last_bbox is not None
-                        ]
+                    counters["detected_people_total"] += len(detections)
+                    counters["yolo_confidences"].extend(
+                        [float(d["confidence"]) for d in detections]
+                    )
 
-                        matched_pairs, matched_track_ids, used_detection_ids = self._match_detections_to_tracks(
-                            detections, tracks, active_track_ids, VIDEO_IOU_MATCH_THRESH
-                        )
+                    matched_pairs = tracker.update(detections, frame, frame_index)
 
-                        # Targeted ROI refinement for active tracks missed in the standard pass
-                        unmatched_active_tids = [
-                            tid for tid in active_track_ids if tid not in matched_track_ids and tracks[tid].missed_frames <= 3
-                        ]
-                        if unmatched_active_tids:
-                            h, w = frame.shape[:2]
-                            roi_crops = []
-                            roi_meta = []
-                            for tid in unmatched_active_tids:
-                                t = tracks[tid]
-                                if t.last_bbox is not None:
-                                    bx1, by1, bx2, by2 = t.last_bbox
-                                    bw = bx2 - bx1
-                                    bh = by2 - by1
-                                    cx1 = max(0, int(bx1 - bw * 0.4))
-                                    cy1 = max(0, int(by1 - bh * 0.4))
-                                    cx2 = min(w, int(bx2 + bw * 0.4))
-                                    cy2 = min(h, int(by2 + bh * 0.4))
-                                    crop = frame[cy1:cy2, cx1:cx2]
-                                    if crop.size > 0:
-                                        target_h = 256
-                                        target_w = int(max(64, target_h * (crop.shape[1] / max(1, crop.shape[0]))))
-                                        roi_crops.append(cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_CUBIC))
-                                        roi_meta.append((tid, cx1, cy1, cx2, cy2, target_w, target_h))
-
-                            if roi_crops:
-                                with self._model_lock, torch.inference_mode():
-                                    roi_results = self.video_pose_model.predict(
-                                        source=roi_crops,
-                                        conf=self.sahi_kpt_conf,
-                                        iou=self.video_yolo_iou,
-                                        classes=[0],
-                                        imgsz=256,
-                                        batch=len(roi_crops),
-                                        device=self.device,
-                                        half=(self.device == "cuda"),
-                                        verbose=False,
-                                    )
-                                for r_res, (tid, cx1, cy1, cx2, cy2, tw, th) in zip(roi_results, roi_meta):
-                                    if (
-                                        r_res.boxes is not None
-                                        and len(r_res.boxes) > 0
-                                        and r_res.keypoints is not None
-                                        and len(r_res.keypoints) > 0
-                                    ):
-                                        box_crop = r_res.boxes.xyxy[0].detach().cpu().numpy().astype(np.float32)
-                                        conf_crop = float(r_res.boxes.conf[0])
-                                        b_full = box_crop.copy()
-                                        b_full[0] = cx1 + (box_crop[0] / float(tw)) * float(cx2 - cx1)
-                                        b_full[2] = cx1 + (box_crop[2] / float(tw)) * float(cx2 - cx1)
-                                        b_full[1] = cy1 + (box_crop[1] / float(th)) * float(cy2 - cy1)
-                                        b_full[3] = cy1 + (box_crop[3] / float(th)) * float(cy2 - cy1)
-
-                                        k17 = r_res.keypoints.data[0].detach().cpu().numpy().astype(np.float32)
-                                        k17[:, 0] = cx1 + (k17[:, 0] / float(tw)) * float(cx2 - cx1)
-                                        k17[:, 1] = cy1 + (k17[:, 1] / float(th)) * float(cy2 - cy1)
-                                        k12 = coco17_to_body12(k17)
-
-                                        if is_valid_human_pose(
-                                            conf_crop,
-                                            k12,
-                                            min_det_conf=self.sahi_tile_conf,
-                                            min_kpt_conf=self.sahi_kpt_conf,
-                                            min_kpts_cnt=self.sahi_min_kpts,
-                                            min_mean_kpt_conf=self.sahi_min_mean_kpt_conf,
-                                        ):
-                                            det_obj = {
-                                                "bbox": b_full,
-                                                "confidence": conf_crop,
-                                                "keypoints_body12": k12,
-                                            }
-                                            matched_pairs.append((tracks[tid], det_obj))
-                                            matched_track_ids.add(tid)
-
-                        # New track creation from standard pass detections
-                        for det_idx, detection in enumerate(detections):
-                            if det_idx in used_detection_ids:
-                                continue
-
-                            track_id = counters["next_track_id"]
-                            counters["next_track_id"] += 1
-                            track = TrackState(track_id=track_id)
-                            tracks[track_id] = track
-                            matched_pairs.append((track, detection))
-                        matched_track_ids.add(track_id)
-
-                    pending_inference: list[TrackState] = []
+                    pending_inference: list[Any] = []
                     for track, detection in matched_pairs:
                         should_infer = self._update_track_buffer(
                             track, detection["keypoints_body12"], detection["bbox"], frame_index
@@ -2668,13 +2567,6 @@ class ActionRecognitionPipeline:
                             frame, caption, (x1, max(24, y1 - 8)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
                         )
-
-                    for tid in list(tracks.keys()):
-                        if tid in matched_track_ids:
-                            continue
-                        tracks[tid].missed_frames += 1
-                        if tracks[tid].missed_frames > VIDEO_MAX_MISSED_FRAMES:
-                            del tracks[tid]
 
                     if not _put(result_q, (frame_index, frame, None)):
                         return
@@ -2720,7 +2612,13 @@ class ActionRecognitionPipeline:
             final_total = total_frames if total_frames > 0 else frame_index
             progress_callback(frame_index, final_total, "Finalizing annotated output...")
 
-        detections_log: list[Detection] = counters["detections_log"]
+        # Post-video Tracklet Consolidation to merge any fragmented tracks of the same individual
+        raw_detections_log: list[Detection] = counters["detections_log"]
+        detections_log: list[Detection] = TrackletMerger.consolidate(raw_detections_log, sim_threshold=0.72)
+
+        unique_person_ids = {d.person_id for d in detections_log}
+        distinct_people_count = len(unique_person_ids)
+
         analysis = create_analysis_response(
             detections_log=detections_log,
             summary_metrics=None,
@@ -2731,7 +2629,7 @@ class ActionRecognitionPipeline:
         return {
             "frames_processed": frame_index,
             "people_instances_detected": counters["detected_people_total"],
-            "tracks_created": counters["next_track_id"] - 1,
+            "tracks_created": distinct_people_count,
             "total_frames": frame_index,
             "fps": round(fps, 3),
             "processing_seconds": round(time.perf_counter() - started_at, 3),
