@@ -1,12 +1,12 @@
-const path = require('path');
+const path = require("path");
 
 module.exports = {
   packagerConfig: {
-    name: 'Aerview',
-    executableName: 'Aerview',
+    name: "Skysight",
+    executableName: "Skysight",
     extraResource: [
-      path.join(__dirname, 'python-embed'),
-      path.join(__dirname, 'backend-bundle'),
+      path.join(__dirname, "python-embed"),
+      path.join(__dirname, "backend-bundle"),
     ],
     ignore: [
       /^\/training/,
@@ -41,26 +41,26 @@ module.exports = {
       /setup_freeze\.py/,
     ],
     win32metadata: {
-      CompanyName: 'Aerview',
-      FileDescription: 'Aerview — Action Recognition',
-      ProductName: 'Aerview',
+      CompanyName: "Skysight",
+      FileDescription: "Skysight — Action Recognition",
+      ProductName: "Skysight",
     },
   },
   rebuildConfig: {},
   makers: [
     {
-      name: '@electron-forge/maker-squirrel',
-      platforms: ['win32'],
+      name: "@electron-forge/maker-squirrel",
+      platforms: ["win32"],
       config: {
-        name: 'Aerview',
-        setupExe: 'AerviewSetup.exe',
-        authors: 'Aerview',
-        description: 'Action Recognition Application',
+        name: "Skysight",
+        setupExe: "SkysightSetup.exe",
+        authors: "Skysight",
+        description: "Action Recognition Application",
       },
     },
     {
-      name: '@electron-forge/maker-zip',
-      platforms: ['win32'],
+      name: "@electron-forge/maker-zip",
+      platforms: ["win32"],
     },
   ],
 };

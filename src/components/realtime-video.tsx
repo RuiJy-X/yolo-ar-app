@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CameraOff, RefreshCw } from "lucide-react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Camera, RefreshCw } from "lucide-react";
 
 
 export type Keypoint = { id: number; x: number; y: number; confidence: number };
@@ -29,7 +29,13 @@ type RuntimeConfig = {
   realtime_disable_downscale?: boolean;
 };
 
-type RealTimeVideoProps = {
+export type RealTimeVideoRef = {
+  startCamera: (deviceIdOverride?: string) => Promise<void>;
+  stopCamera: () => void;
+  refreshCameraDevices: () => Promise<void>;
+};
+
+export type RealTimeVideoProps = {
   isCameraActive: boolean;
   setIsCameraActive: (active: boolean) => void;
   onInference?: (payload: InferencePayload) => void;
@@ -39,6 +45,9 @@ type RealTimeVideoProps = {
   onCameraLabelChange?: (label: string) => void;
   onRecordingComplete?: (blob: Blob, mimeType: string) => void;
   onSourceRecordingComplete?: (blob: Blob, mimeType: string) => void;
+  onDevicesChange?: (devices: MediaDeviceInfo[]) => void;
+  onSelectedDeviceIdChange?: (deviceId: string) => void;
+  onRecordingStateChange?: (isRecording: boolean) => void;
 };
 
 
@@ -86,7 +95,7 @@ function pickRecordingMimeType(): string {
 }
 
 
-const RealTimeVideo = ({
+const RealTimeVideo = forwardRef<RealTimeVideoRef, RealTimeVideoProps>(({
   isCameraActive,
   setIsCameraActive,
   onInference,
@@ -94,7 +103,10 @@ const RealTimeVideo = ({
   onCameraLabelChange,
   onRecordingComplete,
   onSourceRecordingComplete,
-}: RealTimeVideoProps) => {
+  onDevicesChange,
+  onSelectedDeviceIdChange,
+  onRecordingStateChange,
+}: RealTimeVideoProps, ref) => {
   // Camera stream refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -522,6 +534,28 @@ const RealTimeVideo = ({
     setIsCameraActive(false);
   };
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      startCamera,
+      stopCamera,
+      refreshCameraDevices,
+    }),
+    [refreshCameraDevices],
+  );
+
+  useEffect(() => {
+    onDevicesChange?.(cameraDevices);
+  }, [cameraDevices, onDevicesChange]);
+
+  useEffect(() => {
+    onSelectedDeviceIdChange?.(selectedDeviceId);
+  }, [selectedDeviceId, onSelectedDeviceIdChange]);
+
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+  }, [isRecording, onRecordingStateChange]);
+
  
 
   // Re-attach stream if video element remounts
@@ -693,45 +727,42 @@ const RealTimeVideo = ({
 
 
   return (
-    <div className="w-full h-full rounded-lg overflow-hidden bg-[#1c1c1c] relative">
-     
+    <div className="w-full h-full rounded-lg overflow-hidden bg-[#101215] relative">
       {!isCameraActive && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4">
-          <div className="w-14 h-14 rounded-[12px] bg-[#202020] border border-[#dfdfdf]/10 flex items-center justify-center">
-            <Camera size={22} className="text-[#9a9a9a]" />
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 p-6 bg-[#101215]">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-xl">
+            <Camera size={28} className="text-slate-400" />
           </div>
           <div className="text-center">
-            <p className="text-[14px] font-medium text-[#ffffff]">
-              No camera feed
+            <p className="text-base font-semibold text-white">
+              Camera Feed Inactive
             </p>
-            <p className="text-[12px] text-[#9a9a9a] mt-0.5">
-              Start camera to begin inference
+            <p className="text-xs text-slate-400 mt-1">
+              Select camera device to begin real-time action recognition
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => startCamera(selectedDeviceId || undefined)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors shadow-lg"
-          >
-            <Camera size={14} />
-            Open Camera
-          </button>
-          <div className="flex flex-col items-center gap-2">
-            <div className="text-[11px] text-[#9a9a9a]">Select camera</div>
-            <div className="flex items-center gap-2">
+
+          <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+            <div className="flex items-center gap-2 w-full">
               <select
                 value={selectedDeviceId}
                 onChange={(event) => {
                   manualSelectionRef.current = true;
                   setSelectedDeviceId(event.target.value);
                 }}
-                className="bg-[#202020] text-[#ffffff] text-[12px] border border-white/10 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#0052ff] min-w-[220px]"
+                className="flex-1 bg-white/10 text-white text-xs border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 truncate"
               >
                 {cameraDevices.length === 0 && (
-                  <option value="">No cameras found</option>
+                  <option value="" className="bg-slate-900 text-white">
+                    No cameras found
+                  </option>
                 )}
                 {cameraDevices.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>
+                  <option
+                    key={device.deviceId}
+                    value={device.deviceId}
+                    className="bg-slate-900 text-white"
+                  >
                     {device.label || `Camera ${index + 1}`}
                   </option>
                 ))}
@@ -739,28 +770,29 @@ const RealTimeVideo = ({
               <button
                 type="button"
                 onClick={refreshCameraDevices}
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[12px] text-white/80 hover:text-white hover:border-white/20"
+                className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-2 text-xs text-white/80 hover:text-white hover:bg-white/10 transition-colors"
                 title="Refresh camera list"
               >
                 <RefreshCw
-                  size={12}
+                  size={14}
                   className={isDeviceListLoading ? "animate-spin" : ""}
                 />
-                Refresh
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => startCamera(selectedDeviceId || undefined)}
+              className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0052ff] hover:bg-[#0041cc] text-white transition-all shadow-lg shadow-blue-500/25 whitespace-nowrap cursor-pointer"
+            >
+              <Camera size={14} />
+              Open Camera
+            </button>
           </div>
         </div>
       )}
 
-      {/*
-        
-        The raw camera feed sits beneath, hidden.
-        On top we display the annotated JPEG returned by the backend.
-        Both are positioned absolute/fill so they stack correctly.
-      */}
-
-      {/* Raw camera feed (hidden still needed to capture frames to send) */}
+      {/* Raw camera feed (hidden, used to capture frames to send) */}
       <video
         ref={videoRef}
         autoPlay
@@ -773,105 +805,55 @@ const RealTimeVideo = ({
       <img
         ref={annotatedImgRef}
         alt="Annotated inference"
-        className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${
           isCameraActive ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       />
 
-      {/* Placeholder shown while waiting for first annotated frame */}
+      {/* Subtle Active Controls (Top Right Corner) */}
       {isCameraActive && (
-        <div
-          className="absolute inset-0 flex items-center justify-center text-xs text-white/30 pointer-events-none z-0"
-          style={{ display: "none" }} // hidden once img loads; keep for reference
-        />
-      )}
-
-    
-      {/* Active Camera Overlay Controls & Indicators (Centered Top Middle) */}
-      {isCameraActive && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 flex flex-wrap items-center justify-center gap-2 rounded-xl bg-[#1c1c1c]/90 px-3.5 py-2 backdrop-blur-md border border-white/15 shadow-2xl max-w-[calc(100%-2rem)]">
-          {/* Connection State Badge */}
-          <div className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1">
-            <span className={`h-2 w-2 rounded-full ${connDot}`} />
-            <span className="text-[11px] font-medium text-white capitalize">
-              {connectionState}
-            </span>
-          </div>
-
-          {/* REC Badge */}
+        <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
           {isRecording && (
-            <div className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 border border-red-500/40 animate-pulse">
+            <div className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 border border-red-500/40 animate-pulse backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-red-500" />
-              <span className="text-[11px] font-bold text-red-400">
-                REC
-              </span>
+              <span className="text-[10px] font-bold text-red-400">REC</span>
             </div>
           )}
-
-          {/* Camera Selector Dropdown & Refresh */}
-          <div className="flex items-center gap-1.5 rounded-lg bg-white/10 px-2 py-1 border border-white/10">
-            <Camera size={13} className="text-white/70 ml-0.5 shrink-0" />
-            <select
-              value={selectedDeviceId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-                manualSelectionRef.current = true;
-                setSelectedDeviceId(nextId);
-                if (isCameraActive) {
-                  stopCamera();
-                  startCamera(nextId);
-                }
-              }}
-              className="bg-transparent text-white text-[11px] font-medium outline-none cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
-            >
-              {cameraDevices.length === 0 && (
-                <option value="" className="bg-[#1c1c1c] text-white">
-                  No cameras found
-                </option>
-              )}
-              {cameraDevices.map((device, index) => (
-                <option
-                  key={device.deviceId}
-                  value={device.deviceId}
-                  className="bg-[#1c1c1c] text-white"
-                >
-                  {device.label || `Camera ${index + 1}`}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={refreshCameraDevices}
-              className="p-1 text-white/70 hover:text-white transition-colors shrink-0"
-              title="Refresh camera list"
-            >
-              <RefreshCw
-                size={12}
-                className={isDeviceListLoading ? "animate-spin" : ""}
-              />
-            </button>
-          </div>
-
-          {/* Stop Camera Button */}
           <button
             type="button"
             onClick={stopCamera}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[12px] font-semibold bg-red-600/80 text-white border border-red-500/40 hover:bg-red-600 transition-colors shadow-sm shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600/80 hover:bg-red-600 text-white border border-red-500/40 backdrop-blur-md shadow-lg transition-all cursor-pointer"
           >
-            <CameraOff size={13} />
+            <Camera size={13} />
             Stop Camera
           </button>
         </div>
       )}
 
-   
+      {/* Placeholder shown while waiting for first annotated frame */}
+      {isCameraActive && (
+        <div
+          className="absolute inset-0 flex items-center justify-center text-xs text-white/30 pointer-events-none z-0"
+          style={{ display: "none" }}
+        />
+      )}
+
       {error && (
-        <div className="absolute bottom-3 left-3 right-3 z-20 rounded-[8px] bg-red-900/90 border border-red-700/50 px-3 py-2 text-[12px] text-red-200 backdrop-blur-sm">
-          {error}
+        <div className="absolute bottom-3 left-3 right-3 z-20 rounded-xl bg-red-950/90 border border-red-700/50 px-3.5 py-2.5 text-xs text-red-200 backdrop-blur-md shadow-xl flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-red-300 hover:text-white font-bold ml-2 text-sm"
+          >
+            ×
+          </button>
         </div>
       )}
     </div>
   );
-};
+});
+
+RealTimeVideo.displayName = "RealTimeVideo";
 
 export default RealTimeVideo;

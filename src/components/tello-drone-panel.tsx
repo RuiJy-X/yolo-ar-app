@@ -607,56 +607,56 @@ export default function TelloDronePanel({
         </div>
       )}
 
-      {/* ── Floating Top Telemetry & Status HUD ───────────────────────────── */}
-      <div className="absolute top-20 left-4 right-4 z-30 flex flex-wrap items-center justify-between gap-3 bg-black/90 border border-white/15 px-4 py-2.5 rounded-xl shadow-2xl">
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2">
+      {/* ── Floating Top Telemetry & Status HUD (Docked at Very Top) ──────── */}
+      <div className="absolute top-3 left-4 right-4 z-30 flex items-center justify-between gap-3 bg-black/90 backdrop-blur-xl border border-white/15 px-4 py-2 rounded-xl shadow-2xl overflow-x-auto select-none">
+        <div className="flex items-center space-x-3 shrink-0">
+          <div className="flex items-center space-x-2 shrink-0">
             <Wifi
-              className={`w-4 h-4 ${telemetry.connected ? "text-emerald-400 animate-pulse" : "text-muted-foreground"}`}
+              className={`w-4 h-4 shrink-0 ${telemetry.connected ? "text-emerald-400 animate-pulse" : "text-muted-foreground"}`}
             />
-            <span className="text-xs font-bold text-white">
+            <span className="text-xs font-bold text-white whitespace-nowrap">
               {telemetry.connected ? "TELLO CONNECTED" : "OFFLINE"}
             </span>
           </div>
 
-          <Badge className="bg-white/10 text-cyan-300 border border-white/10 text-[11px]">
+          <Badge className="bg-white/10 text-cyan-300 border border-white/10 text-[11px] whitespace-nowrap shrink-0">
             {telemetry.is_flying ? "AIRBORNE" : "LANDED"}
           </Badge>
 
           {telemetry.connected && streamActive && (
-            <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[11px] flex items-center space-x-1.5">
+            <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[11px] flex items-center space-x-1.5 whitespace-nowrap shrink-0">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
               <span>LIVE ANNOTATED</span>
             </Badge>
           )}
         </div>
 
-        <div className="flex items-center space-x-4 text-xs font-semibold text-white">
+        <div className="flex items-center space-x-4 text-xs font-semibold text-white shrink-0">
           {/* Battery */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1.5 whitespace-nowrap shrink-0">
             {telemetry.battery <= 20 ? (
-              <BatteryWarning className="w-4 h-4 text-red-400 animate-bounce" />
+              <BatteryWarning className="w-4 h-4 text-red-400 animate-bounce shrink-0" />
             ) : (
-              <Battery className="w-4 h-4 text-emerald-400" />
+              <Battery className="w-4 h-4 text-emerald-400 shrink-0" />
             )}
             <span>{telemetry.battery}%</span>
           </div>
 
           {/* Altitude */}
-          <div className="flex items-center space-x-1.5">
-            <Gauge className="w-4 h-4 text-cyan-400" />
+          <div className="flex items-center space-x-1.5 whitespace-nowrap shrink-0">
+            <Gauge className="w-4 h-4 text-cyan-400 shrink-0" />
             <span>{(telemetry.height / 100).toFixed(1)}m</span>
           </div>
 
           {/* Flight Time */}
-          <div className="flex items-center space-x-1.5">
-            <Zap className="w-4 h-4 text-yellow-400" />
+          <div className="flex items-center space-x-1.5 whitespace-nowrap shrink-0">
+            <Zap className="w-4 h-4 text-yellow-400 shrink-0" />
             <span>{telemetry.flight_time}s</span>
           </div>
 
           {/* Temp */}
-          <div className="flex items-center space-x-1.5">
-            <Thermometer className="w-4 h-4 text-orange-400" />
+          <div className="flex items-center space-x-1.5 whitespace-nowrap shrink-0">
+            <Thermometer className="w-4 h-4 text-orange-400 shrink-0" />
             <span>{telemetry.temperature}°C</span>
           </div>
 
@@ -666,7 +666,7 @@ export default function TelloDronePanel({
               onClick={handleConnectDrone}
               disabled={isConnecting}
               size="sm"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-7 px-3 shadow"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-7 px-3 shadow whitespace-nowrap shrink-0 cursor-pointer"
             >
               {isConnecting ? "Connecting..." : "Connect"}
             </Button>
@@ -675,7 +675,7 @@ export default function TelloDronePanel({
               onClick={handleDisconnectDrone}
               variant="outline"
               size="sm"
-              className="border-red-500/40 text-red-400 hover:bg-red-500/20 font-semibold text-xs h-7 px-3"
+              className="border-red-500/40 text-red-400 hover:bg-red-500/20 font-semibold text-xs h-7 px-3 whitespace-nowrap shrink-0 cursor-pointer"
             >
               Disconnect
             </Button>
@@ -685,14 +685,14 @@ export default function TelloDronePanel({
 
       {/* ── Error Alert Message Banner ────────────────────────────────────── */}
       {errorMsg && (
-        <div className="absolute top-36 left-4 right-4 z-30 flex items-center justify-between p-3 bg-red-500/20 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium backdrop-blur-md">
+        <div className="absolute top-16 left-4 right-4 z-30 flex items-center justify-between p-3 bg-red-500/20 border border-red-500/40 text-red-300 rounded-xl text-xs font-medium backdrop-blur-md shadow-xl">
           <div className="flex items-center space-x-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
             <span>{errorMsg}</span>
           </div>
           <button
             onClick={() => setErrorMsg(null)}
-            className="text-red-400 hover:text-white font-bold ml-2"
+            className="text-red-400 hover:text-white font-bold ml-2 cursor-pointer"
           >
             ×
           </button>

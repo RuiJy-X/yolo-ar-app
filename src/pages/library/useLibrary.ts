@@ -503,11 +503,13 @@ export const useLibraryState = (historyId?: string | null) => {
       if (sourcePlaybackUrl)
         replaceSourceVideoUrl(withCacheBust(sourcePlaybackUrl));
 
-      // Now that fps and analysis are already in state, it's safe to reset the
-      // video duration. The very next render will have correct tag positions
-      // (from the new analysis+fps), and onLoadedMetadata will promptly fill in
-      // the real duration when the new video element mounts.
-      setVideoDurationSeconds(0);
+      if (typeof output.duration_seconds === "number" && output.duration_seconds > 0) {
+        setVideoDurationSeconds(output.duration_seconds);
+      } else if (output.frames_processed > 0 && newFps > 0) {
+        setVideoDurationSeconds(output.frames_processed / newFps);
+      } else {
+        setVideoDurationSeconds(0);
+      }
 
       const summaryText = `Frames: ${output.frames_processed} | Tracks: ${output.tracks_created} | Detections: ${output.people_instances_detected} | FPS: ${output.fps} | Resolution: ${output.resolution.width}x${output.resolution.height} | Codec: ${output.output_codec ?? "unknown"} | Processing: ${output.processing_seconds ?? "n/a"}s`;
       const retentionSeconds =

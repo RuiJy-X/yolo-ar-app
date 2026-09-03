@@ -509,6 +509,19 @@ def is_browser_compatible_mp4(path: Path) -> bool:
         return False
 
 
+def open_video_capture(path: str | Path) -> cv2.VideoCapture:
+    """
+    Opens a video capture with CAP_FFMPEG first to avoid MSMF 1000-frame / variable framerate
+    truncation on Windows, falling back to default backend if FFMPEG is unavailable.
+    """
+    path_str = str(path)
+    cap = cv2.VideoCapture(path_str, cv2.CAP_FFMPEG)
+    if cap.isOpened():
+        return cap
+    cap.release()
+    return cv2.VideoCapture(path_str)
+
+
 def transcode_video_to_browser_mp4(
     input_path: Path, output_path: Path, target_fps: float | None = None
 ) -> str:
@@ -542,7 +555,7 @@ def transcode_video_to_browser_mp4(
         if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
             return "ffmpeg"
 
-    capture = cv2.VideoCapture(str(input_path))
+    capture = open_video_capture(input_path)
     if not capture.isOpened():
         raise RuntimeError("Could not open uploaded video for browser transcoding.")
 
@@ -567,17 +580,23 @@ def transcode_video_to_browser_mp4(
         if probe_frame is not None:
             writer.write(probe_frame)
 
+        consecutive_misses = 0
         while True:
             ok, frame = capture.read()
             if not ok or frame is None:
+                consecutive_misses += 1
+                if consecutive_misses <= 5:
+                    time.sleep(0.005)
+                    continue
                 break
+            consecutive_misses = 0
             writer.write(frame)
     finally:
         capture.release()
         if writer is not None:
             writer.release()
 
-    if not output_path.exists() or output_path.stat( ).st_size <= 0:
+    if not output_path.exists() or output_path.stat().st_size <= 0:
         raise RuntimeError("Browser transcoding failed; could not create source MP4.")
 
     return f"opencv-{codec}"
@@ -706,7 +725,7 @@ def _has_wave_alert_from_analysis(analysis: dict[str, Any]) -> bool:
 
 
 def _duration_seconds_from_video(video_path: Path) -> float | None:
-    capture = cv2.VideoCapture(str(video_path))
+    capture = open_video_capture(video_path)
     try:
         if not capture.isOpened():
             return None
@@ -2388,7 +2407,7 @@ class ActionRecognitionPipeline:
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
 
-        probe_cap = cv2.VideoCapture(str(input_path))
+        probe_cap = open_video_capture(input_path)
         if not probe_cap.isOpened():
             raise RuntimeError("Could not open uploaded video file.")
 
@@ -2465,13 +2484,19 @@ class ActionRecognitionPipeline:
         _STOP = object()
 
         def decoder() -> None:
-            cap = cv2.VideoCapture(str(input_path))
+            cap = open_video_capture(input_path)
             try:
                 idx = 0
+                consecutive_misses = 0
                 while not stop_event.is_set():
                     ok, frame = cap.read()
                     if not ok or frame is None:
+                        consecutive_misses += 1
+                        if consecutive_misses <= 5:
+                            time.sleep(0.005)
+                            continue
                         break
+                    consecutive_misses = 0
                     idx += 1
                     if not _put(decode_q, (idx, frame)):
                         return
@@ -2632,6 +2657,7 @@ class ActionRecognitionPipeline:
             "tracks_created": distinct_people_count,
             "total_frames": frame_index,
             "fps": round(fps, 3),
+            "duration_seconds": round(frame_index / fps, 3) if fps > 0 else 0.0,
             "processing_seconds": round(time.perf_counter() - started_at, 3),
             "output_codec": output_codec,
             "resolution": {"width": width, "height": height},

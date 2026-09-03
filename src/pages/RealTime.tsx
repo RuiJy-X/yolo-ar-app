@@ -6,23 +6,16 @@ import RealTimeVideo, {
 import TelloDronePanel from "@/components/tello-drone-panel";
 import { RealTimeLogs } from "@/components/RealTimeLogs";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   AlertTriangle,
-  Camera,
-  ChevronDown,
-  Plane,
   X,
   Save,
   Loader2,
   CheckCircle2,
   ExternalLink,
-  PanelLeftClose,
-  PanelRightClose,
-  PanelRightOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import TitleMono from "@/components/titile-mono";
 import type { Detection } from "@/lib/types";
 
 const apiBaseUrl =
@@ -103,10 +96,17 @@ const emptyAnalysisSummary = () => ({
 
 const RealTime = () => {
   const navigate = useNavigate();
-  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [searchParams] = useSearchParams();
+  const modeParam = searchParams.get("mode");
   const [streamSource, setStreamSource] = useState<"webcam" | "tello">(
-    "webcam",
+    modeParam === "tello" ? "tello" : "webcam",
   );
+
+  useEffect(() => {
+    setStreamSource(modeParam === "tello" ? "tello" : "webcam");
+  }, [modeParam]);
+
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [latestAction, setLatestAction] = useState<string | null>(null);
   const [detectionCount, setDetectionCount] = useState(0);
@@ -115,7 +115,6 @@ const RealTime = () => {
     "disconnected" | "connecting" | "connected"
   >("disconnected");
   const [cameraLabel, setCameraLabel] = useState<string>("No camera selected");
-
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(true);
   const [waveAlertLogs, setWaveAlertLogs] = useState<string[]>([]);
@@ -835,60 +834,6 @@ const RealTime = () => {
                   onRecordingComplete={handleRecordingComplete}
                   onSourceRecordingComplete={handleSourceRecordingComplete}
                 />
-              )}
-            </div>
-
-            {/* Top Stream Mode Controls Bar */}
-            <div className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-white/40 bg-white/80 px-3.5 py-2 shadow-lg backdrop-blur-xl">
-              <TitleMono text="Real-Time Inference" />
-
-              {/* Stream Mode Toggle (Webcam vs Tello Drone) */}
-              <div className="flex items-center bg-white/90 p-0.5 rounded-lg border border-slate-200 shadow-sm pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={() => setStreamSource("webcam")}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                    streamSource === "webcam"
-                      ? "bg-slate-900 text-white shadow"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Webcam</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setStreamSource("tello")}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                    streamSource === "tello"
-                      ? "bg-cyan-600 text-white shadow"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Plane className="w-3.5 h-3.5" />
-                  <span>Tello Drone</span>
-                </button>
-              </div>
-
-              {streamSource === "webcam" && !isCameraActive && (
-                <>
-                  <div className="flex items-center gap-2 rounded-full bg-white/80 px-2.5 py-1 text-xs text-slate-700">
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        connectionState === "connected"
-                          ? "bg-emerald-500"
-                          : connectionState === "connecting"
-                            ? "bg-amber-500"
-                            : "bg-zinc-500"
-                      }`}
-                    />
-                    {connectionState}
-                  </div>
-                  <div className="max-w-[160px] truncate text-xs text-slate-700 font-medium">
-                    {cameraLabel}
-                  </div>
-                </>
               )}
             </div>
           </div>

@@ -8,9 +8,11 @@ export type VideoInferenceResponse = {
   source_transcode_backend?: string;
   retention_seconds?: number;
   frames_processed: number;
+  total_frames?: number;
   people_instances_detected: number;
   tracks_created: number;
   fps: number;
+  duration_seconds?: number;
   processing_seconds?: number;
   output_codec?: string;
   resolution: {
