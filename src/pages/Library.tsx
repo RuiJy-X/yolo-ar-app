@@ -72,6 +72,7 @@ const Library = () => {
     setResultPlaybackError,
     setShowProjectNameDialog,
     handleFileChange,
+    handleSelectFile,
     handleRunInference,
     handleDownload,
     saveToHistory,
@@ -94,6 +95,7 @@ const Library = () => {
   const hasUnsavedChanges = Boolean(analysis) && !loadedHistoryId;
   const [showUploadGuard, setShowUploadGuard] = useState(false);
   const [uploadAfterSave, setUploadAfterSave] = useState(false);
+  const [pendingDroppedFile, setPendingDroppedFile] = useState<File | null>(null);
   const progressBlocker = useBlocker(isSubmitting);
 
   useEffect(() => {
@@ -106,26 +108,55 @@ const Library = () => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [isSubmitting]);
 
+  // Prevent default browser navigation when files are dragged/dropped over the window
+  useEffect(() => {
+    const handleWindowDragOver = (event: DragEvent) => event.preventDefault();
+    const handleWindowDrop = (event: DragEvent) => event.preventDefault();
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("drop", handleWindowDrop);
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, []);
+
   const openFilePicker = () => fileInputRef.current?.click();
 
   const handleRequestUpload = () => {
     if (hasUnsavedChanges) {
+      setPendingDroppedFile(null);
       setShowUploadGuard(true);
       return;
     }
     openFilePicker();
   };
 
+  const handleDropFile = (droppedFile: File) => {
+    if (isSubmitting) return;
+    if (hasUnsavedChanges) {
+      setPendingDroppedFile(droppedFile);
+      setShowUploadGuard(true);
+      return;
+    }
+    handleSelectFile(droppedFile);
+  };
+
   const handleStayOnPage = () => {
     setShowUploadGuard(false);
     setUploadAfterSave(false);
+    setPendingDroppedFile(null);
   };
 
   const handleResetBeforeUpload = () => {
     resetCurrentSession();
     setShowUploadGuard(false);
     setUploadAfterSave(false);
-    openFilePicker();
+    if (pendingDroppedFile) {
+      handleSelectFile(pendingDroppedFile);
+      setPendingDroppedFile(null);
+    } else {
+      openFilePicker();
+    }
   };
 
   const handleSaveBeforeUpload = () => {
@@ -136,8 +167,13 @@ const Library = () => {
 
   const handleConfirmAndSave = async (projectName: string) => {
     const saved = await confirmProjectNameAndSave(projectName);
-    if (saved && uploadAfterSave) {
-      openFilePicker();
+    if (saved) {
+      if (pendingDroppedFile) {
+        handleSelectFile(pendingDroppedFile);
+        setPendingDroppedFile(null);
+      } else if (uploadAfterSave) {
+        openFilePicker();
+      }
     }
     setUploadAfterSave(false);
   };
@@ -190,6 +226,7 @@ const Library = () => {
               onOpenPersonDetails={openPersonDetails}
               onRequestUpload={handleRequestUpload}
               onFileChange={handleFileChange}
+              onDropFile={handleDropFile}
               onRunInference={handleRunInference}
               onDownload={handleDownload}
               onSaveToHistory={saveToHistory}

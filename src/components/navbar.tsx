@@ -83,47 +83,36 @@ const NavBar = () => {
 
             {/* Dropdown Menu */}
             {isRealtimeOpen && (
-              <div className="absolute top-[52px] left-0 w-52 rounded-xl bg-white border border-[#ededed] shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute top-[52px] left-0 w-38 rounded-xl bg-white border border-[#ededed] shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95">
                 <Link
                   to="/realtime?mode=webcam"
                   onClick={() => setIsRealtimeOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-2.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
                     isRealtimeActive &&
-                    (new URLSearchParams(location.search).get("mode") === "webcam" ||
+                    (new URLSearchParams(location.search).get("mode") ===
+                      "webcam" ||
                       !new URLSearchParams(location.search).get("mode"))
                       ? "bg-blue-50 text-[#0052ff]"
                       : "text-[#171717] hover:bg-slate-50"
                   }`}
                 >
-                  <div className="p-1 rounded-md bg-blue-100/60 text-[#0052ff]">
-                    <Camera className="w-3.5 h-3.5" />
-                  </div>
                   <div>
                     <p className="font-semibold leading-tight">Webcam</p>
-                    <p className="text-[10px] text-[#707070] mt-0.5">
-                      Live camera inference
-                    </p>
                   </div>
                 </Link>
 
                 <Link
                   to="/realtime?mode=tello"
                   onClick={() => setIsRealtimeOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors mt-0.5 ${
+                  className={`flex items-center gap-2.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors mt-0.5 ${
                     isRealtimeActive &&
                     new URLSearchParams(location.search).get("mode") === "tello"
                       ? "bg-cyan-50 text-cyan-700"
                       : "text-[#171717] hover:bg-slate-50"
                   }`}
                 >
-                  <div className="p-1 rounded-md bg-cyan-100/60 text-cyan-700">
-                    <Plane className="w-3.5 h-3.5" />
-                  </div>
                   <div>
                     <p className="font-semibold leading-tight">Drone View</p>
-                    <p className="text-[10px] text-[#707070] mt-0.5">
-                      Ryze Tello live stream
-                    </p>
                   </div>
                 </Link>
               </div>

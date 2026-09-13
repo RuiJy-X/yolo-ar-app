@@ -72,12 +72,12 @@ const formatDateKey = (key: string): string => {
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 const SkeletonCard = () => (
-  <div className="flex flex-col rounded-xl overflow-hidden border border-[#ededed] bg-white animate-pulse">
+  <div className="flex flex-col rounded-lg overflow-hidden border border-[#ededed] bg-white animate-pulse">
     <div className="aspect-video w-full bg-[#f0f0f0]" />
-    <div className="p-3.5 space-y-2">
-      <div className="h-4 bg-[#f0f0f0] rounded w-3/4" />
-      <div className="h-3 bg-[#f0f0f0] rounded w-1/2" />
-      <div className="h-8 bg-[#f0f0f0] rounded mt-2" />
+    <div className="p-2 space-y-1.5">
+      <div className="h-3 bg-[#f0f0f0] rounded w-3/4" />
+      <div className="h-2 bg-[#f0f0f0] rounded w-1/2" />
+      <div className="h-5 bg-[#f0f0f0] rounded mt-1" />
     </div>
   </div>
 );
@@ -149,7 +149,7 @@ const VideoThumbnail = ({
       />
       {(!videoUrl || !captured) && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 text-blue-400">
-          <FileVideo size={28} className="opacity-80" />
+          <FileVideo size={18} className="opacity-80" />
         </div>
       )}
     </div>
@@ -169,7 +169,7 @@ const EntryCard = ({
   onOpen: () => void;
   onDelete: () => void;
 }) => (
-  <div className="group flex flex-col rounded-xl overflow-hidden border border-[#ededed] bg-white shadow-xs hover:shadow-md hover:border-[#0052ff]/40 transition-all duration-200">
+  <div className="group flex flex-col rounded-lg overflow-hidden border border-[#ededed] bg-white shadow-2xs hover:shadow-md hover:border-[#0052ff]/40 transition-all duration-200">
     {/* Top 16:9 Video Thumbnail Banner */}
     <div
       onClick={onOpen}
@@ -179,60 +179,60 @@ const EntryCard = ({
 
       {/* Play Overlay Icon on Hover */}
       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity duration-200">
-        <div className="w-10 h-10 rounded-full bg-white text-[#0052ff] flex items-center justify-center shadow-lg transform scale-90 group-hover/thumb:scale-100 transition-transform">
-          <Play size={18} className="ml-0.5 fill-current" />
+        <div className="w-7 h-7 rounded-full bg-white text-[#0052ff] flex items-center justify-center shadow-md transform scale-90 group-hover/thumb:scale-100 transition-transform">
+          <Play size={12} className="ml-0.5 fill-current" />
         </div>
       </div>
 
       {/* Wave Alert Badge */}
       {entry.hasWaveAlert && (
-        <span className="absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-600/90 text-white backdrop-blur-md shadow">
-          <AlertTriangle size={10} />
-          Wave alert
+        <span className="absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600/90 text-white backdrop-blur-md shadow">
+          <AlertTriangle size={8} />
+          Wave
         </span>
       )}
 
       {/* Duration Badge */}
       {entry.durationSeconds ? (
-        <span className="absolute bottom-2.5 right-2.5 z-10 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/80 text-white backdrop-blur-md">
+        <span className="absolute bottom-1.5 right-1.5 z-10 text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-black/80 text-white backdrop-blur-md">
           {Math.round(entry.durationSeconds)}s
         </span>
       ) : null}
     </div>
 
     {/* Bottom Details Section */}
-    <div className="p-3.5 flex flex-col flex-1 justify-between gap-3">
-      <div>
+    <div className="p-2 flex flex-col flex-1 justify-between gap-1.5">
+      <div className="min-w-0">
         <h4
           onClick={onOpen}
-          className="text-[13px] font-semibold text-[#171717] line-clamp-1 group-hover:text-[#0052ff] cursor-pointer transition-colors"
+          className="text-[11px] font-semibold text-[#171717] line-clamp-1 group-hover:text-[#0052ff] cursor-pointer transition-colors leading-tight"
           title={entry.filename || "Untitled Analysis"}
         >
           {entry.filename || "Untitled Analysis"}
         </h4>
 
         {entry.summary && (
-          <p className="text-[11px] text-[#707070] line-clamp-1 mt-1 leading-snug">
+          <p className="text-[10px] text-[#707070] line-clamp-1 mt-0.5 leading-tight">
             {entry.summary}
           </p>
         )}
 
-        <div className="flex items-center gap-1.5 mt-2 text-[#9a9a9a]">
-          <Clock size={11} />
-          <span className="text-[11px] font-mono">
+        <div className="flex items-center gap-1 mt-1 text-[#9a9a9a]">
+          <Clock size={10} className="shrink-0" />
+          <span className="text-[10px] font-mono truncate">
             {formatDateTime(entry.createdAt)}
           </span>
         </div>
       </div>
 
       {/* Card Footer Actions */}
-      <div className="flex items-center justify-between pt-2 border-t border-[#f0f0f0] mt-auto">
+      <div className="flex items-center justify-between pt-1.5 border-t border-[#f0f0f0] mt-auto">
         <button
           type="button"
           onClick={onOpen}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[12px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] text-[10px] font-medium bg-[#0052ff] text-white hover:bg-[#0041cc] transition-colors"
         >
-          <ExternalLink size={11} />
+          <ExternalLink size={9} />
           <span>Open</span>
         </button>
 
@@ -241,13 +241,13 @@ const EntryCard = ({
           type="button"
           onClick={onDelete}
           disabled={isDeleting}
-          className="w-7 h-7 rounded-[6px] flex items-center justify-center transition-colors disabled:opacity-40 bg-red-500/10 text-red-600 hover:bg-red-600 hover:text-white"
+          className="w-5 h-5 rounded-[4px] p-0 flex items-center justify-center transition-colors disabled:opacity-40 bg-red-500/10 text-red-600 hover:bg-red-600 hover:text-white"
           title="Delete video"
         >
           {isDeleting ? (
-            <RotateCw size={11} className="animate-spin" />
+            <RotateCw size={9} className="animate-spin" />
           ) : (
-            <Trash2 size={11} />
+            <Trash2 size={9} />
           )}
         </Button>
       </div>
@@ -756,7 +756,7 @@ const Home = () => {
   return (
     <AppLayout>
       <div
-        className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto w-full px-4 md:px-6 lg:px-8"
+        className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto w-full px-4 md:px-6 lg:px-8 pb-8"
         style={{ width: "100%" }}
       >
         <div className="flex flex-col gap-4 w-full">
@@ -896,7 +896,7 @@ const Home = () => {
 
         {/* ── History panel ── */}
         <div
-          className="flex flex-col rounded-lg overflow-y-auto"
+          className="flex flex-col rounded-lg"
           style={{
             background: "#ffffff",
             border: "0.5px solid #ededed",
@@ -1089,11 +1089,10 @@ const Home = () => {
 
           {/* Body */}
           {loading && entries.length === 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
-              <SkeletonCard />
-              <SkeletonCard />
-              <SkeletonCard />
-              <SkeletonCard />
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-8 gap-2.5 p-3">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
             </div>
           ) : filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
@@ -1135,7 +1134,7 @@ const Home = () => {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-8 gap-2.5 p-3">
               {filteredEntries.map((entry) => (
                 <EntryCard
                   key={entry.id}

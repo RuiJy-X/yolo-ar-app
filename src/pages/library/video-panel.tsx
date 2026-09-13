@@ -1,4 +1,4 @@
-import { useRef, type RefObject, type ChangeEventHandler } from "react";
+import { useRef, useState, type RefObject, type ChangeEventHandler } from "react";
 import { Download, Save, Upload, Eye, EyeOff, Layers } from "lucide-react";
 import TitleMono from "@/components/titile-mono";
 import type { Detection, AnalyzeVideoResponse } from "@/lib/types";
@@ -33,6 +33,7 @@ type VideoPanelProps = {
   onClearFocus?: () => void;
   onOpenPersonDetails?: (personId: number) => void;
   onFileChange: ChangeEventHandler<HTMLInputElement>;
+  onDropFile?: (file: File) => void;
   onRunInference: () => void;
   onDownload: () => void;
   onSaveToHistory: () => void;
@@ -74,6 +75,7 @@ const VideoPanel = ({
   onClearFocus = () => {},
   onOpenPersonDetails = () => {},
   onFileChange,
+  onDropFile,
   onRunInference,
   onDownload,
   onSaveToHistory,
@@ -86,6 +88,8 @@ const VideoPanel = ({
   onPlaybackStateChange,
 }: VideoPanelProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const isVideoAnnotated = showVideoAnnotations ?? showAnnotations;
   const handleToggleVideo = onToggleVideoAnnotations ?? onToggleAnnotations ?? (() => {});
@@ -96,6 +100,55 @@ const VideoPanel = ({
     : (sourceVideoUrl ?? resultVideoUrl);
 
   const canToggleVideoSource = Boolean(resultVideoUrl && sourceVideoUrl);
+
+  const isVideoFile = (item: File) => {
+    return (
+      item.type.startsWith("video/") ||
+      /\.(mp4|mov|avi|webm|mkv|m4v|flv|wmv)$/i.test(item.name)
+    );
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    if (isSubmitting) return;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const droppedFile = files[0];
+      if (isVideoFile(droppedFile)) {
+        onDropFile?.(droppedFile);
+      }
+    }
+  };
 
   return (
     <div
@@ -211,7 +264,14 @@ const VideoPanel = ({
       </div>
 
       {/* ── Video area ── */}
-      <div ref={containerRef} className="relative flex-1 min-h-0 bg-[#1c1c1c] overflow-hidden">
+      <div
+        ref={containerRef}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className="relative flex-1 min-h-0 bg-[#1c1c1c] overflow-hidden flex flex-col"
+      >
         {sourceVideoUrl || resultVideoUrl ? (
           <>
             <video
@@ -259,27 +319,59 @@ const VideoPanel = ({
             />
           </>
         ) : (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
-            <div className="w-12 h-12 rounded-[12px] border border-[#dfdfdf] bg-[#202020] flex items-center justify-center">
-              <Upload size={18} className="text-[#9a9a9a]" />
+          /* Empty state / Dropzone */
+          <div
+            onClick={onRequestUpload}
+            className="group flex flex-col items-center justify-center h-full max-h-[380px] w-full max-w-md mx-auto my-auto border-2 border-dashed border-[#333333] hover:border-[#0052ff] rounded-2xl bg-[#202020]/60 hover:bg-[#0052ff]/5 p-8 transition-all cursor-pointer text-center gap-4 shadow-sm"
+          >
+            <div className="w-14 h-14 rounded-2xl border border-white/10 bg-white/5 group-hover:bg-[#0052ff]/10 group-hover:border-[#0052ff]/40 flex items-center justify-center transition-colors">
+              <Upload size={24} className="text-[#9a9a9a] group-hover:text-[#0052ff] transition-colors" />
             </div>
-            <div>
-              <p className="text-[14px] font-medium text-[#9a9a9a]">
-                No video uploaded
+            <div className="space-y-1">
+              <p className="text-[15px] font-semibold text-white group-hover:text-[#5d85ff] transition-colors">
+                Drag & drop video here
               </p>
-              <p className="text-[12px] text-[#707070] mt-1">
-                Upload a video file to begin analysis
+              <p className="text-[12px] text-[#888888]">
+                or click anywhere in this area to browse files
               </p>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono text-[#777777] bg-black/40 px-3 py-1 rounded-full border border-white/5">
+              <span>MP4</span>
+              <span>•</span>
+              <span>MOV</span>
+              <span>•</span>
+              <span>AVI</span>
+              <span>•</span>
+              <span>WebM</span>
             </div>
             <button
               type="button"
-              onClick={onRequestUpload}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestUpload();
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] text-[13px] font-medium bg-[#0052ff] text-[#ffffff] hover:bg-[#0041cc] transition-colors mt-2"
             >
               <Upload size={13} />
               Upload Video
             </button>
+          </div>
+        )}
+
+        {/* ── Drag & Drop Active Overlay ── */}
+        {isDragging && !isSubmitting && (
+          <div className="absolute inset-0 z-30 bg-[#0052ff]/20 backdrop-blur-sm border-2 border-dashed border-[#0052ff] flex flex-col items-center justify-center gap-3.5 p-6 pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-14 h-14 rounded-2xl bg-[#0052ff] text-white flex items-center justify-center shadow-lg shadow-blue-500/30 animate-bounce">
+              <Upload size={26} />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-[16px] font-bold text-white drop-shadow">
+                Drop video to load
+              </p>
+              <p className="text-[12px] text-blue-200">
+                Supports MP4, MOV, AVI, WebM
+              </p>
+            </div>
           </div>
         )}
 

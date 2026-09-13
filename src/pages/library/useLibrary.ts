@@ -290,10 +290,7 @@ export const useLibraryState = (historyId?: string | null) => {
       ? videoDurationSeconds
       : Math.max(1, inferredDurationSeconds);
 
-  const handleFileChange: ChangeEventHandler<HTMLInputElement> = (event) => {
-    const selected = event.target.files?.[0];
-    if (!selected) return;
-
+  const handleSelectFile = (selected: File) => {
     setFile(selected);
     setLoadedHistoryId(null); // fresh upload — no longer tied to a history entry
     setResultVideoUrl(null);
@@ -306,6 +303,12 @@ export const useLibraryState = (historyId?: string | null) => {
     setCurrentTimeSeconds(0);
     setVideoDurationSeconds(0);
     replaceSourceVideoUrl(selected ? URL.createObjectURL(selected) : null);
+  };
+
+  const handleFileChange: ChangeEventHandler<HTMLInputElement> = (event) => {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    handleSelectFile(selected);
   };
 
   const handleRunInference = async () => {
@@ -1057,6 +1060,7 @@ export const useLibraryState = (historyId?: string | null) => {
     setShowProjectNameDialog,
     // handlers
     handleFileChange,
+    handleSelectFile,
     handleRunInference,
     seekToFrame,
     handleTimelineScrub,

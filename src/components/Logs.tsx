@@ -27,6 +27,10 @@ import {
   getActionText,
 } from "@/pages/library/action-colors";
 import TitleMono from "./titile-mono";
+import {
+  PeopleCountHistogram,
+  ActionTimelineLineGraph,
+} from "@/components/library/overview-charts";
 
 export type SidebarTab = "detections" | "frame" | "person" | "overview";
 
@@ -1553,6 +1557,24 @@ export const Logs: React.FC<LogsProps> = ({
             <ActionPieChart data={wholeVideoActionStats} size={140} donut={true} />
           </div>
 
+          {/* People Count Bar Histogram */}
+          <PeopleCountHistogram
+            detectionsByFrame={detectionsByFrame ?? new Map()}
+            totalFrames={totalFrames ?? 1}
+            seekFps={seekFps}
+            onSeekToFrame={onSeekToFrame}
+            compact={true}
+          />
+
+          {/* Actions Detected Across Frames Multi-Line Graph */}
+          <ActionTimelineLineGraph
+            detectionsByFrame={detectionsByFrame ?? new Map()}
+            totalFrames={totalFrames ?? 1}
+            seekFps={seekFps}
+            onSeekToFrame={onSeekToFrame}
+            compact={true}
+          />
+
           {/* All Tracked Persons */}
           <div className="space-y-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
@@ -1561,13 +1583,13 @@ export const Logs: React.FC<LogsProps> = ({
             </span>
             <div className="grid grid-cols-2 gap-2">
               {uniquePersonIds.map((pId) => {
-                const pDets = detectionsByPerson.get(pId) || [];
+                const pDets = detectionsByPerson?.get(pId) || [];
                 return (
                   <button
                     key={`all-p-${pId}`}
                     type="button"
                     onClick={() => {
-                      onFocusPerson(pId);
+                      onFocusPerson?.(pId);
                       setTab("person");
                     }}
                     className="p-2.5 rounded-xl border border-slate-200 bg-white hover:border-blue-300 text-left transition-colors"

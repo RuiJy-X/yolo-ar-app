@@ -3,6 +3,10 @@ import type { AnalyzeVideoResponse, Detection } from "@/lib/types";
 import { getActionColor, getActionBg, getActionText } from "@/pages/library/action-colors";
 import { ActionPieChart } from "@/components/Logs";
 import {
+  PeopleCountHistogram,
+  ActionTimelineLineGraph,
+} from "@/components/library/overview-charts";
+import {
   X,
   ChevronLeft,
   ChevronRight,
@@ -394,6 +398,32 @@ export const InDepthAnalysisDialog: React.FC<InDepthAnalysisDialogProps> = ({
                   Video Action Distribution Pie Chart
                 </h4>
                 <ActionPieChart data={wholeVideoActionStats} size={160} donut={true} />
+              </div>
+
+              {/* People Count Bar Histogram */}
+              <div className="space-y-2.5">
+                <PeopleCountHistogram
+                  detectionsByFrame={detectionsByFrame}
+                  totalFrames={totalFrames}
+                  seekFps={seekFps}
+                  onSeekToFrame={(frame) => {
+                    onSeekToFrame(frame);
+                    onClose();
+                  }}
+                />
+              </div>
+
+              {/* Actions Detected Across Frames Multi-Line Graph */}
+              <div className="space-y-2.5">
+                <ActionTimelineLineGraph
+                  detectionsByFrame={detectionsByFrame}
+                  totalFrames={totalFrames}
+                  seekFps={seekFps}
+                  onSeekToFrame={(frame) => {
+                    onSeekToFrame(frame);
+                    onClose();
+                  }}
+                />
               </div>
 
               {/* Unique Persons Tracked in Session */}
