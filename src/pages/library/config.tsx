@@ -3,18 +3,134 @@ import {
   Activity,
   AlertCircle,
   Box,
+  Check,
   CheckCircle2,
   Cpu,
+  Gauge,
   Layers,
   Maximize2,
   RefreshCw,
   RotateCcw,
   Save,
+  ShieldCheck,
   Sliders,
   Sparkles,
-  Zap,
+  Target,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+export type PresetKey = "low" | "medium" | "high";
+
+export interface PresetDefinition {
+  key: PresetKey;
+  label: string;
+  tag: string;
+  description: string;
+  badgeBg: string;
+  badgeText: string;
+  activeBorder: string;
+  activeBg: string;
+  config: {
+    yolo_conf: number;
+    yolo_iou: number;
+    video_yolo_conf: number;
+    video_yolo_iou: number;
+    use_sahi: boolean;
+    sahi_mode: SahiMode;
+    sahi_pipeline_mode: "1-stage" | "2-stage";
+    stage1_detector: string;
+    sahi_tile_conf: number;
+    sahi_kpt_conf: number;
+    sahi_min_kpts: number;
+    sahi_min_mean_kpt_conf: number;
+    action_threshold_mode: "uniform" | "per-action";
+    action_threshold: number;
+  };
+}
+
+export const CONFIDENCE_PRESETS: PresetDefinition[] = [
+  {
+    key: "low",
+    label: "Low Confidence",
+    tag: "High Recall",
+    description:
+      "Lower confidence threshold for both YOLO and InfoGCN. Increased recall, low precision.",
+    badgeBg: "bg-amber-50 text-amber-700 border border-amber-200",
+    badgeText: "text-amber-700",
+    activeBorder: "border-amber-500 ring-2 ring-amber-500/20",
+    activeBg: "bg-amber-50/40",
+    config: {
+      yolo_conf: 0.1,
+      yolo_iou: 0.45,
+      video_yolo_conf: 0.1,
+      video_yolo_iou: 0.45,
+      use_sahi: false,
+      sahi_mode: "disabled",
+      sahi_pipeline_mode: "2-stage",
+      stage1_detector: "yolo11n",
+      sahi_tile_conf: 0.1,
+      sahi_kpt_conf: 0.05,
+      sahi_min_kpts: 2,
+      sahi_min_mean_kpt_conf: 0.1,
+      action_threshold_mode: "uniform",
+      action_threshold: 0.15,
+    },
+  },
+  {
+    key: "medium",
+    label: "Medium Confidence",
+    tag: "Balanced (Recommended)",
+    description:
+      "Increased confidence threshold. Human may be missed, but false positives are reduced.",
+    badgeBg: "bg-blue-50 text-blue-700 border border-blue-200",
+    badgeText: "text-blue-700",
+    activeBorder: "border-[#0052ff] ring-2 ring-[#0052ff]/20",
+    activeBg: "bg-blue-50/40",
+    config: {
+      yolo_conf: 0.4,
+      yolo_iou: 0.45,
+      video_yolo_conf: 0.4,
+      video_yolo_iou: 0.45,
+      use_sahi: false,
+      sahi_mode: "disabled",
+      sahi_pipeline_mode: "2-stage",
+      stage1_detector: "yolo11n",
+      sahi_tile_conf: 0.15,
+      sahi_kpt_conf: 0.1,
+      sahi_min_kpts: 3,
+      sahi_min_mean_kpt_conf: 0.15,
+      action_threshold_mode: "uniform",
+      action_threshold: 0.45,
+    },
+  },
+  {
+    key: "high",
+    label: "High Confidence",
+    tag: "High Precision",
+    description:
+      "High confidence threshold for both YOLO and InfoGCN. May miss humans in the scene, but false positives are highly minimized.",
+    badgeBg: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    badgeText: "text-emerald-700",
+    activeBorder: "border-emerald-500 ring-2 ring-emerald-500/20",
+    activeBg: "bg-emerald-50/40",
+    config: {
+      yolo_conf: 0.6,
+      yolo_iou: 0.5,
+      video_yolo_conf: 0.6,
+      video_yolo_iou: 0.5,
+      use_sahi: false,
+      sahi_mode: "disabled",
+      sahi_pipeline_mode: "2-stage",
+      stage1_detector: "yolo11n",
+      sahi_tile_conf: 0.25,
+      sahi_kpt_conf: 0.2,
+      sahi_min_kpts: 5,
+      sahi_min_mean_kpt_conf: 0.25,
+      action_threshold_mode: "uniform",
+      action_threshold: 0.6,
+    },
+  },
+];
 
 const apiBaseUrl =
   import.meta.env?.VITE_ACTION_API_BASE_URL ?? "http://localhost:8000";
@@ -61,8 +177,6 @@ type RuntimeConfig = {
   sahi_kpt_conf?: number;
   sahi_min_kpts?: number;
   sahi_min_mean_kpt_conf?: number;
-  enable_video_cadence?: boolean;
-  video_cadence_interval?: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -83,8 +197,6 @@ type DraftConfig = {
   sahi_kpt_conf: number;
   sahi_min_kpts: number;
   sahi_min_mean_kpt_conf: number;
-  enable_video_cadence: boolean;
-  video_cadence_interval: number;
   action_threshold_mode: "uniform" | "per-action";
   action_threshold: number;
   action_thresholds: Record<string, number>;
@@ -231,11 +343,9 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         sahi_mode: data.sahi_mode ?? (data.use_sahi ? "dense" : "disabled"),
         sahi_pipeline_mode: data.sahi_pipeline_mode ?? "2-stage",
         sahi_tile_conf: data.sahi_tile_conf ?? 0.15,
-        sahi_kpt_conf: data.sahi_kpt_conf ?? 0.10,
+        sahi_kpt_conf: data.sahi_kpt_conf ?? 0.1,
         sahi_min_kpts: data.sahi_min_kpts ?? 3,
         sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? 0.15,
-        enable_video_cadence: data.enable_video_cadence ?? false,
-        video_cadence_interval: data.video_cadence_interval ?? 5,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -257,19 +367,20 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
           video_yolo_conf: cached.video_yolo_conf,
           video_yolo_iou: cached.video_yolo_iou,
           use_sahi: cached.use_sahi ?? false,
-          sahi_mode: cached.sahi_mode ?? (cached.use_sahi ? "dense" : "disabled"),
+          sahi_mode:
+            cached.sahi_mode ?? (cached.use_sahi ? "dense" : "disabled"),
           sahi_pipeline_mode: cached.sahi_pipeline_mode ?? "2-stage",
           sahi_tile_conf: cached.sahi_tile_conf ?? 0.15,
-          sahi_kpt_conf: cached.sahi_kpt_conf ?? 0.10,
+          sahi_kpt_conf: cached.sahi_kpt_conf ?? 0.1,
           sahi_min_kpts: cached.sahi_min_kpts ?? 3,
           sahi_min_mean_kpt_conf: cached.sahi_min_mean_kpt_conf ?? 0.15,
-          enable_video_cadence: cached.enable_video_cadence ?? false,
-          video_cadence_interval: cached.video_cadence_interval ?? 5,
           action_threshold_mode: cached.action_threshold_mode,
           action_threshold: cached.action_threshold,
           action_thresholds: { ...cached.action_thresholds },
         });
-        setError("Backend API offline. Loaded cached settings from local storage.");
+        setError(
+          "Backend API offline. Loaded cached settings from local storage.",
+        );
       } else {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -300,14 +411,63 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
       draft.sahi_kpt_conf !== config.sahi_kpt_conf ||
       draft.sahi_min_kpts !== config.sahi_min_kpts ||
       draft.sahi_min_mean_kpt_conf !== config.sahi_min_mean_kpt_conf ||
-      draft.enable_video_cadence !== (config.enable_video_cadence ?? false) ||
-      draft.video_cadence_interval !== (config.video_cadence_interval ?? 5) ||
       draft.action_threshold_mode !== config.action_threshold_mode ||
       draft.action_threshold !== config.action_threshold ||
       JSON.stringify(draft.action_thresholds) !==
         JSON.stringify(config.action_thresholds)
     );
   }, [config, draft]);
+
+  const currentPresetKey = useMemo<PresetKey | "custom">(() => {
+    if (!draft) return "custom";
+    for (const preset of CONFIDENCE_PRESETS) {
+      const c = preset.config;
+      const isMatch =
+        draft.stage1_detector === c.stage1_detector &&
+        draft.sahi_pipeline_mode === c.sahi_pipeline_mode &&
+        draft.use_sahi === c.use_sahi &&
+        draft.sahi_mode === c.sahi_mode &&
+        Math.abs(draft.yolo_conf - c.yolo_conf) < 0.001 &&
+        Math.abs(draft.yolo_iou - c.yolo_iou) < 0.001 &&
+        Math.abs(draft.video_yolo_conf - c.video_yolo_conf) < 0.001 &&
+        Math.abs(draft.video_yolo_iou - c.video_yolo_iou) < 0.001 &&
+        Math.abs(draft.sahi_tile_conf - c.sahi_tile_conf) < 0.001 &&
+        Math.abs(draft.sahi_kpt_conf - c.sahi_kpt_conf) < 0.001 &&
+        draft.sahi_min_kpts === c.sahi_min_kpts &&
+        Math.abs(draft.sahi_min_mean_kpt_conf - c.sahi_min_mean_kpt_conf) <
+          0.001 &&
+        draft.action_threshold_mode === c.action_threshold_mode &&
+        Math.abs(draft.action_threshold - c.action_threshold) < 0.001;
+
+      if (isMatch) return preset.key;
+    }
+    return "custom";
+  }, [draft]);
+
+  const applyPreset = (preset: PresetDefinition) => {
+    if (!draft) return;
+    const actionsList = config?.actions ?? [
+      "sitting",
+      "standing",
+      "waving",
+      "walking",
+    ];
+    const updatedActionThresholds: Record<string, number> = {};
+    for (const act of actionsList) {
+      updatedActionThresholds[act] = preset.config.action_threshold;
+    }
+    const nextDraft: DraftConfig = {
+      ...draft,
+      ...preset.config,
+      yolo_model: draft.yolo_model,
+      action_thresholds: updatedActionThresholds,
+    };
+    setDraft(nextDraft);
+    setMatchLibrarySettings(
+      preset.config.yolo_conf === preset.config.video_yolo_conf &&
+        preset.config.yolo_iou === preset.config.video_yolo_iou,
+    );
+  };
 
   const updateDraftNumber = (key: keyof DraftConfig, value: string) => {
     if (!draft) return;
@@ -382,9 +542,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
         sahi_tile_conf: data.sahi_tile_conf ?? draft.sahi_tile_conf,
         sahi_kpt_conf: data.sahi_kpt_conf ?? draft.sahi_kpt_conf,
         sahi_min_kpts: data.sahi_min_kpts ?? draft.sahi_min_kpts,
-        sahi_min_mean_kpt_conf: data.sahi_min_mean_kpt_conf ?? draft.sahi_min_mean_kpt_conf,
-        enable_video_cadence: data.enable_video_cadence ?? draft.enable_video_cadence,
-        video_cadence_interval: data.video_cadence_interval ?? draft.video_cadence_interval,
+        sahi_min_mean_kpt_conf:
+          data.sahi_min_mean_kpt_conf ?? draft.sahi_min_mean_kpt_conf,
         action_threshold_mode: data.action_threshold_mode,
         action_threshold: data.action_threshold,
         action_thresholds: { ...data.action_thresholds },
@@ -527,7 +686,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
             }`}
           >
             <Layers size={16} className="shrink-0" />
-            <span>SAHI</span>
+            <span>Architecture</span>
           </button>
 
           <button
@@ -559,6 +718,97 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
 
         {/* Right Tab Content Panel */}
         <div className="flex-1 overflow-y-auto p-6 bg-white">
+          {/* Quick Confidence Presets Card */}
+          <div className="max-w-4xl mb-6 p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Confidence &amp; Performance Presets
+                </h3>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-400 font-medium">
+                  Profile:
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                    currentPresetKey === "low"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : currentPresetKey === "medium"
+                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        : currentPresetKey === "high"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-slate-100 text-slate-600 border-slate-200"
+                  }`}
+                >
+                  {currentPresetKey === "low"
+                    ? "Low Confidence (High Sensitivity)"
+                    : currentPresetKey === "medium"
+                      ? "Medium Confidence (Balanced)"
+                      : currentPresetKey === "high"
+                        ? "High Confidence (Strict Precision)"
+                        : "Custom Configuration"}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {CONFIDENCE_PRESETS.map((preset) => {
+                const isSelected = currentPresetKey === preset.key;
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={`flex flex-col text-left p-3.5 rounded-xl border transition-all relative ${
+                      isSelected
+                        ? `${preset.activeBorder} ${preset.activeBg} shadow-xs`
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        {preset.key === "low" && (
+                          <Sparkles size={14} className="text-amber-500" />
+                        )}
+                        {preset.key === "medium" && (
+                          <ShieldCheck size={14} className="text-[#0052ff]" />
+                        )}
+                        {preset.key === "high" && (
+                          <Target size={14} className="text-emerald-600" />
+                        )}
+                        {preset.label}
+                      </span>
+                      {isSelected && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-[#0052ff] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                          <Check size={11} /> Active
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit mb-2 ${preset.badgeBg}`}
+                    >
+                      {preset.tag}
+                    </span>
+                    <p className="text-[11px] text-slate-500 leading-relaxed flex-1 mb-2.5">
+                      {preset.description}
+                    </p>
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span>
+                        YOLO: {Math.round(preset.config.yolo_conf * 100)}%
+                      </span>
+                      <span>
+                        Action:{" "}
+                        {Math.round(preset.config.action_threshold * 100)}%
+                      </span>
+                      <span>2-Stage YOLOv11n</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* TAB 1: POSE DETECTION (YOLO) */}
           {activeTab === "pose" && (
             <div className="flex flex-col gap-6 max-w-4xl">
@@ -690,12 +940,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
             <div className="flex flex-col gap-6 max-w-4xl">
               <div>
                 <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                  SAHI Sliced Inference &amp; Aerial Optimization
+                  Architecture Configuration
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Enhance detection of small or distant people in
-                  high-resolution aerial footage using SAHI tile slicing.
-                </p>
               </div>
 
               {/* SAHI Pipeline Architecture Selector Card */}
@@ -708,8 +954,12 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     <p className="text-sm font-semibold text-slate-900">
                       Pipeline Architecture
                     </p>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                      2-Stage Crop &amp; Upscale detects tiny person bboxes first, adds 25% contextual padding, upscales crops to 256px, and runs targeted pose estimation for maximum keypoint recall on far-away subjects (works for both SAHI tiles and full frames).
+                    <p className="text-xs text-slate-500 mt-1 max-w-md ">
+                      2-Stage Crop &amp; Upscale detects tiny person bboxes
+                      first, adds 25% contextual padding, upscales crops to
+                      256px, and runs targeted pose estimation for maximum
+                      keypoint recall on far-away subjects (works for both SAHI
+                      tiles and full frames).
                     </p>
                   </div>
                 </div>
@@ -718,12 +968,16 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   onChange={(e) =>
                     setDraft({
                       ...draft,
-                      sahi_pipeline_mode: e.target.value as "1-stage" | "2-stage",
+                      sahi_pipeline_mode: e.target.value as
+                        | "1-stage"
+                        | "2-stage",
                     })
                   }
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer"
                 >
-                  <option value="2-stage">2-Stage Crop &amp; Upscale (Recommended)</option>
+                  <option value="2-stage">
+                    2-Stage Crop &amp; Upscale (Recommended)
+                  </option>
                   <option value="1-stage">1-Stage Direct Pose Slicing</option>
                 </select>
               </div>
@@ -738,8 +992,12 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     <p className="text-sm font-semibold text-slate-900">
                       Stage 1 Object Detector (Localization)
                     </p>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                      Decouples bounding box localization from pose estimation. When set to a dedicated detector (e.g. YOLOv11 Medium/Nano), Stage 1 uses this model to propose candidate person boxes on full-frame or SAHI slices, and routes cropped subjects to the Pose Model in Stage 2.
+                    <p className="text-xs text-slate-500 mt-1 max-w-md">
+                      Decouples bounding box localization from pose estimation.
+                      When set to a dedicated detector (e.g. YOLOv11
+                      Medium/Nano), Stage 1 uses this model to propose candidate
+                      person boxes on full-frame or SAHI slices, and routes
+                      cropped subjects to the Pose Model in Stage 2.
                     </p>
                   </div>
                 </div>
@@ -753,7 +1011,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   }
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#0052ff] focus:ring-1 focus:ring-[#0052ff]/20 shadow-xs cursor-pointer max-w-[260px]"
                 >
-                  {config?.stage1_detectors && config.stage1_detectors.length > 0 ? (
+                  {config?.stage1_detectors &&
+                  config.stage1_detectors.length > 0 ? (
                     config.stage1_detectors.map((det) => (
                       <option key={det.key} value={det.key}>
                         {det.label}
@@ -762,11 +1021,21 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   ) : (
                     <>
                       <option value="same">Unified (Same as Pose Model)</option>
-                      <option value="yolo11n">Dedicated YOLOv11 Nano Detector (yolo11n.pt)</option>
-                      <option value="yolo11s">Dedicated YOLOv11 Small Detector (yolo11s.pt)</option>
-                      <option value="yolo11m">Dedicated YOLOv11 Medium Detector (yolo11m.pt)</option>
-                      <option value="aerial-medium-tuned">Dedicated Fine-Tuned Aerial (yolo11m-aerial-tuned.pt)</option>
-                      <option value="aerial">Dedicated Aerial Legacy (yolo-best.pt)</option>
+                      <option value="yolo11n">
+                        Dedicated YOLOv11 Nano Detector (yolo11n.pt)
+                      </option>
+                      <option value="yolo11s">
+                        Dedicated YOLOv11 Small Detector (yolo11s.pt)
+                      </option>
+                      <option value="yolo11m">
+                        Dedicated YOLOv11 Medium Detector (yolo11m.pt)
+                      </option>
+                      <option value="aerial-medium-tuned">
+                        Dedicated Fine-Tuned Aerial (yolo11m-aerial-tuned.pt)
+                      </option>
+                      <option value="aerial">
+                        Dedicated Aerial Legacy (yolo-best.pt)
+                      </option>
                     </>
                   )}
                 </select>
@@ -782,8 +1051,10 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     <p className="text-sm font-semibold text-slate-900">
                       SAHI Slicing Mode
                     </p>
-                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                      Configures tile crop size for aerial and drone footage. Dense SAHI (384px) magnifies 15px distant people to 25px for maximum recall on 1080p video.
+                    <p className="text-xs text-slate-500 mt-1 max-w-md">
+                      Configures tile crop size for aerial and drone footage.
+                      Dense SAHI (384px) magnifies 15px distant people to 25px
+                      for maximum recall on 1080p video.
                     </p>
                   </div>
                 </div>
@@ -801,7 +1072,9 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                 >
                   <option value="disabled">Disabled (Full Frame Pass)</option>
                   <option value="standard">Standard SAHI (640px)</option>
-                  <option value="dense">Dense SAHI (384px) [Recommended]</option>
+                  <option value="dense">
+                    Dense SAHI (384px) [Recommended]
+                  </option>
                   <option value="ultra_dense">Ultra-Dense SAHI (320px)</option>
                 </select>
               </div>
@@ -838,10 +1111,14 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-semibold text-slate-800">
-                      Minimum Valid Keypoints: <span className="font-mono text-[#0052ff]">{draft.sahi_min_kpts}</span>
+                      Minimum Valid Keypoints:{" "}
+                      <span className="font-mono text-[#0052ff]">
+                        {draft.sahi_min_kpts}
+                      </span>
                     </label>
                     <p className="text-[11px] text-slate-500">
-                      Minimum connected keypoints required per detection (filters out foliage, shadows, and rock cracks)
+                      Minimum connected keypoints required per detection
+                      (filters out foliage, shadows, and rock cracks)
                     </p>
                     <input
                       type="range"
@@ -852,7 +1129,8 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                       onChange={(e) =>
                         setDraft({
                           ...draft,
-                          sahi_min_kpts: Number.parseInt(e.target.value, 10) || 1,
+                          sahi_min_kpts:
+                            Number.parseInt(e.target.value, 10) || 1,
                         })
                       }
                       className="w-full accent-[#0052ff] cursor-pointer mt-1"
@@ -862,71 +1140,11 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
                     label="Average Keypoint Confidence Floor"
                     description="Minimum average confidence across valid keypoints for a candidate to be kept"
                     value={draft.sahi_min_mean_kpt_conf}
-                    onChange={(v) => updateDraftNumber("sahi_min_mean_kpt_conf", v)}
-                  />
-                </div>
-              </div>
-
-              {/* Adaptive Video Cadence Performance Accelerator Card */}
-              <div className="flex flex-col gap-4 p-5 rounded-xl border border-slate-200 bg-slate-50/50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 mt-0.5">
-                      <Zap size={20} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        Adaptive Video Cadence Acceleration
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                        Scans the entire scene with full-resolution SAHI on keyframes to discover far-away subjects, and performs fast localized ROI tracking on intermediate frames. Accelerates video inference up to 10x (~50s for 300 frames).
-                      </p>
-                    </div>
-                  </div>
-                  <Toggle
-                    checked={draft.enable_video_cadence}
-                    onChange={() =>
-                      setDraft({
-                        ...draft,
-                        enable_video_cadence: !draft.enable_video_cadence,
-                      })
+                    onChange={(v) =>
+                      updateDraftNumber("sahi_min_mean_kpt_conf", v)
                     }
                   />
                 </div>
-
-                {draft.enable_video_cadence && (
-                  <div className="flex flex-col gap-2 pt-3 border-t border-slate-200/80">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-800">
-                        Full SAHI Scan Interval: Every{" "}
-                        <span className="font-mono text-[#0052ff] font-bold">
-                          {draft.video_cadence_interval}
-                        </span>{" "}
-                        frames (~{(draft.video_cadence_interval / 30).toFixed(2)}s @ 30 FPS)
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={12}
-                      step={1}
-                      value={draft.video_cadence_interval}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          video_cadence_interval:
-                            Number.parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                      className="w-full accent-[#0052ff] cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-                      <span>1 (Continuous SAHI)</span>
-                      <span>5 (Recommended)</span>
-                      <span>12 (Maximum Speed)</span>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -947,7 +1165,7 @@ const Config = ({ className, transparent = false }: ConfigProps) => {
               {/* Model Selector Card */}
               <div className="p-5 rounded-xl border border-slate-200 bg-white shadow-xs flex flex-col gap-3">
                 <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  InfoGCN Model Checkpoint
+                  InfoGCN Model Frame Configuration
                 </h4>
                 <ModelSelector />
               </div>

@@ -17,6 +17,8 @@ import {
   X,
   Layers,
   Sparkles,
+  Upload,
+  DatabaseSearch,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalyzeVideoResponse, AlertEvent, Detection } from "@/lib/types";
@@ -113,8 +115,13 @@ export const ActionPieChart: React.FC<{
         <div className="flex-1 w-full space-y-1">
           <div className="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-slate-50 font-medium">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
-              <span className="text-slate-800 font-semibold">{item.action}</span>
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: color }}
+              />
+              <span className="text-slate-800 font-semibold">
+                {item.action}
+              </span>
             </div>
             <div className="font-mono text-slate-700">
               {item.count} frame{item.count !== 1 ? "s" : ""} (100%)
@@ -336,7 +343,9 @@ const collapseDetectionsToEpisodes = (
   avgConfidence: number;
 }> => {
   if (detections.length === 0) return [];
-  const sorted = [...detections].sort((a, b) => a.frame_number - b.frame_number);
+  const sorted = [...detections].sort(
+    (a, b) => a.frame_number - b.frame_number,
+  );
 
   const episodes: Array<{
     action: string;
@@ -369,7 +378,8 @@ const collapseDetectionsToEpisodes = (
 
   for (let i = 1; i < sorted.length; i++) {
     const cur = sorted[i];
-    const isSameAction = cur.action_label.toLowerCase() === currentAction.toLowerCase();
+    const isSameAction =
+      cur.action_label.toLowerCase() === currentAction.toLowerCase();
     const isWithinGap = cur.frame_number - endFrame <= maxGap;
 
     if (isSameAction && isWithinGap) {
@@ -771,7 +781,10 @@ export const Logs: React.FC<LogsProps> = ({
       : [];
   }, [analysis]);
 
-  const allActions = useMemo(() => groupedActions.map((entry) => entry.action), [groupedActions]);
+  const allActions = useMemo(
+    () => groupedActions.map((entry) => entry.action),
+    [groupedActions],
+  );
   const selectedAction = selectedTag?.action ?? null;
 
   const selectedInstanceKey = useMemo(() => {
@@ -872,13 +885,19 @@ export const Logs: React.FC<LogsProps> = ({
     return Object.entries(counts).map(([action, data]) => ({
       action,
       count: data.count,
-      avgConfidence: data.confidences.reduce((a, b) => a + b, 0) / data.confidences.length,
-      pct: frameDetections.length > 0 ? (data.count / frameDetections.length) * 100 : 0,
+      avgConfidence:
+        data.confidences.reduce((a, b) => a + b, 0) / data.confidences.length,
+      pct:
+        frameDetections.length > 0
+          ? (data.count / frameDetections.length) * 100
+          : 0,
     }));
   }, [frameDetections]);
 
   const wavingInFrame = useMemo(() => {
-    return frameDetections.filter((d) => d.action_label.toLowerCase().includes("wav"));
+    return frameDetections.filter((d) =>
+      d.action_label.toLowerCase().includes("wav"),
+    );
   }, [frameDetections]);
 
   // Person statistics for focusedPersonId
@@ -908,11 +927,18 @@ export const Logs: React.FC<LogsProps> = ({
   // Whole video action totals
   const wholeVideoActionStats = useMemo(() => {
     if (!analysis?.grouped_detections) return [];
-    const stats: Array<{ action: string; count: number; avgConfidence: number }> = [];
-    for (const [action, detections] of Object.entries(analysis.grouped_detections)) {
+    const stats: Array<{
+      action: string;
+      count: number;
+      avgConfidence: number;
+    }> = [];
+    for (const [action, detections] of Object.entries(
+      analysis.grouped_detections,
+    )) {
       if (!Array.isArray(detections) || detections.length === 0) continue;
       const avgConf =
-        detections.reduce((sum, d) => sum + (d.confidence || 0), 0) / detections.length;
+        detections.reduce((sum, d) => sum + (d.confidence || 0), 0) /
+        detections.length;
       stats.push({
         action,
         count: detections.length,
@@ -936,9 +962,13 @@ export const Logs: React.FC<LogsProps> = ({
           <Activity className="size-3.5 text-[#1a1a1a]" />
           <TitleMono text="Detections & Analysis" />
         </div>
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-[13px] text-[#9a9a9a] text-center px-6">
-            Run analysis to view action logs, frame details, and person metadata.
+        <div className="flex-1 flex items-center justify-center flex-col  ">
+          <div className="flex items-center justify-center w-32 h-32 rounded-2xl bg-[#f5f5f5] mb-5 p-5 text-gray-500">
+            <DatabaseSearch size={64} />
+          </div>
+          <p className="text-[13px] text-[#9a9a9a] text-center px-6 w-64">
+            Run analysis to view action logs, frame details, and person
+            metadata.
           </p>
         </div>
       </div>
@@ -968,7 +998,7 @@ export const Logs: React.FC<LogsProps> = ({
           onClick={() => setTab("detections")}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
             currentTab === "detections"
-              ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+              ? "bg-primary text-white shadow-xs border border-slate-200"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -981,7 +1011,7 @@ export const Logs: React.FC<LogsProps> = ({
           onClick={() => setTab("frame")}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
             currentTab === "frame"
-              ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+              ? "bg-primary text-white shadow-xs border border-slate-200"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -1006,14 +1036,16 @@ export const Logs: React.FC<LogsProps> = ({
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
             currentTab === "person"
-              ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+              ? "bg-primary text-white shadow-xs border border-slate-200"
               : focusedPersonId !== null
                 ? "text-[#0052ff] bg-blue-50/50 hover:bg-blue-50"
                 : "text-slate-500 hover:text-slate-800"
           }`}
         >
           <User size={13} />
-          <span>{focusedPersonId !== null ? `P#${focusedPersonId}` : "Person"}</span>
+          <span>
+            {focusedPersonId !== null ? `P#${focusedPersonId}` : "Person"}
+          </span>
         </button>
 
         <button
@@ -1021,7 +1053,7 @@ export const Logs: React.FC<LogsProps> = ({
           onClick={() => setTab("overview")}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
             currentTab === "overview"
-              ? "bg-white text-slate-900 shadow-xs border border-slate-200"
+              ? "bg-primary text-white shadow-xs border border-slate-200"
               : "text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -1196,10 +1228,9 @@ export const Logs: React.FC<LogsProps> = ({
                             }
                             onFocusPerson={(pId) => {
                               onFocusPerson(pId);
-                              setTab("person");
                             }}
                             onOpenPersonDetails={(pId) => {
-                              onFocusPerson(pId);
+                              onOpenPersonDetails(pId);
                               setTab("person");
                             }}
                           />
@@ -1217,65 +1248,78 @@ export const Logs: React.FC<LogsProps> = ({
       {/* ── TAB 2: FRAME DETAILS ── */}
       {currentTab === "frame" && (
         <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 space-y-4">
-          {/* Frame & Timestamp Selector */}
-          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Film size={14} className="text-slate-600" />
-              <span className="text-xs font-bold text-slate-800">
-                Frame #{currentFrameNumber}
+          {/* Frame & Timestamp Selector (iOS Modern UI Design) */}
+          <div className="p-2 px-2.5 rounded-2xl border border-slate-200/80 bg-slate-100/70 backdrop-blur-xs flex items-center justify-between shadow-xs">
+            <button
+              type="button"
+              disabled={currentFrameNumber <= 1}
+              onClick={() => onSeekToFrame(Math.max(1, currentFrameNumber - 1))}
+              className="w-8 h-8 rounded-full bg-white border border-slate-200/70 shadow-xs flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-50 active:scale-90 disabled:opacity-35 disabled:pointer-events-none transition-all duration-150 shrink-0"
+              title="Previous frame"
+            >
+              <ChevronLeft size={15} className="-ml-0.5" />
+            </button>
+
+            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white border border-slate-200/70 shadow-xs select-none">
+              <span className="text-sm font-bold text-slate-800 tracking-tight font-mono">
+                {currentFrameNumber}
               </span>
-              <span className="text-[11px] font-mono text-slate-400">/ {totalFrames}</span>
+              <span className="text-[11px] font-mono text-slate-400 font-medium">
+                / {totalFrames} frames
+              </span>
             </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={currentFrameNumber <= 1}
-                onClick={() => onSeekToFrame(Math.max(1, currentFrameNumber - 1))}
-                className="p-1 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-                title="Previous frame"
-              >
-                <ChevronLeft size={13} />
-              </button>
-              <button
-                type="button"
-                disabled={currentFrameNumber >= totalFrames}
-                onClick={() => onSeekToFrame(Math.min(totalFrames, currentFrameNumber + 1))}
-                className="p-1 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-                title="Next frame"
-              >
-                <ChevronRight size={13} />
-              </button>
-            </div>
+
+            <button
+              type="button"
+              disabled={currentFrameNumber >= totalFrames}
+              onClick={() =>
+                onSeekToFrame(Math.min(totalFrames, currentFrameNumber + 1))
+              }
+              className="w-8 h-8 rounded-full bg-white border border-slate-200/70 shadow-xs flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-50 active:scale-90 disabled:opacity-35 disabled:pointer-events-none transition-all duration-150 shrink-0"
+              title="Next frame"
+            >
+              <ChevronRight size={15} className="-mr-0.5 " />
+            </button>
           </div>
 
           {/* Quick Metrics Grid */}
           <div className="grid grid-cols-2 gap-2">
-            <div className="p-3 rounded-xl border border-slate-200 bg-white">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <div className="p-3 rounded-xl border border-slate-200 bg-primary/90">
+              <span className="text-[12px] font-bold uppercase  text-white">
                 Detections
               </span>
               <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-xl font-bold font-mono text-slate-900">
+                <span className="text-2xl font-bold font-mono text-white">
                   {frameDetections.length}
                 </span>
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-white">
                   {frameDetections.length === 1 ? "person" : "people"}
                 </span>
               </div>
             </div>
 
-            <div className="p-3 rounded-xl border border-slate-200 bg-white">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Waving Alert
+            <div
+              className={`p-3 rounded-xl border border-slate-200 ${wavingInFrame.length > 0 ? "bg-red-600/90" : "bg-slate-200/90"}`}
+            >
+              <span className="text-[12px] font-semibold uppercase  text-white">
+                Alert
               </span>
               <div className="mt-1">
                 {wavingInFrame.length > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                    <AlertTriangle size={11} /> {wavingInFrame.length} Active
-                  </span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="inline-flex items-center gap-1 text-2xl font-mono font-bold px-1.5 py-0.5 text-white">
+                      {wavingInFrame.length}
+                    </span>
+
+                    <span className="text-[10px] text-white">
+                      {wavingInFrame.length === 1
+                        ? "waving person"
+                        : "waving people"}
+                    </span>
+                  </div>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                    <CheckCircle2 size={11} /> None
+                  <span className="inline-flex items-center gap-1 text-xl font-mono font-bold px-1.5 py-0.5 text-white">
+                    None
                   </span>
                 )}
               </div>
@@ -1285,11 +1329,9 @@ export const Logs: React.FC<LogsProps> = ({
           {/* Action Distribution Pie Chart in Frame */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <PieChart size={13} className="text-slate-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-black flex items-center gap-1.5">
                 Action Distribution Pie Chart
               </span>
-              <span className="text-[10px] font-mono text-slate-400">Frame #{currentFrameNumber}</span>
             </div>
 
             <ActionPieChart data={frameActionCounts} size={130} donut={true} />
@@ -1301,12 +1343,12 @@ export const Logs: React.FC<LogsProps> = ({
               <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
                 Persons in Frame ({frameDetections.length})
               </span>
-              <span className="text-[10px] text-slate-400">Click Focus to highlight</span>
             </div>
 
             {frameDetections.length === 0 ? (
               <div className="p-6 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
-                No persons detected at Frame #{currentFrameNumber}. Scrub the timeline or seek to active frames.
+                No persons detected at Frame #{currentFrameNumber}. Scrub the
+                timeline or seek to active frames.
               </div>
             ) : (
               <div className="space-y-2">
@@ -1334,22 +1376,12 @@ export const Logs: React.FC<LogsProps> = ({
                             className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
                             style={{ background: bg, color: text }}
                           >
-                            {det.action_label} ({(det.confidence * 100).toFixed(0)}%)
+                            {det.action_label} (
+                            {(det.confidence * 100).toFixed(0)}%)
                           </span>
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onFocusPerson(det.person_id);
-                              setTab("person");
-                            }}
-                            className="p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100"
-                            title="Inspect Person Details"
-                          >
-                            <Info size={13} />
-                          </button>
                           <button
                             type="button"
                             onClick={() => {
@@ -1391,7 +1423,7 @@ export const Logs: React.FC<LogsProps> = ({
                       Person #{focusedPersonId} Metadata
                     </h4>
                     <span className="text-[10px] text-blue-700 font-medium">
-                      {focusedPersonDetections.length} frames tracked in video
+                      {focusedPersonDetections.length} frames tracked
                     </span>
                   </div>
                 </div>
@@ -1399,9 +1431,9 @@ export const Logs: React.FC<LogsProps> = ({
                 <button
                   type="button"
                   onClick={onClearFocus}
-                  className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 rounded hover:bg-blue-100/70 transition-colors"
+                  className="text-xs text-white bg-red-400 rounded-md  px-2 py-1  hover:bg-red-600 transition-colors"
                 >
-                  Clear Focus
+                  Unfocus
                 </button>
               </div>
 
@@ -1410,7 +1442,9 @@ export const Logs: React.FC<LogsProps> = ({
                 <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-700">
                   <span>Frame #{currentFrameNumber} Snapshot</span>
                   <span className="font-mono text-slate-400 font-normal">
-                    {focusedCurrentDetection ? focusedCurrentDetection.timestamp : "Not in frame"}
+                    {focusedCurrentDetection
+                      ? focusedCurrentDetection.timestamp
+                      : "Not in frame"}
                   </span>
                 </div>
 
@@ -1418,54 +1452,106 @@ export const Logs: React.FC<LogsProps> = ({
                   <div className="space-y-2.5">
                     <div className="grid grid-cols-2 gap-2">
                       <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-primary uppercase ">
                           Action
                         </span>
-                        <div className="mt-0.5 flex items-center gap-1.5">
+                        <div className="mt-1 flex items-center gap-1.5">
                           <span
                             className="w-2 h-2 rounded-full"
-                            style={{ background: getActionColor(focusedCurrentDetection.action_label) }}
+                            style={{
+                              background: getActionColor(
+                                focusedCurrentDetection.action_label,
+                              ),
+                            }}
                           />
-                          <span className="text-xs font-bold text-slate-900">
+                          <span className="text-sm font-bold text-slate-900">
                             {focusedCurrentDetection.action_label}
                           </span>
                         </div>
                       </div>
 
                       <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                        <span className="text-[10px] font-bold text-primary uppercase tracking-wider">
                           Confidence
                         </span>
-                        <div className="mt-0.5 text-xs font-bold font-mono text-slate-900">
-                          {(focusedCurrentDetection.confidence * 100).toFixed(1)}%
+                        <div className="mt-0.5 text-md font-bold font-mono text-slate-900">
+                          {(focusedCurrentDetection.confidence * 100).toFixed(
+                            1,
+                          )}
+                          %
                         </div>
                       </div>
                     </div>
 
                     {/* Action Probabilities */}
-                    {focusedCurrentDetection.all_scores && Object.keys(focusedCurrentDetection.all_scores).length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                          Probabilities
-                        </span>
-                        <div className="space-y-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                          {Object.entries(focusedCurrentDetection.all_scores)
-                            .sort(([, a], [, b]) => b - a)
-                            .map(([a, s]) => (
-                              <div key={a} className="flex items-center justify-between text-[11px]">
-                                <span className="text-slate-600">{a}</span>
-                                <span className="font-mono font-semibold text-slate-800">
-                                  {Math.round(s * 100)}%
-                                </span>
-                              </div>
-                            ))}
+                    {focusedCurrentDetection.all_scores &&
+                      Object.keys(focusedCurrentDetection.all_scores).length >
+                        0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            Probabilities
+                          </span>
+                          <div className="space-y-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                            {Object.entries(focusedCurrentDetection.all_scores)
+                              .sort(([, a], [, b]) => b - a)
+                              .map(([a, s]) => {
+                                const pct = Math.round(s * 100);
+                                const color = getActionColor(a);
+                                const isTop =
+                                  a.toLowerCase() ===
+                                  focusedCurrentDetection.action_label.toLowerCase();
+
+                                return (
+                                  <div key={a} className="space-y-1">
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span
+                                          className="w-2 h-2 rounded-full shrink-0"
+                                          style={{ background: color }}
+                                        />
+                                        <span
+                                          className={`truncate ${
+                                            isTop
+                                              ? "font-bold text-slate-900"
+                                              : "text-slate-600"
+                                          }`}
+                                        >
+                                          {a}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={`font-mono font-semibold text-[11px] ${
+                                          isTop
+                                            ? "text-slate-900"
+                                            : "text-slate-600"
+                                        }`}
+                                      >
+                                        {pct}%
+                                      </span>
+                                    </div>
+                                    <div className="h-1.5 w-full rounded-full bg-slate-200/70 overflow-hidden">
+                                      <motion.div
+                                        className="h-full rounded-full"
+                                        style={{ background: color }}
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${pct}%` }}
+                                        transition={{
+                                          duration: 0.35,
+                                          ease: "easeOut",
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
                   </div>
                 ) : (
                   <div className="p-3 rounded-lg bg-amber-50 text-xs text-amber-800 border border-amber-200">
-                    Person #{focusedPersonId} is not in Frame #{currentFrameNumber}.
+                    Person #{focusedPersonId} is not in Frame #
+                    {currentFrameNumber}.
                   </div>
                 )}
               </div>
@@ -1476,7 +1562,11 @@ export const Logs: React.FC<LogsProps> = ({
                   <PieChart size={13} className="text-slate-500" />
                   Person #{focusedPersonId} Action Pie Chart
                 </span>
-                <ActionPieChart data={focusedPersonActionCounts} size={130} donut={true} />
+                <ActionPieChart
+                  data={focusedPersonActionCounts}
+                  size={130}
+                  donut={true}
+                />
               </div>
 
               {/* Action History Timeline for Person */}
@@ -1485,7 +1575,9 @@ export const Logs: React.FC<LogsProps> = ({
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
                     Action History Timeline
                   </span>
-                  <span className="text-[10px] text-slate-400">Click to seek</span>
+                  <span className="text-[10px] text-slate-400">
+                    Click to seek
+                  </span>
                 </div>
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 bg-white">
@@ -1493,7 +1585,8 @@ export const Logs: React.FC<LogsProps> = ({
                     const bg = getActionBg(ep.action);
                     const text = getActionText(ep.action);
                     const isCurrent =
-                      currentFrameNumber >= ep.startFrame && currentFrameNumber <= ep.endFrame;
+                      currentFrameNumber >= ep.startFrame &&
+                      currentFrameNumber <= ep.endFrame;
 
                     return (
                       <button
@@ -1527,8 +1620,11 @@ export const Logs: React.FC<LogsProps> = ({
           ) : (
             <div className="p-8 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400 space-y-3">
               <User size={24} className="mx-auto text-slate-300" />
-              <p>No person selected. Click on a person's bounding box on the video or choose from the list below:</p>
-              <div className="flex flex-wrap gap-1.5 justify-center">
+              <p>
+                No person selected. Click on a person's bounding box on the
+                video or choose from the list below:
+              </p>
+              <div className="flex flex-wrap gap-1.5 justify-start">
                 {uniquePersonIds.map((pId) => (
                   <button
                     key={pId}
@@ -1550,11 +1646,14 @@ export const Logs: React.FC<LogsProps> = ({
         <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 space-y-4">
           {/* Whole Video Action Breakdown Pie Chart */}
           <div className="space-y-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-              <PieChart size={14} className="text-slate-500" />
+            <span className="text-xs font-bold uppercase tracking-wider text-black flex items-center gap-1.5">
               Whole Video Action Distribution
             </span>
-            <ActionPieChart data={wholeVideoActionStats} size={140} donut={true} />
+            <ActionPieChart
+              data={wholeVideoActionStats}
+              size={140}
+              donut={true}
+            />
           </div>
 
           {/* People Count Bar Histogram */}
@@ -1594,8 +1693,12 @@ export const Logs: React.FC<LogsProps> = ({
                     }}
                     className="p-2.5 rounded-xl border border-slate-200 bg-white hover:border-blue-300 text-left transition-colors"
                   >
-                    <div className="text-xs font-bold text-slate-900">Person #{pId}</div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{pDets.length} frames</div>
+                    <div className="text-xs font-bold text-slate-900">
+                      Person #{pId}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      {pDets.length} frames
+                    </div>
                   </button>
                 );
               })}

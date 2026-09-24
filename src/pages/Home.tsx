@@ -143,10 +143,7 @@ const VideoThumbnail = ({
 
   return (
     <div className={`relative w-full h-full overflow-hidden ${className}`}>
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full object-cover"
-      />
+      <canvas ref={canvasRef} className="w-full h-full object-cover" />
       {(!videoUrl || !captured) && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 text-blue-400">
           <FileVideo size={18} className="opacity-80" />
@@ -423,7 +420,7 @@ const BackendStatus = ({
 
   return (
     <div
-      className="rounded-lg flex-1"
+      className="rounded-lg flex-1 h-full"
       style={{
         border: "0.5px solid #ededed",
         background: "#ffffff",
@@ -876,9 +873,13 @@ const Home = () => {
             {/* Right: Backend Status */}
           </div>
         </div>
-        <div className="flex gap-2">
-          <BackendStatus healthData={healthData} healthError={healthError} />
-          <ActionDistributionPie entries={entries} />
+        <div className="grid grid-cols-3 gap-2">
+          <div className="col-span-3 md:col-span-1">
+            <BackendStatus healthData={healthData} healthError={healthError} />
+          </div>
+          <div className="col-span-3 md:col-span-2">
+            <ActionDistributionPie entries={entries} />
+          </div>
         </div>
 
         {/* ── Stats + Action Distribution ──

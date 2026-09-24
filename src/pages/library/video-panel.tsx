@@ -1,4 +1,9 @@
-import { useRef, useState, type RefObject, type ChangeEventHandler } from "react";
+import {
+  useRef,
+  useState,
+  type RefObject,
+  type ChangeEventHandler,
+} from "react";
 import { Download, Save, Upload, Eye, EyeOff, Layers } from "lucide-react";
 import TitleMono from "@/components/titile-mono";
 import type { Detection, AnalyzeVideoResponse } from "@/lib/types";
@@ -92,7 +97,8 @@ const VideoPanel = ({
   const dragCounterRef = useRef(0);
 
   const isVideoAnnotated = showVideoAnnotations ?? showAnnotations;
-  const handleToggleVideo = onToggleVideoAnnotations ?? onToggleAnnotations ?? (() => {});
+  const handleToggleVideo =
+    onToggleVideoAnnotations ?? onToggleAnnotations ?? (() => {});
 
   // Active video source: if annotated is ON, show annotated video (if available), else show raw source
   const activeVideoUrl = isVideoAnnotated
@@ -186,7 +192,9 @@ const VideoPanel = ({
               }
             >
               {isVideoAnnotated ? <Eye size={13} /> : <EyeOff size={13} />}
-              <span>{isVideoAnnotated ? "Annotations On" : "Annotations Off"}</span>
+              <span>
+                {isVideoAnnotated ? "Annotations On" : "Annotations Off"}
+              </span>
             </button>
           )}
 
@@ -287,7 +295,9 @@ const VideoPanel = ({
                   e.currentTarget.currentTime || 0,
                 );
               }}
-              onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime || 0)}
+              onTimeUpdate={(e) =>
+                onTimeUpdate(e.currentTarget.currentTime || 0)
+              }
               onLoadedData={() => {
                 onSourcePlaybackError(null);
                 onResultPlaybackError(null);
@@ -325,25 +335,20 @@ const VideoPanel = ({
             className="group flex flex-col items-center justify-center h-full max-h-[380px] w-full max-w-md mx-auto my-auto border-2 border-dashed border-[#333333] hover:border-[#0052ff] rounded-2xl bg-[#202020]/60 hover:bg-[#0052ff]/5 p-8 transition-all cursor-pointer text-center gap-4 shadow-sm"
           >
             <div className="w-14 h-14 rounded-2xl border border-white/10 bg-white/5 group-hover:bg-[#0052ff]/10 group-hover:border-[#0052ff]/40 flex items-center justify-center transition-colors">
-              <Upload size={24} className="text-[#9a9a9a] group-hover:text-[#0052ff] transition-colors" />
+              <Upload
+                size={24}
+                className="text-[#9a9a9a] group-hover:text-[#0052ff] transition-colors"
+              />
             </div>
             <div className="space-y-1">
-              <p className="text-[15px] font-semibold text-white group-hover:text-[#5d85ff] transition-colors">
+              <p className="text-[15px] font-semibold text-white ">
                 Drag & drop video here
               </p>
               <p className="text-[12px] text-[#888888]">
                 or click anywhere in this area to browse files
               </p>
             </div>
-            <div className="flex items-center gap-2 text-[11px] font-mono text-[#777777] bg-black/40 px-3 py-1 rounded-full border border-white/5">
-              <span>MP4</span>
-              <span>•</span>
-              <span>MOV</span>
-              <span>•</span>
-              <span>AVI</span>
-              <span>•</span>
-              <span>WebM</span>
-            </div>
+
             <button
               type="button"
               onClick={(e) => {

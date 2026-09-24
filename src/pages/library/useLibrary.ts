@@ -931,17 +931,20 @@ export const useLibraryState = (historyId?: string | null) => {
     }
   };
 
-  const stepFrameBackward = () => {
-    if (!videoPlayerRef.current) return;
-    const safeFps = seekFps > 0 ? seekFps : 30;
-    const currentFrame = Math.round(
-      (videoPlayerRef.current.currentTime || 0) * safeFps,
-    );
-    const targetFrame = Math.max(0, currentFrame - 1);
-    seekToFrame(targetFrame);
+  const seekBySeconds = (offsetSeconds: number) => {
+    const video = videoPlayerRef.current;
+    if (!video) return;
+    const duration =
+      videoDurationSeconds > 0
+        ? videoDurationSeconds
+        : timelineDurationSeconds || video.duration || 0;
+    const current = video.currentTime || 0;
+    const newTime = Math.max(0, Math.min(duration, current + offsetSeconds));
+    video.currentTime = newTime;
+    setCurrentTimeSeconds(newTime);
   };
 
-  const stepFrameForward = () => {
+  const stepFrames = (frameOffset: number) => {
     if (!videoPlayerRef.current) return;
     const safeFps = seekFps > 0 ? seekFps : 30;
     const maxFrame = Math.max(
@@ -951,11 +954,29 @@ export const useLibraryState = (historyId?: string | null) => {
     const currentFrame = Math.round(
       (videoPlayerRef.current.currentTime || 0) * safeFps,
     );
-    const targetFrame = Math.min(maxFrame, currentFrame + 1);
+    const targetFrame = Math.max(
+      0,
+      Math.min(maxFrame, currentFrame + frameOffset),
+    );
     seekToFrame(targetFrame);
   };
 
-  // Keyboard navigation: ArrowLeft steps 1 frame back, ArrowRight steps 1 frame forward
+  const stepFrameBackward = () => {
+    stepFrames(-1);
+  };
+
+  const stepFrameForward = () => {
+    stepFrames(1);
+  };
+
+  // Keyboard navigation shortcuts:
+  // - Space: Pause / Resume playback
+  // - J: Jump back 5 seconds
+  // - L: Jump forward 5 seconds
+  // - Shift + J: Step back 5 frames
+  // - Shift + L: Step forward 5 frames
+  // - ArrowLeft: Step 1 frame backward (or 5 frames with Shift)
+  // - ArrowRight: Step 1 frame forward (or 5 frames with Shift)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't intercept when user is typing in form inputs or editable areas
@@ -964,6 +985,7 @@ export const useLibraryState = (historyId?: string | null) => {
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable)
       ) {
         return;
@@ -974,12 +996,47 @@ export const useLibraryState = (historyId?: string | null) => {
         return;
       }
 
+      // Space: Pause or resume playback
+      if (event.code === "Space" || event.key === " ") {
+        event.preventDefault();
+        togglePlayPause();
+        return;
+      }
+
+      // J / Shift+J: back 5s or back 5 frames
+      if (event.code === "KeyJ" || event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          stepFrames(-5);
+        } else {
+          seekBySeconds(-5);
+        }
+        return;
+      }
+
+      // L / Shift+L: forward 5s or forward 5 frames
+      if (event.code === "KeyL" || event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          stepFrames(5);
+        } else {
+          seekBySeconds(5);
+        }
+        return;
+      }
+
+      // ArrowLeft: Step 1 frame backward (or 5 frames with Shift)
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        stepFrameBackward();
-      } else if (event.key === "ArrowRight") {
+        stepFrames(event.shiftKey ? -5 : -1);
+        return;
+      }
+
+      // ArrowRight: Step 1 frame forward (or 5 frames with Shift)
+      if (event.key === "ArrowRight") {
         event.preventDefault();
-        stepFrameForward();
+        stepFrames(event.shiftKey ? 5 : 1);
+        return;
       }
     };
 
@@ -990,6 +1047,7 @@ export const useLibraryState = (historyId?: string | null) => {
     resultVideoUrl,
     seekFps,
     timelineDurationSeconds,
+    videoDurationSeconds,
     progressTotalFrames,
   ]);
 
@@ -1096,7 +1154,6 @@ export const useLibraryState = (historyId?: string | null) => {
     focusPerson: (personId: number) => {
       setFocusedPersonId(personId);
       setInspectedPersonId(personId);
-      setSidebarTab("person");
     },
     clearFocus: () => {
       setFocusedPersonId(null);
@@ -1116,5 +1173,7 @@ export const useLibraryState = (historyId?: string | null) => {
     handlePlaybackStateChange,
     stepFrameBackward,
     stepFrameForward,
+    stepFrames,
+    seekBySeconds,
   };
 };

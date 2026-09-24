@@ -746,15 +746,30 @@ const LibraryDoc = () => (
         />
 
         {/* Keyboard Shortcut Note */}
-        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 flex items-center justify-between">
+        <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 space-y-2">
           <div className="flex items-center gap-2 text-xs">
             <Keyboard size={14} className="text-blue-600" />
-            <span className="font-bold text-slate-900">Precision Frame Stepping</span>
+            <span className="font-bold text-slate-900">Player Keyboard Shortcuts</span>
           </div>
-          <div className="flex items-center gap-1.5 font-mono text-[11px]">
-            <kbd className="px-2 py-0.5 rounded bg-white border border-slate-300 shadow-2xs font-bold text-slate-800">←</kbd>
-            <kbd className="px-2 py-0.5 rounded bg-white border border-slate-300 shadow-2xs font-bold text-slate-800">→</kbd>
-            <span className="text-slate-500 font-medium ml-1">1 Frame</span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800 text-[10px]">Space</kbd>
+              <span className="text-slate-600 text-[10px]">Play/Pause</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800 text-[10px]">J</kbd>
+              <span className="text-slate-600 text-[10px]">−5s</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800 text-[10px]">L</kbd>
+              <span className="text-slate-600 text-[10px]">+5s</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800 text-[10px]">⇧J / ⇧L</kbd>
+              <span className="text-slate-600 text-[10px]">±5 Frames</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200/80 col-span-2 sm:col-span-3">
+              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-bold text-slate-800 text-[10px]">← / →</kbd>
+              <span className="text-slate-600 text-[10px]">Step ±1 Frame (or ±5 Frames with Shift)</span>
+            </div>
           </div>
         </div>
       </div>
