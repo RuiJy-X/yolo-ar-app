@@ -1351,7 +1351,7 @@ export const Logs: React.FC<LogsProps> = ({
                 timeline or seek to active frames.
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {frameDetections.map((det) => {
                   const isFocused = det.person_id === focusedPersonId;
                   const color = getActionColor(det.action_label);
@@ -1361,7 +1361,7 @@ export const Logs: React.FC<LogsProps> = ({
                   return (
                     <div
                       key={`frame-det-${det.person_id}`}
-                      className={`p-3 rounded-xl border transition-all ${
+                      className={`px-3 py-2 rounded-xl border transition-all ${
                         isFocused
                           ? "border-[#0052ff] bg-blue-50/50 shadow-xs"
                           : "border-slate-200 bg-white hover:border-slate-300"

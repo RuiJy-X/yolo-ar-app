@@ -1838,7 +1838,7 @@ class ActionRecognitionPipeline:
                     imgsz=tile_imgsz,
                     batch=len(crops),
                     device=self.device,
-                    half=(self.device == "cuda"),
+                    quantize=(16 if self.device == "cuda" else None),
                     verbose=False,
                 )
 
@@ -1948,7 +1948,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                half=(self.device == "cuda"),
+                quantize=(16 if self.device == "cuda" else None),
                 verbose=False,
             )
         if full_results and full_results[0].boxes is not None and len(full_results[0].boxes) > 0:
@@ -1987,7 +1987,7 @@ class ActionRecognitionPipeline:
                     imgsz=tile_imgsz,
                     batch=len(crops),
                     device=self.device,
-                    half=(self.device == "cuda"),
+                    quantize=(16 if self.device == "cuda" else None),
                     verbose=False,
                 )
 
@@ -2067,7 +2067,7 @@ class ActionRecognitionPipeline:
                     imgsz=256,
                     batch=len(person_crops),
                     device=self.device,
-                    half=(self.device == "cuda"),
+                    quantize=(16 if self.device == "cuda" else None),
                     verbose=False,
                 )
 
@@ -2123,7 +2123,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                half=(self.device == "cuda"),
+                quantize=(16 if self.device == "cuda" else None),
                 verbose=False,
             )
 
@@ -2183,7 +2183,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                half=(self.device == "cuda"),
+                quantize=(16 if self.device == "cuda" else None),
                 verbose=False,
             )
 
@@ -2235,7 +2235,7 @@ class ActionRecognitionPipeline:
                     imgsz=256,
                     batch=len(person_crops),
                     device=self.device,
-                    half=(self.device == "cuda"),
+                    quantize=(16 if self.device == "cuda" else None),
                     verbose=False,
                 )
 
