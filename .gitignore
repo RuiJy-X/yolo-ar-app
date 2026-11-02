@@ -72,11 +72,6 @@ backend/**/build/*
 .env.local
 .env.*.local
 
-
-# Generated Electron/package inputs. Recreate with npm run bundle:prepare.
-backend-bundle/
-backend/**/frontend/
-
 # Backend artifacts, models and large outputs
 backend/**/outputs/
 backend/**/results/
@@ -102,3 +97,13 @@ training/
 /backend/act_reg_final_version/results/
 
 motion/
+
+# Local codebase analysis output
+graphify-out/
+
+# Preserved unique assets from retired EXE packages
+packaging-archive/
+
+# CPU desktop packaging environment and generated staging
+.venv-package-cpu/
+desktop-build/

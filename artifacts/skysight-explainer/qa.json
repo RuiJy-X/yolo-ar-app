@@ -1,0 +1,74 @@
+{
+  "metadata": {
+    "w": 1920,
+    "h": 1080,
+    "duration": 60
+  },
+  "fontStatus": [
+    {
+      "family": "Inter",
+      "status": "loaded"
+    }
+  ],
+  "deterministic": [
+    {
+      "time": 3.2,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 9,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 15.4,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 23.1,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 29.6,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 41.5,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 49.8,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    },
+    {
+      "time": 58.8,
+      "exactScreenshot": true,
+      "maxChannelDifference": 0,
+      "changedChannels": 0,
+      "repeatable": true
+    }
+  ],
+  "loopSeamMatches": true,
+  "previewPlayAndPause": true,
+  "browserErrors": []
+}

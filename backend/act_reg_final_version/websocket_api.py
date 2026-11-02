@@ -34,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 
-CURRENT_DIR = Path(__file__).resolve().parent
+CURRENT_DIR = Path(os.environ.get("SKYSIGHT_RESOURCE_DIR", Path(__file__).resolve().parent))
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
@@ -44,10 +44,19 @@ from utils import import_class  # noqa: E402
 from tello_manager import tello_manager  # noqa: E402
 from tracker import ByteReIDTracker, TrackletMerger, ByteReIDTrack  # noqa: E402
 
+def load_yolo(weights):
+    model = YOLO(weights)
+    if getattr(sys, "frozen", False):
+        from ultralytics.cfg import DEFAULT_CFG_DICT
+        # Checkpoints may carry training-only options from a newer Ultralytics version.
+        model.overrides = {key: value for key, value in model.overrides.items() if key in DEFAULT_CFG_DICT}
+    return model
+
+
 def get_output_dir() -> str:
     if getattr(sys, 'frozen', False):
         base = os.environ.get('APPDATA', os.path.expanduser('~'))
-        out = os.path.join(base, 'Aerview', 'outputs')
+        out = os.environ.get('SKYSIGHT_DATA_DIR', os.path.join(base, 'Skysight', 'outputs'))
     else:
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
     os.makedirs(out, exist_ok=True)
@@ -78,6 +87,9 @@ YOLO_MODEL_CHOICES = {
     "base": "yolo11n-pose.pt",
     "aerial": YOLO_FILENAME,
 }
+if getattr(sys, "frozen", False):
+    YOLO_MODEL_CHOICES = {key: name for key, name in YOLO_MODEL_CHOICES.items() if (CURRENT_DIR / name).is_file()}
+
 YOLO_MODEL_LABELS = {
     "aerial-medium-tuned": "Fine-Tuned Aerial Medium (yolo11m-aerial-tuned.pt)",
     "small": "Small Pose (yolo11s-pose.pt)",
@@ -93,6 +105,9 @@ STAGE1_DETECTOR_CHOICES = {
     "aerial-medium-tuned": "yolo11m-aerial-tuned.pt",
     "aerial": YOLO_FILENAME,
 }
+if getattr(sys, "frozen", False):
+    STAGE1_DETECTOR_CHOICES = {key: name for key, name in STAGE1_DETECTOR_CHOICES.items() if key == "same" or (CURRENT_DIR / name).is_file()}
+
 STAGE1_DETECTOR_LABELS = {
     "same": "Unified (Same as Pose Model)",
     "yolo11n": "Dedicated YOLOv11 Nano Detector (yolo11n.pt)",
@@ -173,7 +188,7 @@ RESULTS_DIR = Path(CURRENT_DIR / "results")
 
 def get_ffmpeg_path() -> str:
     if getattr(sys, 'frozen', False):
-        return os.path.join(os.path.dirname(sys.executable), 'ffmpeg', 'ffmpeg.exe')
+        return str(CURRENT_DIR / 'ffmpeg' / 'ffmpeg.exe')
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ffmpeg', 'ffmpeg.exe')
 
 FFMPEG_PATH = get_ffmpeg_path()
@@ -956,7 +971,7 @@ def init_action_model(checkpoint_path: Path, device: str) -> torch.nn.Module:
     graph = graph_cls(labeling_mode="spatial")
     adjacency = torch.tensor(graph.A, dtype=torch.float32)
 
-    # FIX: WINDOW_SIZE is read here — preset must be applied before this is called
+    # FIX: WINDOW_SIZE is read here â€” preset must be applied before this is called
     # so that T matches the checkpoint's training configuration.
     model = SODE(
         num_class=4,
@@ -1357,7 +1372,7 @@ def is_valid_human_pose(
 class ActionRecognitionPipeline:
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" if getattr(sys, "frozen", False) else ("cuda" if torch.cuda.is_available() else "cpu")
         self._model_lock = threading.Lock()
         self._swap_lock = threading.Lock()
 
@@ -1372,9 +1387,9 @@ class ActionRecognitionPipeline:
         checkpoint_path = pick_deployment_checkpoint(base_dir)
 
         if yolo_path.exists():
-            self.yolo_model = YOLO(str(yolo_path)).to(self.device)
+            self.yolo_model = load_yolo(str(yolo_path)).to(self.device)
         else:
-            self.yolo_model = YOLO("yolo11s-pose.pt").to(self.device)
+            self.yolo_model = load_yolo("yolo11s-pose.pt").to(self.device)
         self.video_pose_model = self._load_video_pose_model()
         self.action_model = init_action_model(checkpoint_path, self.device)
 
@@ -1539,9 +1554,11 @@ class ActionRecognitionPipeline:
 
         with self._model_lock:
             if model_path.exists():
-                new_model = YOLO(str(model_path)).to(self.device)
+                new_model = load_yolo(str(model_path)).to(self.device)
             else:
-                new_model = YOLO(filename).to(self.device)
+                if getattr(sys, "frozen", False):
+                    raise ValueError(f"Model is not bundled: {filename}")
+                new_model = load_yolo(filename).to(self.device)
             self.yolo_model = new_model
             self.video_pose_model = new_model
             self._yolo_model_name = model_key
@@ -1565,9 +1582,11 @@ class ActionRecognitionPipeline:
 
         with self._model_lock:
             if model_path.exists():
-                new_model = YOLO(str(model_path)).to(self.device)
+                new_model = load_yolo(str(model_path)).to(self.device)
             else:
-                new_model = YOLO(filename).to(self.device)
+                if getattr(sys, "frozen", False):
+                    raise ValueError(f"Model is not bundled: {filename}")
+                new_model = load_yolo(filename).to(self.device)
             old_model = self.stage1_detector_model
             self.stage1_detector_model = new_model
             self.stage1_detector_name = cleaned if cleaned in STAGE1_DETECTOR_CHOICES else filename
@@ -1656,12 +1675,14 @@ class ActionRecognitionPipeline:
             candidate_path = self.base_dir / candidate_name
             if candidate_path.exists():
                 try:
-                    return YOLO(str(candidate_path)).to(self.device)
+                    return load_yolo(str(candidate_path)).to(self.device)
                 except Exception:
                     continue
 
+        if getattr(sys, "frozen", False):
+            return self.yolo_model
         try:
-            return YOLO(VIDEO_POSE_MODEL_CANDIDATES[0]).to(self.device)
+            return load_yolo(VIDEO_POSE_MODEL_CANDIDATES[0]).to(self.device)
         except Exception:
             return self.yolo_model
 
@@ -1838,7 +1859,7 @@ class ActionRecognitionPipeline:
                     imgsz=tile_imgsz,
                     batch=len(crops),
                     device=self.device,
-                    quantize=(16 if self.device == "cuda" else None),
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
@@ -1948,7 +1969,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                quantize=(16 if self.device == "cuda" else None),
+                half=(self.device == "cuda"),
                 verbose=False,
             )
         if full_results and full_results[0].boxes is not None and len(full_results[0].boxes) > 0:
@@ -1987,7 +2008,7 @@ class ActionRecognitionPipeline:
                     imgsz=tile_imgsz,
                     batch=len(crops),
                     device=self.device,
-                    quantize=(16 if self.device == "cuda" else None),
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
@@ -2067,7 +2088,7 @@ class ActionRecognitionPipeline:
                     imgsz=256,
                     batch=len(person_crops),
                     device=self.device,
-                    quantize=(16 if self.device == "cuda" else None),
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
@@ -2123,7 +2144,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                quantize=(16 if self.device == "cuda" else None),
+                half=(self.device == "cuda"),
                 verbose=False,
             )
 
@@ -2183,7 +2204,7 @@ class ActionRecognitionPipeline:
                 classes=[0],
                 imgsz=effective_imgsz,
                 device=self.device,
-                quantize=(16 if self.device == "cuda" else None),
+                half=(self.device == "cuda"),
                 verbose=False,
             )
 
@@ -2235,7 +2256,7 @@ class ActionRecognitionPipeline:
                     imgsz=256,
                     batch=len(person_crops),
                     device=self.device,
-                    quantize=(16 if self.device == "cuda" else None),
+                    half=(self.device == "cuda"),
                     verbose=False,
                 )
 
@@ -2848,6 +2869,7 @@ def healthcheck(response: Response) -> dict[str, Any]:
     return {
         "status": "ok" if pipeline_loaded else "starting",
         "pipeline_loaded": pipeline_loaded,
+        "process_id": os.getpid(),
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "output_video_format": OUTPUT_VIDEO_FORMAT,
         "preview_retention_seconds": PREVIEW_RETENTION_SECONDS,
@@ -2913,7 +2935,7 @@ def build_runtime_config(pipeline: ActionRecognitionPipeline) -> dict[str, Any]:
     }
 
 
-# ── Model registry endpoints ──────────────────────────────────────────────────
+# â”€â”€ Model registry endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/api/models")
 def list_models() -> dict[str, Any]:
@@ -2964,7 +2986,7 @@ def update_runtime_config(body: UpdateConfigRequest) -> dict[str, Any]:
     return build_runtime_config(pipeline)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def run_history_reinference_job(
     job_id: str,
@@ -3595,7 +3617,7 @@ async def action_recognition_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1011)
 
 
-# ── Tello Drone API & WebSockets ─────────────────────────────────────────────
+# â”€â”€ Tello Drone API & WebSockets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class TelloCommandRequest(BaseModel):
     action: str
     direction: str | None = None
@@ -3764,15 +3786,15 @@ def rename_history_entry(entry_id: str, body: RenameHistoryRequest) -> HistoryDe
     entry = build_history_entry(meta)
     return HistoryDetailResponse(**entry.dict(), analysis=analysis)
 
-# ── Resolve paths when running as PyInstaller bundle ──────────────────────────
+# â”€â”€ Resolve paths when running as PyInstaller bundle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _base_dir() -> str:
     if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
+        return str(CURRENT_DIR)
     return os.path.dirname(os.path.abspath(__file__))
 
 BASE_DIR = _base_dir()
 
-# ── Serve Vite static build ───────────────────────────────────────────────────
+# â”€â”€ Serve Vite static build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
 if os.path.isdir(FRONTEND_DIR):
@@ -3789,4 +3811,7 @@ if os.path.isdir(FRONTEND_DIR):
         if full_path.startswith(("api/", "ws/", "health", "outputs/", "history/", "analyze")):
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
+        candidate = (Path(FRONTEND_DIR) / full_path).resolve()
+        if candidate.is_relative_to(Path(FRONTEND_DIR).resolve()) and candidate.is_file():
+            return FileResponse(candidate)
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))

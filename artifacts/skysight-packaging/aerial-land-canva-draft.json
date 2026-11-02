@@ -1,0 +1,19 @@
+{
+  "design_id": "DAHZiEdDu7U",
+  "transaction_id": "589366306908703397",
+  "status": "committed",
+  "edit_design_url": "https://www.canva.com/d/7pM4Mo740o5jH57",
+  "page_index": 1,
+  "page_id": "PBSgyxt565FDssth",
+  "asset_id": "MAHZiIXtXwE",
+  "local_asset": "skysight-aerial-land.png",
+  "generator": "built-in imagegen",
+  "position": {
+    "left": 171.2,
+    "top": 714,
+    "width": 528,
+    "height": 176,
+    "opacity": 0.85
+  },
+  "change": "Added pale-blue aerial neighborhood artwork as a separate image, below the existing user-added drone and above feature labels. Existing text and other pages were not modified."
+}

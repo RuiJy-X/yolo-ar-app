@@ -1,0 +1,29 @@
+Use case: product-mockup.
+Create a premium, photorealistic SOFTWARE APPLICATION PACKAGING design presentation for SKYSIGHT. A landscape 16:9 studio product image, high resolution, with TWO views of the SAME coherent tall rectangular software box: large front three-quarter view on the left showing its blue spine, and a slightly smaller back three-quarter view on the right. All box edges fully visible, elegant negative space, pale cool white seamless studio background and soft realistic grounded shadows. No outer titles or annotation labels.
+
+Input image 1 is the exact existing SkySight drone emblem: use this original mark faithfully including its blue drone, red rotors and hanging red medical cross, without changing its geometry. Input image 2 is the exact existing SKY SIGHT wordmark: reproduce it faithfully, dark blue uppercase lettering with the original red tapered stroke overhead. Input image 3 is an actual screenshot of the application: use this exact image, perspective-mapped as a small rectangular inset on the BACK of the box only. Do not invent a new UI, change labels, redraw controls, or use a generic dashboard.
+
+Art direction: sophisticated emergency-response research software, quiet, precise, credible. Matte white cardstock, generous whitespace, deep logo blue #004679, electric interface blue #0052FF, pale blue #EDF4FF, tightly restrained red #E3232E. Crisp Inter-like sans-serif typography. Deep blue spine with vertical white 'SKYSIGHT'. A thin red diagonal signature near a box edge echoes the existing wordmark stroke. Subtle pale-blue topographic contour lines and a sparse aerial scanning motif occupy the lower portion of the front, as refined print graphics rather than a busy photographic collage. No holographic effects, no gaming aesthetic, no metallic neon, no people holding boxes.
+
+FRONT PANEL: original supplied drone emblem above original supplied wordmark, with confident visual hierarchy. Small upper descriptor 'DESKTOP APPLICATION'. Below wordmark, exact headline on two lines:
+'See the action.'
+'Support the response.'
+Small descriptor below: 'AI-powered action recognition'
+Three small, evenly spaced feature labels near the bottom, with simple understated line icons:
+'Recorded analysis'
+'Live camera'
+'Drone monitoring'
+A rich blue bottom band grounds the layout, with a tiny red edge detail.
+
+BACK PANEL: small original brand at top; exact headline:
+'From footage to insight.'
+Below, three short statements in a neat aligned layout:
+'Analyze recorded video.'
+'Review action logs and timelines.'
+'Monitor camera and drone feeds.'
+Below those, place the REAL screenshot from input image 3 in a clean rectangular frame. Near the bottom, a short purpose statement:
+'Supporting disaster-response awareness.'
+Small footer text:
+'In support of SDG 13: Climate Action.'
+
+Constraints: keep the two boxes visibly consistent as front/back views of one package. Brand logos must remain original, with legible exact text. No invented performance claims, official endorsements, certifications, barcodes, QR codes, prices, URLs, operating-system logos, hardware accessories, download offers, or version numbers. This is a polished packaging concept, not an engineered print dieline.

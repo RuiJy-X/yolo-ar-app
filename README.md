@@ -50,23 +50,17 @@ Keep both development servers above running. In a third terminal:
 npm run electron:dev
 ```
 
-Electron uses the Vite server in development and the FastAPI-served build once packaged. This means frontend edits now hot-reload instead of being hidden behind a stale copied build.
+Electron uses the Vite server and the Python environment at `backend/act_reg_final_version/.venv`. It can reuse the running backend or start it from that environment. The embedded Python runtime is not required.
 
-## Build and package for Windows
+## Production frontend build
 
 ```powershell
 npm run build
-npm run bundle:prepare
-npm run package
 ```
 
-`bundle:prepare` deletes and recreates only `backend-bundle/` from the backend source, model/runtime assets, and fresh `dist/` output. Do not manually edit that directory.
+This creates `dist/`. Browser and Electron development continue to use the existing CUDA-capable backend environment.
 
-For an installer instead of an unpacked app:
-
-```powershell
-npm run make
-```
+Unique models, reports, and differing backend sources recovered from old packaging output are preserved in `packaging-archive/`, with SHA-256 checksums in its manifest. This archive is outside the active model directory so the current model selection stays unchanged.
 
 ## Service interfaces
 
@@ -75,3 +69,35 @@ npm run make
 - REST APIs: model selection/configuration, video inference, saved history, and generated-output downloads under `/api/*`.
 
 The real-time client sends compressed JPEG camera frames over WebSocket. The service returns detections, pose keypoints, action labels, confidences, and timing data.
+## Build the offline Windows installer
+
+Build on Windows 10/11 x64 with Python 3.12 and Node.js installed. First run `npm ci`. Then:
+
+```powershell
+npm run desktop:dist
+```
+
+The first build downloads dependencies into the isolated `.venv-package-cpu/` environment. It does not replace the development backend environment. The pipeline builds the frontend, freezes a CPU-only backend with PyInstaller, stages local models and FFmpeg, and generates `release/Skysight-Setup-1.0.0.exe` using NSIS. Internet access is needed for the first build, but not for installation or application use. Build tools are pinned in `package-lock.json` and `scripts/requirements-desktop-lock.txt` (the direct dependency list is `scripts/requirements-desktop.txt`).
+
+To prepare and test the backend without generating the installer:
+
+```powershell
+npm run desktop:prepare
+.\.venv-package-cpu\Scripts\python.exe scripts/smoke-desktop.py
+```
+
+Keep the entire `desktop-build/SkysightBackend` directory together; the backend EXE depends on its adjacent runtime and data files. The installer includes that whole directory. Only model weights from the source backend are included; archived and training files are excluded. Missing detector choices are unavailable offline rather than downloaded.
+
+The installer runs per user, offers installation-folder selection, and creates shortcuts and an uninstaller. The installed application needs no system Python, Node.js, FFmpeg, or NVIDIA driver. CPU inference may be slower than development with CUDA. This initial build is unsigned, so Windows may show an unverified-publisher warning.
+
+Packaged analyses and settings live in `%APPDATA%/Skysight/outputs/`; logs are in `%APPDATA%/Skysight/logs/backend.log`. Uninstall preserves this data. Existing development history is not imported automatically. On startup, allow up to five minutes for models to load. If port 8000 is occupied, close the conflicting backend before launching; packaged mode does not reuse an unrelated backend. Closing Skysight stops its owned backend process.
+
+Camera and drone features require working hardware and Windows permissions. A completely disconnected PC can use saved videos and a webcam; drone operation requires connecting to the drone's local network.
+
+To verify the packaged Electron window after preparing/building the app:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-desktop-shell.ps1
+```
+
+The shell smoke check launches a hidden test window with a temporary debugging port, verifies React rendering, then closes it. This debugging port is not enabled during normal app launches.

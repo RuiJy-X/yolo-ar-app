@@ -1,0 +1,183 @@
+{
+  "source": "Unmodified React app at http://127.0.0.1:5174",
+  "viewport": {
+    "width": 1440,
+    "height": 810
+  },
+  "fps": 30,
+  "historyId": "038728dc07d4459e824121ce30ae65c6",
+  "transport": "Read-only stored-session replay; live telemetry is demonstration data. All backend HTTP and WebSocket requests intercepted in the capture browser. No hardware connection or app source modification.",
+  "browserErrors": [],
+  "screens": [
+    {
+      "name": "01-upload",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\n\nDrag & drop video here\n\nor click anywhere in this area to browse files\n\nUpload Video\nDETECTIONS & ANALYSIS\n\nRun analysis to view action logs, frame details, and person metadata.\n\n\u2212\n1\u00d7\n+\n00:00 / 00:01\nRun analysis to see action tracks.\n00:00\n00:00\n00:01"
+    },
+    {
+      "name": "02-file-loaded",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nUpload\nAnalyze\nSave\nDETECTIONS & ANALYSIS\n\nRun analysis to view action logs, frame details, and person metadata.\n\n\u2212\n1\u00d7\n+\n00:00 / 00:05\nRun analysis to see action tracks.\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "03-processing",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nUpload\nSave\nPROCESSING\n114 / 326\n\nProcessing recorded video...\n\nDETECTIONS & ANALYSIS\n\nRun analysis to view action logs, frame details, and person metadata.\n\n\u2212\n1\u00d7\n+\n00:00 / 00:05\nRun analysis to see action tracks.\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "04-real-results",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay On\nUpload\nRe-analyze\nDownload\nSave\nP15: Unknown\n(0%)\nP30: Unknown\n(0%)\nP1: Walking\n(50%)\nP2: Walking\n(62%)\nP4: Walking\n(65%)\nP6: Walking\n(49%)\nP7: Walking\n(64%)\nP8: Walking\n(63%)\nP9: Walking\n(66%)\nP10: Walking\n(56%)\nP11: Walking\n(56%)\nP14: Walking\n(65%)\nP23: Walking\n(64%)\nP24: Walking\n(51%)\nP26: Walking\n(39%)\nP5: Sitting\n(63%)\nP16: Sitting\n(51%)\nP20: Sitting\n(62%)\nP28: Waving\n(71%)\nLogs\nFrame #111\n19\nPerson\nOverview\nACTION TIMELINE LOGS\nFILTER\nWalking\n61%\n86\nSitting\n60%\n47\nWaving\n57%\n2\nStanding\n44%\n13\nUnknown\n1%\n132\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "05-log-cards",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #143\n19\nPerson\nOverview\nACTION TIMELINE LOGS\nFILTER\nWalking\n61%\n86\nP1\n57%\n00:00\u201300:05\nP2\n66%\n00:00\u201300:03\nP4\n64%\n00:00\u201300:05\nP6\n60%\n00:00\u201300:01\nP7\n56%\n00:00\u201300:00\nP8\n62%\n00:00\u201300:05\nP9\n65%\n00:00\u201300:05\nP10\n56%\n00:00\u201300:03\nP11\n52%\n00:00\u201300:01\nP12\n52%\n00:00\u201300:00\nP13\n42%\n00:00\u201300:00\nP14\n69%\n00:00\u201300:02\nP17\n45%\n00:00\u201300:01\nP22\n65%\n00:00\u201300:01\nP18\n53%\n00:00\u201300:00\nP5\n54%\n00:00\u201300:00\nP23\n41%\n00:00\u201300:00\nP26\n54%\n00:00\u201300:01\nP27\n55%\n00:00\u201300:01\nP25\n63%\n00:00\u201300:01\nP3\n60%\n00:00\u201300:00\nP5\n62%\n00:00\u201300:01\nP7\n81%\n00:00\u201300:04\nP3\n59%\n00:01\u201300:01\nP28\n55%\n00:01\u201300:01\nP18\n34%\n00:01\u201300:01\nP23\n63%\n00:01\u201300:05\nP11\n52%\n00:01\u201300:02\nP18\n35%\n00:01\u201300:01\nP6\n69%\n00:01\u201300:05\nP26\n52%\n00:01\u201300:03\nP24\n54%\n00:01\u201300:02\nP5\n72%\n00:01\u201300:03\nP16\n64%\n00:01\u201300:04\nP15\n36%\n00:02\u201300:02\nP18\n48%\n00:02\u201300:02\nP28\n46%\n00:02\u201300:02\nP27\n41%\n00:02\u201300:02\nP22\n35%\n00:02\u201300:02\nP30\n45%\n00:02\u201300:02\nP28\n50%\n00:02\u201300:02\nP25\n45%\n00:02\u201300:03\nP30\n61%\n00:02\u201300:03\nP11\n44%\n00:02\u201300:02\nP14\n67%\n00:02\u201300:02\nP12\n52%\n00:02\u201300:04\nP20\n60%\n00:02\u201300:03\nP18\n62%\n00:03\u201300:04\nP15\n40%\n00:03\u201300:03\nP21\n69%\n00:03\u201300:05\nP11\n53%\n00:03\u201300:04\nP27\n75%\n00:03\u201300:03\nP10\n59%\n00:03\u201300:03\nP28\n65%\n00:03\u201300:04\nP2\n65%\n00:03\u201300:05\nP26\n68%\n00:03\u201300:03\nP30\n50%\n00:03\u201300:03\nP3\n57%\n00:03\u201300:04\nP20\n55%\n00:03\u201300:03\nP29\n56%\n00:03\u201300:03\nP34\n56%\n00:03\u201300:04\nP26\n72%\n00:03\u201300:04\nP25\n64%\n00:03\u201300:04\nP33\n61%\n00:04\u201300:04\nP5\n37%\n00:04\u201300:04\nP34\n62%\n00:04\u201300:04\nP27\n51%\n00:04\u201300:04\nP14\n78%\n00:04\u201300:04\nP19\n53%\n00:04\u201300:05\nP10\n55%\n00:04\u201300:04\nP34\n68%\n00:04\u201300:04\nP24\n55%\n00:04\u201300:04\nP30\n46%\n00:04\u201300:04\nP5\n40%\n00:04\u201300:05\nP28\n57%\n00:04\u201300:05\nP7\n75%\n00:04\u201300:05\nP10\n59%\n00:04\u201300:04\nP17\n63%\n00:04\u201300:05\nP29\n51%\n00:04\u201300:05\nP16\n61%\n00:05\u201300:05\nP30\n59%\n00:05\u201300:05\nP34\n64%\n00:05\u201300:05\nP33\n63%\n00:05\u201300:05\nP27\n37%\n00:05\u201300:05\nP28\n47%\n00:05\u201300:05\nP29\n56%\n00:05\u201300:05\nSitting\n60%\n47\nWaving\n57%\n2\nStanding\n44%\n13\nUnknown\n1%\n132\n\u2212\n1\u00d7\n+\n00:02 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "06-waving-episodes",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #179\n26\nPerson\nOverview\nACTION TIMELINE LOGS\nFILTER\nWalking\n61%\n86\nSitting\n60%\n47\nWaving\n57%\n2\nP28\n56%\n00:01\u201300:02\nP28\n59%\n00:02\u201300:02\nStanding\n44%\n13\nUnknown\n1%\n132\n\u2212\n1\u00d7\n+\n00:02 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "07-layered-timeline",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #48\n22\nPerson\nOverview\nACTION TIMELINE LOGS\nFILTER\nWalking\n61%\n86\nSitting\n60%\n47\nWaving\n57%\n2\nP28\n56%\n00:01\u201300:02\nP28\n59%\n00:02\u201300:02\nStanding\n44%\n13\nUnknown\n1%\n132\n\u2212\n1\u00d7\n+\n00:00 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nUnknown\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "08-timeline-selection",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #110\n18\nPerson\nOverview\nACTION TIMELINE LOGS\nFILTER\nWalking\n61%\n86\nSitting\n60%\n47\nWaving\n57%\n2\nP28\n56%\n00:01\u201300:02\nAVG SCORE PER ACTION\nwaving\n56%\nsitting\n21%\nwalking\n17%\nstanding\n6%\n\n24 frames \u00b7 f110\u2013133\n\nP28\n59%\n00:02\u201300:02\nStanding\n44%\n13\nUnknown\n1%\n132\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "09-frame-details",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #110\n18\nPerson\nOverview\n110\n/ 326 frames\nDETECTIONS\n18\npeople\nALERT\n1\nwaving person\nACTION DISTRIBUTION PIE CHART\n18\nTOTAL\nUnknown\n1\n(6%)\nWalking\n13\n(72%)\nSitting\n3\n(17%)\nWaving\n1\n(6%)\nPERSONS IN FRAME (18)\nPerson #30\nUnknown (0%)\nFocus\nPerson #1\nWalking (50%)\nFocus\nPerson #2\nWalking (62%)\nFocus\nPerson #4\nWalking (65%)\nFocus\nPerson #6\nWalking (49%)\nFocus\nPerson #7\nWalking (64%)\nFocus\nPerson #8\nWalking (63%)\nFocus\nPerson #9\nWalking (66%)\nFocus\nPerson #10\nWalking (56%)\nFocus\nPerson #11\nWalking (56%)\nFocus\nPerson #14\nWalking (65%)\nFocus\nPerson #23\nWalking (64%)\nFocus\nPerson #24\nWalking (51%)\nFocus\nPerson #26\nWalking (39%)\nFocus\nPerson #5\nSitting (63%)\nFocus\nPerson #16\nSitting (51%)\nFocus\nPerson #20\nSitting (62%)\nFocus\nPerson #28\nWaving (71%)\nFocus\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "10-person-details",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #110\n18\nP#28\nOverview\nP28\nPerson #28 Metadata\n272 frames tracked\nUnfocus\nFRAME #110 SNAPSHOT\n00:00:01.835\nACTION\nWaving\nCONFIDENCE\n70.8%\nPROBABILITIES\nwaving\n71%\nwalking\n18%\nsitting\n6%\nstanding\n6%\nPERSON #28 ACTION PIE CHART\n272\nTOTAL\nWalking\n173\n(64%)\nWaving\n36\n(13%)\nUnknown\n33\n(12%)\nSitting\n30\n(11%)\nACTION HISTORY TIMELINE\nClick to seek\nUnknown\nf46\u201361 (00:00:00.767)\n0%\nWalking\nf62\u2013103 (00:00:01.034)\n55%\nUnknown\nf104\u2013109 (00:00:01.735)\n56%\nWaving\nf110\u2013133 (00:00:01.835)\n56%\nWalking\nf134\u2013139 (00:00:02.235)\n46%\nUnknown\nf140\u2013145 (00:00:02.335)\n56%\nWaving\nf146\u2013157 (00:00:02.435)\n59%\nWalking\nf158\u2013169 (00:00:02.635)\n50%\nSitting\nf170\u2013193 (00:00:02.836)\n56%\nWalking\nf194\u2013271 (00:00:03.236)\n65%\nUnknown\nf272\u2013277 (00:00:04.537)\n59%\nWalking\nf278\u2013307 (00:00:04.637)\n57%\nSitting\nf309\u2013314 (00:00:05.155)\n50%\nWalking\nf315\u2013325 (00:00:05.255)\n47%\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "11-overview",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #110\n18\nP#28\nOverview\nWHOLE VIDEO ACTION DISTRIBUTION\n7731\nTOTAL\nWalking\n5060\n(65%)\nUnknown\n1428\n(18%)\nSitting\n882\n(11%)\nStanding\n325\n(4%)\nWaving\n36\n(0%)\nPEOPLE DETECTED PER FRAME\n\nExact frame-by-frame count of detected individuals across all 326 frames\n\nPeak\n32 people\nAvgP/Frame\n23.7\nPresence\n100%\n0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTION ACTIVITY ACROSS FRAMES\n\nMulti-line breakdown of detected actions over the video timeline\n\n0\n16\n31\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTIONS:\nSitting\nStanding\nUnknown\nWalking\nWaving\nALL TRACKED PERSONS (36)\nPerson #1\n326 frames\nPerson #2\n326 frames\nPerson #3\n165 frames\nPerson #4\n325 frames\nPerson #5\n320 frames\nPerson #6\n326 frames\nPerson #7\n326 frames\nPerson #8\n326 frames\nPerson #9\n326 frames\nPerson #10\n234 frames\nPerson #11\n326 frames\nPerson #12\n171 frames\nPerson #13\n228 frames\nPerson #14\n235 frames\nPerson #15\n136 frames\nPerson #16\n243 frames\nPerson #17\n185 frames\nPerson #18\n279 frames\nPerson #19\n173 frames\nPerson #20\n242 frames\nPerson #21\n209 frames\nPerson #22\n240 frames\nPerson #23\n323 frames\nPerson #24\n191 frames\nPerson #25\n249 frames\nPerson #26\n246 frames\nPerson #27\n197 frames\nPerson #28\n272 frames\nPerson #29\n75 frames\nPerson #30\n192 frames\nPerson #31\n12 frames\nPerson #32\n7 frames\nPerson #33\n113 frames\nPerson #34\n95 frames\nPerson #35\n38 frames\nPerson #36\n54 frames\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05"
+    },
+    {
+      "name": "12-save-dialog",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSave\nLogs\nFrame #110\n18\nP#28\nOverview\nWHOLE VIDEO ACTION DISTRIBUTION\n7731\nTOTAL\nWalking\n5060\n(65%)\nUnknown\n1428\n(18%)\nSitting\n882\n(11%)\nStanding\n325\n(4%)\nWaving\n36\n(0%)\nPEOPLE DETECTED PER FRAME\n\nExact frame-by-frame count of detected individuals across all 326 frames\n\nPeak\n32 people\nAvgP/Frame\n23.7\nPresence\n100%\n0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTION ACTIVITY ACROSS FRAMES\n\nMulti-line breakdown of detected actions over the video timeline\n\n0\n16\n31\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTIONS:\nSitting\nStanding\nUnknown\nWalking\nWaving\nALL TRACKED PERSONS (36)\nPerson #1\n326 frames\nPerson #2\n326 frames\nPerson #3\n165 frames\nPerson #4\n325 frames\nPerson #5\n320 frames\nPerson #6\n326 frames\nPerson #7\n326 frames\nPerson #8\n326 frames\nPerson #9\n326 frames\nPerson #10\n234 frames\nPerson #11\n326 frames\nPerson #12\n171 frames\nPerson #13\n228 frames\nPerson #14\n235 frames\nPerson #15\n136 frames\nPerson #16\n243 frames\nPerson #17\n185 frames\nPerson #18\n279 frames\nPerson #19\n173 frames\nPerson #20\n242 frames\nPerson #21\n209 frames\nPerson #22\n240 frames\nPerson #23\n323 frames\nPerson #24\n191 frames\nPerson #25\n249 frames\nPerson #26\n246 frames\nPerson #27\n197 frames\nPerson #28\n272 frames\nPerson #29\n75 frames\nPerson #30\n192 frames\nPerson #31\n12 frames\nPerson #32\n7 frames\nPerson #33\n113 frames\nPerson #34\n95 frames\nPerson #35\n38 frames\nPerson #36\n54 frames\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05\nSave Project\nProject Name\n\nGive your analysis a descriptive name for easy reference\n\nCancel\nSave"
+    },
+    {
+      "name": "13-saved",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nCURRENT PROJECT\nRecorded aerial survey\nVIDEO ANALYSIS\nAnnotations On\nOverlay Off\nUpload\nRe-analyze\nDownload\nSaved\nLogs\nFrame #110\n18\nP#28\nOverview\nWHOLE VIDEO ACTION DISTRIBUTION\n7731\nTOTAL\nWalking\n5060\n(65%)\nUnknown\n1428\n(18%)\nSitting\n882\n(11%)\nStanding\n325\n(4%)\nWaving\n36\n(0%)\nPEOPLE DETECTED PER FRAME\n\nExact frame-by-frame count of detected individuals across all 326 frames\n\nPeak\n32 people\nAvgP/Frame\n23.7\nPresence\n100%\n0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTION ACTIVITY ACROSS FRAMES\n\nMulti-line breakdown of detected actions over the video timeline\n\n0\n16\n31\n00:00.0\n00:01.3\n00:02.7\n00:04.0\n00:05.4\nACTIONS:\nSitting\nStanding\nUnknown\nWalking\nWaving\nALL TRACKED PERSONS (36)\nPerson #1\n326 frames\nPerson #2\n326 frames\nPerson #3\n165 frames\nPerson #4\n325 frames\nPerson #5\n320 frames\nPerson #6\n326 frames\nPerson #7\n326 frames\nPerson #8\n326 frames\nPerson #9\n326 frames\nPerson #10\n234 frames\nPerson #11\n326 frames\nPerson #12\n171 frames\nPerson #13\n228 frames\nPerson #14\n235 frames\nPerson #15\n136 frames\nPerson #16\n243 frames\nPerson #17\n185 frames\nPerson #18\n279 frames\nPerson #19\n173 frames\nPerson #20\n242 frames\nPerson #21\n209 frames\nPerson #22\n240 frames\nPerson #23\n323 frames\nPerson #24\n191 frames\nPerson #25\n249 frames\nPerson #26\n246 frames\nPerson #27\n197 frames\nPerson #28\n272 frames\nPerson #29\n75 frames\nPerson #30\n192 frames\nPerson #31\n12 frames\nPerson #32\n7 frames\nPerson #33\n113 frames\nPerson #34\n95 frames\nPerson #35\n38 frames\nPerson #36\n54 frames\n\u2212\n1\u00d7\n+\n00:01 / 00:05\nFILTER:\nUnknown\nWalking\nSitting\nStanding\nWaving\nWalking\nSitting\nStanding\nWaving\n00:00\n00:01\n00:02\n00:03\n00:04\n00:05\n\nProject \"Recorded aerial survey\" saved successfully!"
+    },
+    {
+      "name": "14-webcam-idle",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\n\nCamera Feed Inactive\n\nSelect camera device to begin real-time action recognition\n\nC:\\projects\\thesis\\yolo-ar-app\\artifacts\\skysight-explainer\\actual-ui\\camera.y4m\nOpen Camera\nINFERENCE LOGS\nLATEST ACTION\nWaiting...\nPIPELINE STATUS\nIdle\nPROCESSED FRAMES\n0\nTOTAL DETECTIONS\n0\nReal-time inference logs will stream here once active."
+    },
+    {
+      "name": "15-webcam-active",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nREC\nStop Camera\nINFERENCE LOGS\nLATEST ACTION\nWalking (92.9%)\nPIPELINE STATUS\nLive\nPROCESSED FRAMES\n3\nTOTAL DETECTIONS\n3\n[7:20:51 PM] frame=31 detection=person action=Walking conf=92.9% latency=-ms\n[7:20:50 PM] frame=27 detection=person action=Walking conf=96.2% latency=-ms\n[7:20:50 PM] frame=23 detection=person action=Walking conf=94.1% latency=-ms"
+    },
+    {
+      "name": "16-realtime-menu",
+      "text": "Skysight\nHome\nLibrary\nRealtime\n\nWebcam\n\nDrone View\n\nSettings\nHelp\nREC\nStop Camera\nINFERENCE LOGS\nLATEST ACTION\nWalking (96.1%)\nPIPELINE STATUS\nLive\nPROCESSED FRAMES\n24\nTOTAL DETECTIONS\n24\n[7:20:55 PM] frame=120 detection=person action=Walking conf=96.1% latency=-ms\n[7:20:55 PM] frame=116 detection=person action=Walking conf=94.1% latency=-ms\n[7:20:55 PM] frame=112 detection=person action=Walking conf=91.3% latency=-ms\n[7:20:55 PM] frame=107 detection=person action=Walking conf=99.7% latency=-ms\n[7:20:54 PM] frame=102 detection=person action=Walking conf=99.3% latency=-ms\n[7:20:54 PM] frame=98 detection=person action=Walking conf=99.0% latency=-ms\n[7:20:54 PM] frame=93 detection=person action=Walking conf=98.4% latency=-ms\n[7:20:54 PM] frame=89 detection=person action=Walking conf=97.7% latency=-ms\n[7:20:54 PM] frame=84 detection=person action=Walking conf=96.8% latency=-ms\n[7:20:53 PM] frame=79 detection=person action=Walking conf=95.1% latency=-ms\n[7:20:53 PM] frame=75 detection=person action=Walking conf=98.3% latency=-ms\n[7:20:53 PM] frame=70 detection=person action=Walking conf=97.5% latency=-ms\n[7:20:53 PM] frame=67 detection=person action=Walking conf=97.5% latency=-ms\n[7:20:52 PM] frame=63 detection=person action=Walking conf=96.1% latency=-ms\n[7:20:52 PM] frame=59 detection=person action=Walking conf=94.0% latency=-ms\n[7:20:52 PM] frame=55 detection=person action=Walking conf=90.8% latency=-ms\n[7:20:52 PM] frame=51 detection=person action=Walking conf=85.9% latency=-ms\n[7:20:52 PM] frame=46 detection=person action=Walking conf=68.3% latency=-ms\n[7:20:51 PM] frame=42 detection=person action=Waving conf=70.8% latency=-ms\n[7:20:51 PM] frame=38 detection=person action=Walking conf=90.7% latency=-ms\n[7:20:51 PM] frame=35 detection=person action=Walking conf=90.7% latency=-ms\n[7:20:51 PM] frame=31 detection=person action=Walking conf=92.9% latency=-ms\n[7:20:50 PM] frame=27 detection=person action=Walking conf=96.2% latency=-ms\n[7:20:50 PM] frame=23 detection=person action=Walking conf=94.1% latency=-ms"
+    },
+    {
+      "name": "17-drone-panel",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\nTELLO CONNECTED\nAIRBORNE\nLIVE ANNOTATED\n82%\n1.8m\n24s\n31\u00b0C\nDisconnect\nFlight Deck\nKeyboard Active\nTakeoff\nLand\nStop\nTranslate (W/A/S/D)\n\u25cf\nAlt & Yaw (Arrows)\n\u25cf\nFlip FWD\nFlip BWD\nFlip L\nFlip R\nINFERENCE LOGS\nLATEST ACTION\nWaiting...\nPIPELINE STATUS\nLive\nPROCESSED FRAMES\n0\nTOTAL DETECTIONS\n0\nReal-time inference logs will stream here once active."
+    },
+    {
+      "name": "18-waving-alert",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\n\nWaving Alert Detected\n\n32 consecutive waving frames at 7:21:04 PM\n\nTELLO CONNECTED\nAIRBORNE\nLIVE ANNOTATED\n82%\n1.8m\n24s\n31\u00b0C\nDisconnect\nFlight Deck\nKeyboard Active\nTakeoff\nLand\nStop\nTranslate (W/A/S/D)\n\u25cf\nAlt & Yaw (Arrows)\n\u25cf\nFlip FWD\nFlip BWD\nFlip L\nFlip R\nINFERENCE LOGS\nLATEST ACTION\nWaving (70.8%)\nPIPELINE STATUS\nLive\nPROCESSED FRAMES\n34\nTOTAL DETECTIONS\n34\nWaving Alerts\n1\n[7:21:05 PM] frame=292 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:05 PM] frame=288 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:05 PM] frame=284 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:05 PM] frame=280 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:05 PM] frame=276 detection=person action=Waving conf=47.4% latency=-ms\n[7:21:04 PM] frame=273 detection=person action=Waving conf=47.4% latency=-ms\n[7:21:04 PM] frame=269 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:04 PM] frame=265 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:04 PM] frame=261 detection=person action=Waving conf=56.7% latency=-ms\n[7:21:03 PM] frame=257 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=253 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=249 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:03 PM] frame=245 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=241 detection=person action=Walking conf=96.1% latency=-ms\n[7:21:02 PM] frame=237 detection=person action=Walking conf=96.1% latency=-ms\n[7:21:02 PM] frame=233 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:02 PM] frame=229 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:02 PM] frame=225 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:01 PM] frame=221 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:01 PM] frame=217 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=213 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=210 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=206 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:00 PM] frame=202 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=198 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=194 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=190 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=186 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=182 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=178 detection=person action=Walking conf=68.3% latency=-ms\n[7:20:59 PM] frame=174 detection=person action=Walking conf=68.3% latency=-ms\n[7:20:59 PM] frame=170 detection=person action=Waving conf=70.8% latency=-ms\n[7:20:58 PM] frame=166 detection=person action=Waving conf=70.8% latency=-ms\n[7:20:58 PM] frame=164 detection=person action=Waving conf=70.8% latency=-ms"
+    },
+    {
+      "name": "19-expanded-live-alert",
+      "text": "Skysight\nHome\nLibrary\nRealtime\nSettings\nHelp\n\nWaving Alert Detected\n\n32 consecutive waving frames at 7:21:04 PM\n\nTELLO CONNECTED\nAIRBORNE\nLIVE ANNOTATED\n82%\n1.8m\n24s\n31\u00b0C\nDisconnect\nFlight Deck\nKeyboard Active\nTakeoff\nLand\nStop\nTranslate (W/A/S/D)\n\u25cf\nAlt & Yaw (Arrows)\n\u25cf\nFlip FWD\nFlip BWD\nFlip L\nFlip R\nINFERENCE LOGS\nLATEST ACTION\nWaving (70.8%)\nPIPELINE STATUS\nLive\nPROCESSED FRAMES\n41\nTOTAL DETECTIONS\n41\nWaving Alerts\n1\n[7:21:04 PM] WAVING ALERT 32 consecutive frames\n[7:21:07 PM] frame=318 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:07 PM] frame=314 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:07 PM] frame=310 detection=person action=Waving conf=47.4% latency=-ms\n[7:21:07 PM] frame=306 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:06 PM] frame=302 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:06 PM] frame=298 detection=person action=Waving conf=56.7% latency=-ms\n[7:21:06 PM] frame=294 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:05 PM] frame=292 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:05 PM] frame=288 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:05 PM] frame=284 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:05 PM] frame=280 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:05 PM] frame=276 detection=person action=Waving conf=47.4% latency=-ms\n[7:21:04 PM] frame=273 detection=person action=Waving conf=47.4% latency=-ms\n[7:21:04 PM] frame=269 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:04 PM] frame=265 detection=person action=Waving conf=49.8% latency=-ms\n[7:21:04 PM] frame=261 detection=person action=Waving conf=56.7% latency=-ms\n[7:21:03 PM] frame=257 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=253 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=249 detection=person action=Waving conf=46.8% latency=-ms\n[7:21:03 PM] frame=245 detection=person action=Waving conf=70.8% latency=-ms\n[7:21:03 PM] frame=241 detection=person action=Walking conf=96.1% latency=-ms\n[7:21:02 PM] frame=237 detection=person action=Walking conf=96.1% latency=-ms\n[7:21:02 PM] frame=233 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:02 PM] frame=229 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:02 PM] frame=225 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:01 PM] frame=221 detection=person action=Walking conf=94.0% latency=-ms\n[7:21:01 PM] frame=217 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=213 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=210 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:01 PM] frame=206 detection=person action=Walking conf=90.8% latency=-ms\n[7:21:00 PM] frame=202 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=198 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=194 detection=person action=Walking conf=85.9% latency=-ms\n[7:21:00 PM] frame=190 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=186 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=182 detection=person action=Walking conf=78.3% latency=-ms\n[7:20:59 PM] frame=178 detection=person action=Walking conf=68.3% latency=-ms\n[7:20:59 PM] frame=174 detection=person action=Walking conf=68.3% latency=-ms\n[7:20:59 PM] frame=170 detection=person action=Waving conf=70.8% latency=-ms\n[7:20:58 PM] frame=166 detection=person action=Waving conf=70.8% latency=-ms\n[7:20:58 PM] frame=164 detection=person action=Waving conf=70.8% latency=-ms"
+    }
+  ],
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/infer-video"
+    },
+    {
+      "method": "GET",
+      "path": "/api/infer-video/capture-replay"
+    },
+    {
+      "method": "GET",
+      "path": "/api/infer-video/capture-replay"
+    },
+    {
+      "method": "GET",
+      "path": "/api/infer-video/capture-replay"
+    },
+    {
+      "method": "GET",
+      "path": "/api/infer-video/capture-replay"
+    },
+    {
+      "method": "GET",
+      "path": "/annotated.mp4"
+    },
+    {
+      "method": "GET",
+      "path": "/annotated.mp4"
+    },
+    {
+      "method": "GET",
+      "path": "/annotated.mp4"
+    },
+    {
+      "method": "POST",
+      "path": "/api/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload-realtime-session"
+    },
+    {
+      "method": "POST",
+      "path": "/api/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tello/status"
+    }
+  ],
+  "source_sha256": {
+    "src/index.css": "876c8338ab40c2cf3c808e78b86a378483685f52afa0b79552e54b052df02125",
+    "src/main.tsx": "cb20e6e519ba2c1a3829946bee82840009701bdb56a834834cc6e599c48b05af",
+    "src/router.tsx": "107b61a5b7cf8ce3b264d90955caab8dbdddecc8b97dac37e34559c33cce22a6",
+    "src/applayout.tsx": "d1b53b0c93d428c2991a78b97ef1786eb82b3e015b54000228b206a7d63d438d",
+    "src/components/navbar.tsx": "24054efa1197567efd92c019a7bb04974dbffecaa80c2f7a82edee0d95b46318",
+    "src/pages/Library.tsx": "007de006a1dce02f842ea532c14339640c4bb3960ce24106ce8514044f8c193f",
+    "src/pages/library/video-panel.tsx": "4277ebbcc4cdf5dbbc3b974cd8946e6032db8c88e315158df3dfa07fda4de64e",
+    "src/components/Logs.tsx": "c1556fd895d017be0985a4adf8cb1f9a09b51a67bae7eacf913839448bc0a45f",
+    "src/pages/library/timeline-footer.tsx": "a5755f07c16e3db83b9d30f0e40be5b2bfa6b4ffddf4140c0ae09dcc8cbc9baf",
+    "src/pages/RealTime.tsx": "427c7c6bb58e2f9da67562528926f1a6dbea0627095cc62019d0b7b58e7fdf2c",
+    "src/components/realtime-video.tsx": "09ac7f6fd6f7db0437dfd254f0293a8e5c9553672e71c91549183461c143a7b3",
+    "src/components/RealTimeLogs.tsx": "f239ccbe80a6f53a548cf6e0743561ca9c41f65504d04b5534506436a79d8c3b",
+    "src/components/tello-drone-panel.tsx": "18a0b9a9d63031183d90d13f6611c417ea6739f2fd982b52e504c16116723d69"
+  },
+  "ui_capture_method": "Native browser screenshots from unmodified Vite-rendered application; no injected UI styling or rewritten components. JPEG/H.264 compression and presentation camera transforms are applied afterward."
+}

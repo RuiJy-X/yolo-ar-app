@@ -1,0 +1,24 @@
+import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+const dir=path.resolve('actual-ui');
+const analysis=JSON.parse(readFileSync(path.join(dir,'analysis.json')));
+const meta=JSON.parse(readFileSync(path.join(dir,'meta.json')));
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH});
+const page=await browser.newPage({viewport:{width:1440,height:810}});
+page.on('pageerror',e=>console.log('ERROR',e.message));
+await page.route('http://localhost:8000/**',async route=>{
+ const u=new URL(route.request().url());
+ const headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Allow-Methods':'*'};
+ if(u.pathname.endsWith('.mp4')) return route.fulfill({body:readFileSync(path.join(dir,u.pathname.includes('source')?'source.mp4':'annotated.mp4')),contentType:'video/mp4',headers});
+ return route.fulfill({json:{...meta,videoUrl:'/video.mp4',sourceVideoUrl:'/source.mp4',analysis},headers});
+});
+await page.goto('http://127.0.0.1:5174/library?history='+meta.id);
+await page.getByRole('button',{name:'Logs',exact:true}).waitFor();
+await page.waitForFunction(()=>document.querySelector('video')?.readyState>=2);
+await page.evaluate(async()=>{await document.fonts.ready;const v=document.querySelector('video');v.currentTime=2;await new Promise(r=>v.addEventListener('seeked',r,{once:true}));});
+await page.screenshot({path:'actual-ui/library-logs.png'});
+console.log((await page.locator('body').innerText()).slice(0,2200));
+await page.getByRole('button',{name:'Toggle layers',exact:true}).click();
+await page.screenshot({path:'actual-ui/library-layers.png'});
+await browser.close();

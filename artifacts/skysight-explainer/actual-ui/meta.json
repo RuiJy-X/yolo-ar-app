@@ -1,0 +1,17 @@
+{
+  "id": "038728dc07d4459e824121ce30ae65c6",
+  "createdAt": 1793349581834,
+  "summary": "Frames: 326 | Tracks: 36 | Detections: 7731 | FPS: 59.94 | Resolution: 1920x1080 | Codec: mp4v | Processing: 43.619s",
+  "filename": "wfx2",
+  "videoName": "video.mp4",
+  "sourceName": "source.mp4",
+  "durationSeconds": 5.439,
+  "detectedActions": [
+    "Unknown",
+    "Walking",
+    "Sitting",
+    "Standing",
+    "Waving"
+  ],
+  "hasWaveAlert": false
+}

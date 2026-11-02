@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+*_seg*.mp4
+*_segs.txt
+*.pcm
+*.frames/
+diff-*.png
+difference.png
+check-syntax.js
