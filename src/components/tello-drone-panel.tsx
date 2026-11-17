@@ -62,9 +62,14 @@ function pickRecordingMimeType(): string {
   return "";
 }
 
+// Backend message types on /ws/tello/stream:
+//   "frame"     – live video at camera rate with the latest detections drawn on
+//                 it. Only these are displayed/recorded.
+//   "inference" – a model result plus the exact (older) frame it was computed
+//                 on. Feeds logs/alerts only; showing it would jump the video
+//                 back in time.
 function parseAnnotatedFrame(buffer: ArrayBuffer): {
   payload: InferencePayload & { tello_telemetry?: TelloTelemetry };
-  jpegUrl: string;
   blob: Blob;
   rawBlob?: Blob;
 } | null {
@@ -105,18 +110,16 @@ function parseAnnotatedFrame(buffer: ArrayBuffer): {
       ) {
         const rawBlob = new Blob([rawBytes], { type: "image/jpeg" });
         const annotatedBlob = new Blob([annotatedBytes], { type: "image/jpeg" });
-        const jpegUrl = URL.createObjectURL(annotatedBlob);
-        return { payload, jpegUrl, blob: annotatedBlob, rawBlob };
+        return { payload, blob: annotatedBlob, rawBlob };
       }
     }
   }
 
-  // Fallback: single-frame format (webcam stream)
+  // Single-frame format: annotated JPEG only (raw frames disabled)
   const jpegBytes = new Uint8Array(buffer, afterJson);
   const blob = new Blob([jpegBytes], { type: "image/jpeg" });
-  const jpegUrl = URL.createObjectURL(blob);
 
-  return { payload, jpegUrl, blob };
+  return { payload, blob };
 }
 
 export default function TelloDronePanel({
@@ -166,6 +169,15 @@ export default function TelloDronePanel({
   const wasFlyingRef = useRef(false);
   const lastTelemetryUpdateRef = useRef<number>(0);
 
+  // Unannotated frames are only needed for the source recording; skipping
+  // them otherwise halves the backend's JPEG work and the socket traffic.
+  const sendStreamConfig = useCallback((raw: boolean) => {
+    const ws = streamWsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "config", raw }));
+    }
+  }, []);
+
   const startTelloRecording = useCallback(() => {
     if (isRecordingRef.current) return;
     telloChunksRef.current = [];
@@ -209,10 +221,11 @@ export default function TelloDronePanel({
       telloSourceRecorderRef.current = sourceRecorder;
 
       isRecordingRef.current = true;
+      sendStreamConfig(true);
     } catch {
       // recording optional
     }
-  }, []);
+  }, [sendStreamConfig]);
 
   const stopTelloRecording = useCallback(async (): Promise<{
     annotated: Blob;
@@ -220,6 +233,7 @@ export default function TelloDronePanel({
   } | null> => {
     if (!isRecordingRef.current) return null;
     isRecordingRef.current = false;
+    sendStreamConfig(false);
 
     const stopRec = (
       rec: MediaRecorder | null,
@@ -251,7 +265,7 @@ export default function TelloDronePanel({
       annotated: annotatedBlob,
       source: sourceBlob && sourceBlob.size > 0 ? sourceBlob : null,
     };
-  }, []);
+  }, [sendStreamConfig]);
 
   // Monitor flight state transitions (Takeoff / Land)
   useEffect(() => {
@@ -352,13 +366,17 @@ export default function TelloDronePanel({
   const startStreamWebSockets = useCallback(() => {
     if (streamWsRef.current) return;
 
-    const streamUrl = `${wsBaseUrl}/ws/tello/stream?quality=75`;
+    const streamUrl = `${wsBaseUrl}/ws/tello/stream?quality=90`;
     const controlUrl = `${wsBaseUrl}/ws/tello/control`;
 
     const wsStream = new WebSocket(streamUrl);
     wsStream.binaryType = "arraybuffer";
 
-    wsStream.onopen = () => setStreamActive(true);
+    wsStream.onopen = () => {
+      setStreamActive(true);
+      // streamWsRef is set synchronously below, so it is ready here.
+      sendStreamConfig(isRecordingRef.current);
+    };
     wsStream.onclose = () => setStreamActive(false);
     wsStream.onerror = () => setStreamActive(false);
 
@@ -366,8 +384,24 @@ export default function TelloDronePanel({
       if (event.data instanceof ArrayBuffer) {
         const parsed = parseAnnotatedFrame(event.data);
         if (parsed) {
+          const now = Date.now();
+          if (
+            parsed.payload.tello_telemetry &&
+            now - lastTelemetryUpdateRef.current > 500
+          ) {
+            lastTelemetryUpdateRef.current = now;
+            setTelemetry(parsed.payload.tello_telemetry);
+          }
+
+          if (parsed.payload.type === "inference") {
+            onInference?.({ ...parsed.payload, frameBlob: parsed.blob });
+            return;
+          }
+
+          // Live video frame
+          const jpegUrl = URL.createObjectURL(parsed.blob);
           if (annotatedImgRef.current) {
-            annotatedImgRef.current.src = parsed.jpegUrl;
+            annotatedImgRef.current.src = jpegUrl;
           }
           if (isRecordingRef.current) {
             if (recordCanvasRef.current) {
@@ -397,8 +431,10 @@ export default function TelloDronePanel({
                 .catch(() => {});
             }
 
-            const rawBlobToDraw = parsed.rawBlob || parsed.blob;
-            if (sourceCanvasRef.current) {
+            // Raw frames arrive a moment after recording starts (config
+            // round-trip); never put annotated frames in the source video.
+            const rawBlobToDraw = parsed.rawBlob;
+            if (rawBlobToDraw && sourceCanvasRef.current) {
               createImageBitmap(rawBlobToDraw)
                 .then((bitmap) => {
                   if (sourceCanvasRef.current && isRecordingRef.current) {
@@ -428,17 +464,7 @@ export default function TelloDronePanel({
           if (prevUrlRef.current) {
             URL.revokeObjectURL(prevUrlRef.current);
           }
-          prevUrlRef.current = parsed.jpegUrl;
-
-          const now = Date.now();
-          if (
-            parsed.payload.tello_telemetry &&
-            now - lastTelemetryUpdateRef.current > 500
-          ) {
-            lastTelemetryUpdateRef.current = now;
-            setTelemetry(parsed.payload.tello_telemetry);
-          }
-          onInference?.({ ...parsed.payload, frameBlob: parsed.blob });
+          prevUrlRef.current = jpegUrl;
         }
       } else if (typeof event.data === "string") {
         try {
@@ -452,7 +478,7 @@ export default function TelloDronePanel({
     controlWsRef.current = wsControl;
 
     streamWsRef.current = wsStream;
-  }, [wsBaseUrl, onInference]);
+  }, [wsBaseUrl, onInference, sendStreamConfig]);
 
   const stopStreamWebSockets = useCallback(() => {
     if (streamWsRef.current) {

@@ -165,6 +165,17 @@ DECODE_QUEUE_SIZE = int(os.getenv("DECODE_QUEUE_SIZE", "32"))
 RESULT_QUEUE_SIZE = int(os.getenv("RESULT_QUEUE_SIZE", "32"))
 
 MAX_MISSED_FRAMES = 15
+
+# Live drone stream. SAHI tiling is never used here: on a 960x720 Tello frame
+# it means ~10 YOLO passes at 1024px (seconds per frame on CPU). The drone uses
+# one pose-model pass at DRONE_IMGSZ instead, and video is streamed separately
+# from inference so the picture never waits for the model.
+DRONE_IMGSZ = int(os.getenv("DRONE_IMGSZ", "640"))
+# Cap on model runs per second, leaving CPU for decoding/streaming video on
+# weak machines. 0 = run as fast as the hardware allows.
+DRONE_MAX_INFER_FPS = float(os.getenv("DRONE_MAX_INFER_FPS", "15"))
+# Boxes older than this are not drawn on live video (avoids ghost boxes).
+DRONE_OVERLAY_MAX_AGE_S = float(os.getenv("DRONE_OVERLAY_MAX_AGE_S", "1.5"))
 VIDEO_MAX_MISSED_FRAMES = 24
 VIDEO_IOU_MATCH_THRESH = 0.25
 
@@ -451,6 +462,33 @@ def _pack_dual_frame(
     header_json = struct.pack(">I", len(json_bytes))
     header_raw = struct.pack(">I", len(raw_jpeg))
     return header_json + json_bytes + header_raw + raw_jpeg + annotated_jpeg
+
+
+def _pack_drone_frame(
+    payload: dict[str, Any],
+    frame: np.ndarray,
+    overlay: dict[str, Any] | None,
+    quality: int,
+    include_raw: bool,
+) -> bytes | None:
+    """Draw `overlay` on a copy of `frame` and pack it for the drone socket.
+
+    `frame` is the reader's shared read-only array and is never modified.
+    Without `include_raw` the single-frame layout is used, which halves JPEG
+    work; the raw frame is only needed while the client is recording.
+    """
+    annotated = frame.copy()
+    if overlay is not None:
+        _annotate_frame(annotated, overlay)
+    annotated_jpeg = _encode_jpeg(annotated, quality)
+    if annotated_jpeg is None:
+        return None
+    if include_raw:
+        raw_jpeg = _encode_jpeg(frame, quality)
+        if raw_jpeg is not None:
+            return _pack_dual_frame(payload, raw_jpeg, annotated_jpeg)
+    json_bytes = json.dumps(payload).encode("utf-8")
+    return struct.pack(">I", len(json_bytes)) + json_bytes + annotated_jpeg
 
 
 def create_video_writer(
@@ -2316,6 +2354,17 @@ class ActionRecognitionPipeline:
     async def infer_frame(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
         return await asyncio.to_thread(self._infer_frame_sync, frame, state)
 
+    def _extract_drone_pose_detections(self, frame: np.ndarray) -> list[dict[str, Any]]:
+        """Single pose-model pass for the live drone feed: no SAHI, no 2nd stage."""
+        return self._extract_standard_pose_detections(
+            frame, self.yolo_model, self.yolo_conf, self.yolo_iou, imgsz=DRONE_IMGSZ
+        )
+
+    async def infer_drone_frame(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._infer_frame_sync, frame, state, self._extract_drone_pose_detections
+        )
+
     async def infer_video_file(
         self,
         input_path: Path,
@@ -2358,15 +2407,23 @@ class ActionRecognitionPipeline:
 
         return matched_pairs, matched_track_ids, used_detection_ids
 
-    def _infer_frame_sync(self, frame: np.ndarray, state: ClientState) -> dict[str, Any]:
+    def _infer_frame_sync(
+        self,
+        frame: np.ndarray,
+        state: ClientState,
+        detect: Callable[[np.ndarray], list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
         start = time.perf_counter()
 
         # FIX: resize existing deque buffers if WINDOW_SIZE changed after a preset swap
         self._sync_state_buffers(state)
 
-        detections = self._extract_pose_detections(
-            frame, self.yolo_model, self.yolo_conf, self.yolo_iou, imgsz=1024
-        )
+        if detect is not None:
+            detections = detect(frame)
+        else:
+            detections = self._extract_pose_detections(
+                frame, self.yolo_model, self.yolo_conf, self.yolo_iou, imgsz=1024
+            )
         if not detections:
             if hasattr(state, "tracker") and state.tracker is not None:
                 state.tracker.update([], frame, state.frame_index)
@@ -3685,14 +3742,16 @@ async def tello_control_websocket(websocket: WebSocket) -> None:
                     up_down=data.get("up_down", 0),
                     yaw=data.get("yaw", 0),
                 )
+            # takeoff/land/flip wait seconds for the drone's reply; run them off
+            # the event loop so the video stream keeps flowing meanwhile.
             elif action == "takeoff":
-                tello_manager.takeoff()
+                await asyncio.to_thread(tello_manager.takeoff)
             elif action == "land":
-                tello_manager.land()
+                await asyncio.to_thread(tello_manager.land)
             elif action == "emergency":
-                tello_manager.emergency()
+                await asyncio.to_thread(tello_manager.emergency)
             elif action == "flip" and "direction" in data:
-                tello_manager.flip(str(data["direction"]))
+                await asyncio.to_thread(tello_manager.flip, str(data["direction"]))
             
             # Send updated telemetry back
             await websocket.send_json({"type": "telemetry", "telemetry": tello_manager.get_telemetry()})
@@ -3704,8 +3763,21 @@ async def tello_control_websocket(websocket: WebSocket) -> None:
 
 @app.websocket("/ws/tello/stream")
 async def tello_stream_websocket(websocket: WebSocket) -> None:
+    """Live drone feed: video and inference run as independent loops.
+
+    * video loop: every new camera frame is sent as a `type: "frame"` message
+      with the latest detections drawn on it, so the picture stays smooth and
+      low-latency however slow the model is on this PC.
+    * inference loop: the model always takes the newest frame (stale frames are
+      skipped, never queued) and each result goes out as a `type: "inference"`
+      message carrying the frame it was computed on.
+
+    Binary layout: [u32 json_len][json][annotated JPEG], or while raw frames are
+    enabled [u32 json_len][json][u32 raw_len][raw JPEG][annotated JPEG].
+    Clients send {"type": "config", "raw": bool}; raw frames are only needed
+    while recording (default on, matching the previous layout).
+    """
     await websocket.accept()
-    state = ClientState()
 
     try:
         raw_quality = websocket.query_params.get("quality", "72")
@@ -3714,55 +3786,127 @@ async def tello_stream_websocket(websocket: WebSocket) -> None:
         jpeg_quality = 72
     jpeg_quality = max(20, min(95, jpeg_quality))
 
-    try:
+    state = ClientState()
+    send_lock = asyncio.Lock()
+    options = {"raw": True}
+    latest: dict[str, Any] = {"overlay": None, "at": 0.0}
+
+    async def send_bytes(data: bytes) -> None:
+        async with send_lock:
+            await websocket.send_bytes(data)
+
+    async def send_json(data: dict[str, Any]) -> None:
+        async with send_lock:
+            await websocket.send_json(data)
+
+    async def receive_loop() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000))
+            text = message.get("text")
+            if not text:
+                continue
+            try:
+                data = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("type") == "config" and "raw" in data:
+                options["raw"] = bool(data["raw"])
+
+    async def video_loop() -> None:
+        last_seq: int | None = None
+        last_notice = 0.0
         while True:
             if not tello_manager.connected:
-                await websocket.send_json({
-                    "type": "error", 
+                await send_json({
+                    "type": "error",
                     "message": tello_manager.last_error or "Tello drone is not connected. Please connect via Wi-Fi."
                 })
                 await asyncio.sleep(1.0)
                 continue
 
-            frame = tello_manager.get_frame()
-            if frame is None:
-                await asyncio.sleep(0.04)
-                continue
+            if getattr(app.state, "pipeline", None) is None and time.monotonic() - last_notice >= 1.0:
+                # Video still streams; only detections wait for the model.
+                last_notice = time.monotonic()
+                await send_json({"type": "error", "message": "Model pipeline is still initializing. Please wait a moment."})
 
-            if getattr(app.state, "pipeline", None) is None:
-                await websocket.send_json({"type": "error", "message": "Model pipeline is still initializing. Please wait a moment."})
-                await asyncio.sleep(1.0)
+            item = tello_manager.get_latest_frame()
+            if item is None or item[0] == last_seq:
+                await asyncio.sleep(0.005)
                 continue
+            last_seq, frame = item
+
+            overlay = latest["overlay"]
+            if overlay is not None and time.monotonic() - latest["at"] > DRONE_OVERLAY_MAX_AGE_S:
+                overlay = None
+            payload = {
+                "type": "frame",
+                "frame_index": state.frame_index,
+                "tello_telemetry": tello_manager.get_telemetry(),
+            }
+            packed = await asyncio.to_thread(
+                _pack_drone_frame, payload, frame, overlay, jpeg_quality, options["raw"]
+            )
+            if packed is not None:
+                await send_bytes(packed)
+
+    async def inference_loop() -> None:
+        min_interval = 1.0 / DRONE_MAX_INFER_FPS if DRONE_MAX_INFER_FPS > 0 else 0.0
+        last_seq: int | None = None
+        while True:
+            pipeline = getattr(app.state, "pipeline", None)
+            item = tello_manager.get_latest_frame() if tello_manager.connected else None
+            if pipeline is None or item is None or item[0] == last_seq:
+                await asyncio.sleep(0.01)
+                continue
+            started = time.monotonic()
+            last_seq, frame = item
 
             state.frame_index += 1
-            result = await app.state.pipeline.infer_frame(frame, state)
-            
-            telemetry = tello_manager.get_telemetry()
-            result["tello_telemetry"] = telemetry
+            result = await pipeline.infer_drone_frame(frame, state)
+            result["tello_telemetry"] = tello_manager.get_telemetry()
 
             if result.get("type") == "inference":
-                # Encode the RAW frame JPEG *before* _annotate_frame mutates it
-                raw_jpeg = _encode_jpeg(frame, jpeg_quality)
-                annotated = _annotate_frame(frame, result)
-                annotated_jpeg = _encode_jpeg(annotated, jpeg_quality)
-                if raw_jpeg and annotated_jpeg:
-                    packed = _pack_dual_frame(result, raw_jpeg, annotated_jpeg)
-                    if packed is not None:
-                        await websocket.send_bytes(packed)
-                    else:
-                        await websocket.send_json(result)
+                latest["overlay"] = result
+                latest["at"] = time.monotonic()
+                packed = await asyncio.to_thread(
+                    _pack_drone_frame, result, frame, result, jpeg_quality, False
+                )
+                if packed is not None:
+                    await send_bytes(packed)
                 else:
-                    await websocket.send_json(result)
+                    await send_json(result)
             else:
-                await websocket.send_json(result)
+                await send_json(result)
 
-            await asyncio.sleep(0.03)
+            remaining = min_interval - (time.monotonic() - started)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
 
+    tasks = [
+        asyncio.create_task(receive_loop()),
+        asyncio.create_task(video_loop()),
+        asyncio.create_task(inference_loop()),
+    ]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in done:
+            exc = task.exception()
+            if exc is not None:
+                raise exc
     except WebSocketDisconnect:
         return
     except Exception as exc:
-        await websocket.send_json({"type": "error", "message": str(exc)})
-        await websocket.close(code=1011)
+        try:
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.close(code=1011)
+        except Exception:
+            pass  # client already gone
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 

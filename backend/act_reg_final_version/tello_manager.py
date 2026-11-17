@@ -5,7 +5,6 @@ import threading
 import time
 from typing import Any
 
-import cv2
 import numpy as np
 
 logger = logging.getLogger("tello_manager")
@@ -17,6 +16,115 @@ except ImportError:
     Tello = None
     TELLO_AVAILABLE = False
     logger.warning("djitellopy package not found. Install via 'pip install djitellopy'.")
+
+# The Tello pushes H.264 over UDP in ~1.4 KB packets. djitellopy opens the
+# socket with FFmpeg's defaults (64 KB receive buffer, no FIFO), so a single
+# 960x720 keyframe can overflow it whenever the decode thread is starved by
+# YOLO inference -> dropped packets -> grey smears / blocky macroblocks.
+#   buffer_size      : OS socket receive buffer (SO_RCVBUF), bytes
+#   fifo_size        : FFmpeg circular buffer, in 188-byte units (~9.4 MB)
+#   overrun_nonfatal : keep decoding instead of erroring if the FIFO fills
+TELLO_VIDEO_URL = (
+    "udp://@0.0.0.0:{port}"
+    "?buffer_size=8388608&fifo_size=50000&overrun_nonfatal=1"
+)
+TELLO_STREAM_OPEN_TIMEOUT_S = 7.0
+
+try:
+    import av
+except ImportError:  # djitellopy depends on PyAV, so this only trips without it
+    av = None
+
+
+class TelloVideoReader:
+    """Background H.264 decoder that keeps only the newest frame.
+
+    Replaces djitellopy's BackgroundFrameRead, which
+      * decodes via PIL (`frame.to_image()`) and needs an extra RGB->BGR pass:
+        ~2.2x the CPU of `to_ndarray(format="bgr24")` for identical pixels,
+      * dies permanently on the first decoder exception (frozen video),
+      * gives callers no way to tell a new frame from one they already saw,
+        so consumers re-process duplicates.
+
+    `latest()` returns `(seq, frame)`; `seq` increases by one per decoded
+    frame and the frame array is read-only (shared between consumers).
+    """
+
+    def __init__(
+        self,
+        address: str,
+        open_timeout: float = TELLO_STREAM_OPEN_TIMEOUT_S,
+        read_timeout: float = 2.0,
+    ):
+        if av is None:
+            raise RuntimeError("PyAV is not installed.")
+        self.address = address
+        self.open_timeout = open_timeout
+        self.read_timeout = read_timeout
+        self._lock = threading.Lock()
+        self._frame: np.ndarray | None = None
+        self._seq = 0
+        self.decode_errors = 0
+        self.reopens = 0
+        self.stopped = False
+        # First open happens here so connect() reports a dead stream immediately.
+        self.container = self._open()
+        self._worker = threading.Thread(target=self._run, name="tello-video", daemon=True)
+        self._worker.start()
+
+    def _open(self):
+        # The read timeout lets the thread notice stop() and recover from a
+        # Wi-Fi dropout instead of blocking forever on a silent socket.
+        return av.open(self.address, timeout=(self.open_timeout, self.read_timeout))
+
+    def _run(self) -> None:
+        while not self.stopped:
+            try:
+                if self.container is None:
+                    self.container = self._open()
+                    self.reopens += 1
+                for packet in self.container.demux(video=0):
+                    if self.stopped:
+                        break
+                    try:
+                        frames = packet.decode()
+                    except av.error.FFmpegError:
+                        # Corrupt/missing packet: skip it, the next keyframe heals the image.
+                        self.decode_errors += 1
+                        continue
+                    for vf in frames:
+                        img = vf.to_ndarray(format="bgr24")
+                        img.flags.writeable = False
+                        with self._lock:
+                            self._frame = img
+                            self._seq += 1
+            except Exception as exc:  # read timeout, or stream ended
+                if not self.stopped:
+                    logger.warning(f"Tello video stream interrupted ({exc}); reopening...")
+            finally:
+                if self.container is not None:
+                    try:
+                        self.container.close()
+                    except Exception:
+                        pass
+                    self.container = None
+            if not self.stopped:
+                time.sleep(0.2)
+
+    def latest(self) -> tuple[int, np.ndarray] | None:
+        with self._lock:
+            if self._frame is None:
+                return None
+            return self._seq, self._frame
+
+    @property
+    def frame(self) -> np.ndarray | None:
+        item = self.latest()
+        return None if item is None else item[1]
+
+    def stop(self) -> None:
+        """Same name djitellopy's streamoff()/end() call on its reader."""
+        self.stopped = True
 
 
 class TelloManager:
@@ -67,7 +175,11 @@ class TelloManager:
                 # Enable camera video stream
                 try:
                     drone.streamon()
-                    self.frame_read = drone.get_frame_read()
+                    self.frame_read = TelloVideoReader(
+                        TELLO_VIDEO_URL.format(port=drone.vs_udp_port)
+                    )
+                    # Registered so djitellopy's streamoff()/end() stop it too.
+                    drone.background_frame_read = self.frame_read
                 except Exception as stream_err:
                     logger.warning(f"Warning starting stream: {stream_err}")
 
@@ -88,6 +200,16 @@ class TelloManager:
                 self.frame_read = None
                 logger.error(f"Tello connection error: {err_msg}")
                 return False, self.last_error
+
+    def _stop_reader(self) -> None:
+        # streamoff() only stops the reader if the drone answers; do it ourselves
+        # so the UDP video port is released even when the drone is gone.
+        reader, self.frame_read = self.frame_read, None
+        if reader is not None:
+            try:
+                reader.stop()
+            except Exception:
+                pass
 
     def disconnect(self) -> tuple[bool, str]:
         """Safely land (if flying) and disconnect from Tello drone."""
@@ -114,13 +236,13 @@ class TelloManager:
                 except Exception:
                     pass
 
+                self._stop_reader()
                 self.drone = None
-                self.frame_read = None
                 self.connected = False
                 return True, "Disconnected from Tello drone."
             except Exception as e:
+                self._stop_reader()
                 self.drone = None
-                self.frame_read = None
                 self.connected = False
                 return False, f"Error during disconnect: {e}"
 
@@ -188,19 +310,25 @@ class TelloManager:
             }
 
 
-    def get_frame(self) -> np.ndarray | None:
-        """Fetch current image frame from Tello camera feed in standard BGR format."""
-        if not self.connected or not self.frame_read:
+    def get_latest_frame(self) -> tuple[int, np.ndarray] | None:
+        """Newest decoded frame as `(seq, bgr_frame)`, without copying.
+
+        The array is read-only and shared: copy it before drawing on it.
+        `seq` lets callers skip frames they have already processed.
+        """
+        reader = self.frame_read
+        if not self.connected or reader is None:
             return None
         try:
-            frame = self.frame_read.frame
-            if frame is not None and frame.size > 0:
-                # djitellopy returns frames in RGB format; convert to OpenCV BGR format
-                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            return None
+            return reader.latest()
         except Exception as e:
             logger.warning(f"Error fetching Tello frame: {e}")
             return None
+
+    def get_frame(self) -> np.ndarray | None:
+        """Fetch current image frame from Tello camera feed as a writable BGR copy."""
+        item = self.get_latest_frame()
+        return None if item is None else item[1].copy()
 
     def send_rc_control(self, left_right: int, forward_backward: int, up_down: int, yaw: int) -> bool:
         """
