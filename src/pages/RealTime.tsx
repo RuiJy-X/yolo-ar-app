@@ -14,6 +14,7 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
+  Plane,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Detection } from "@/lib/types";
